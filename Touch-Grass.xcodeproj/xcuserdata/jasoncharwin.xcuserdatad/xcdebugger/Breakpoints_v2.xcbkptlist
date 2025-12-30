@@ -1,0 +1,320 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Bucket
+   uuid = "5459A5F8-C437-4B77-AE96-30238A1AEEBE"
+   type = "1"
+   version = "2.0">
+   <Breakpoints>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14"
+            shouldBeEnabled = "Yes"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "Touch-Grass/ViewModels/GameViewModel.swift"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "7"
+            endingLineNumber = "7"
+            landmarkName = "unknown"
+            landmarkType = "0">
+            <Locations>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - a7755b850ebab2ad"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #8 () -&gt; Touch_Grass.CTFBubbleSettingsView in Touch_Grass.CTFLobbyView.body.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - 5fb838caab46da45"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #1 (__C.CLLocationCoordinate2D) -&gt; () in closure #8 () -&gt; Touch_Grass.CTFBubbleSettingsView in Touch_Grass.CTFLobbyView.body.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - 1f1c8bfc2d8e2a"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #1 () -&gt; SwiftUI.TupleView&lt;(Swift.Optional&lt;SwiftUI._ConditionalContent&lt;SwiftUI.TupleView&lt;(Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0)&gt;, SwiftUI.VStack&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt;&gt;&gt;&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;)&gt; in Touch_Grass.CTFLobbyView.lobbyControls.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - 22778b1f21147986"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #2 () -&gt; SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt; in closure #1 () -&gt; SwiftUI.TupleView&lt;(Swift.Optional&lt;SwiftUI._ConditionalContent&lt;SwiftUI.TupleView&lt;(Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0)&gt;, SwiftUI.VStack&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt;&gt;&gt;&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;)&gt; in Touch_Grass.CTFLobbyView.lobbyControls.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - 22778b1f21147986"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #2 () -&gt; SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt; in closure #1 () -&gt; SwiftUI.TupleView&lt;(Swift.Optional&lt;SwiftUI._ConditionalContent&lt;SwiftUI.TupleView&lt;(Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0)&gt;, SwiftUI.VStack&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt;&gt;&gt;&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;)&gt; in Touch_Grass.CTFLobbyView.lobbyControls.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - be7f5bf757fb04db"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #3 @Swift.MainActor () -&gt; () in closure #1 () -&gt; SwiftUI.TupleView&lt;(Swift.Optional&lt;SwiftUI._ConditionalContent&lt;SwiftUI.TupleView&lt;(Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0)&gt;, SwiftUI.VStack&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt;&gt;&gt;&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;)&gt; in Touch_Grass.CTFLobbyView.lobbyControls.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - d873dc2cc4953b56"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #4 () -&gt; Touch_Grass.ManhuntBubbleSettingsView in Touch_Grass.ManhuntLobbyView.body.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - 16374ab70ddc8b08"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #1 () -&gt; SwiftUI.TupleView&lt;(Swift.Optional&lt;SwiftUI._ConditionalContent&lt;SwiftUI.TupleView&lt;(Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0)&gt;, SwiftUI.VStack&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt;&gt;&gt;&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;)&gt; in Touch_Grass.ManhuntLobbyView.lobbyControls.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - fa421dc238024d8d"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #2 () -&gt; SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt; in closure #1 () -&gt; SwiftUI.TupleView&lt;(Swift.Optional&lt;SwiftUI._ConditionalContent&lt;SwiftUI.TupleView&lt;(Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0)&gt;, SwiftUI.VStack&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt;&gt;&gt;&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;)&gt; in Touch_Grass.ManhuntLobbyView.lobbyControls.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - fa421dc238024d8d"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #2 () -&gt; SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt; in closure #1 () -&gt; SwiftUI.TupleView&lt;(Swift.Optional&lt;SwiftUI._ConditionalContent&lt;SwiftUI.TupleView&lt;(Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0)&gt;, SwiftUI.VStack&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt;&gt;&gt;&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;)&gt; in Touch_Grass.ManhuntLobbyView.lobbyControls.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - 69bb5cd55edf3c7a"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #3 @Swift.MainActor () -&gt; () in closure #1 () -&gt; SwiftUI.TupleView&lt;(Swift.Optional&lt;SwiftUI._ConditionalContent&lt;SwiftUI.TupleView&lt;(Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0)&gt;, SwiftUI.VStack&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt;&gt;&gt;&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;)&gt; in Touch_Grass.ManhuntLobbyView.lobbyControls.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - 89b0a189d5305376"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #4 () -&gt; Touch_Grass.ZombieTagBubbleSettingsView in Touch_Grass.ZombieTagLobbyView.body.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - e16dddc501e48e02"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #1 () -&gt; SwiftUI.TupleView&lt;(Swift.Optional&lt;SwiftUI._ConditionalContent&lt;SwiftUI.TupleView&lt;(Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0)&gt;, SwiftUI.VStack&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt;&gt;&gt;&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;)&gt; in Touch_Grass.ZombieTagLobbyView.lobbyControls.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - 482dbfe2bf0e9ee2"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #2 () -&gt; SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt; in closure #1 () -&gt; SwiftUI.TupleView&lt;(Swift.Optional&lt;SwiftUI._ConditionalContent&lt;SwiftUI.TupleView&lt;(Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0)&gt;, SwiftUI.VStack&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt;&gt;&gt;&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;)&gt; in Touch_Grass.ZombieTagLobbyView.lobbyControls.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - 482dbfe2bf0e9ee2"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #2 () -&gt; SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt; in closure #1 () -&gt; SwiftUI.TupleView&lt;(Swift.Optional&lt;SwiftUI._ConditionalContent&lt;SwiftUI.TupleView&lt;(Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0)&gt;, SwiftUI.VStack&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt;&gt;&gt;&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;)&gt; in Touch_Grass.ZombieTagLobbyView.lobbyControls.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - 9be567667a9b8cb2"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #3 @Swift.MainActor () -&gt; () in closure #1 () -&gt; SwiftUI.TupleView&lt;(Swift.Optional&lt;SwiftUI._ConditionalContent&lt;SwiftUI.TupleView&lt;(Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0)&gt;, SwiftUI.VStack&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, SwiftUI.TupleView&lt;(SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition(SwiftUI.AnyTransition) -&gt; some&gt;&gt;.0&gt;)&gt;&gt;&gt;&gt;&gt;, Swift.Optional&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;)&gt; in Touch_Grass.ZombieTagLobbyView.lobbyControls.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - 15800073eace943b"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #1 () -&gt; SwiftUI.TupleView&lt;(&lt;&lt;opaque return type of SwiftUI.View.ignoresSafeArea(_: SwiftUI.SafeAreaRegions, edges: SwiftUI.Edge.Set) -&gt; some&gt;&gt;.0, SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, SwiftUI.EmptyView&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.onAppear(perform: Swift.Optional&lt;() -&gt; ()&gt;) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.onAppear(perform: Swift.Optional&lt;() -&gt; ()&gt;) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.onAppear(perform: Swift.Optional&lt;() -&gt; ()&gt;) -&gt; some&gt;&gt;.0&gt;&gt;&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.onChange&lt;&#x3c4;_0_0 where &#x3c4;_1_0: Swift.Equatable&gt;(of: &#x3c4;_1_0, initial: Swift.Bool, _: (&#x3c4;_1_0, &#x3c4;_1_0) -&gt; ()) -&gt; some&gt;&gt;.0&gt;&gt;&gt;)&gt; in Touch_Grass.ContentView.gameContentView.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - 15800073eace943b"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #1 () -&gt; SwiftUI.TupleView&lt;(&lt;&lt;opaque return type of SwiftUI.View.ignoresSafeArea(_: SwiftUI.SafeAreaRegions, edges: SwiftUI.Edge.Set) -&gt; some&gt;&gt;.0, SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, SwiftUI.EmptyView&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.onAppear(perform: Swift.Optional&lt;() -&gt; ()&gt;) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.onAppear(perform: Swift.Optional&lt;() -&gt; ()&gt;) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.onAppear(perform: Swift.Optional&lt;() -&gt; ()&gt;) -&gt; some&gt;&gt;.0&gt;&gt;&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.onChange&lt;&#x3c4;_0_0 where &#x3c4;_1_0: Swift.Equatable&gt;(of: &#x3c4;_1_0, initial: Swift.Bool, _: (&#x3c4;_1_0, &#x3c4;_1_0) -&gt; ()) -&gt; some&gt;&gt;.0&gt;&gt;&gt;)&gt; in Touch_Grass.ContentView.gameContentView.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - 15800073eace943b"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #1 () -&gt; SwiftUI.TupleView&lt;(&lt;&lt;opaque return type of SwiftUI.View.ignoresSafeArea(_: SwiftUI.SafeAreaRegions, edges: SwiftUI.Edge.Set) -&gt; some&gt;&gt;.0, SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, SwiftUI.EmptyView&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.onAppear(perform: Swift.Optional&lt;() -&gt; ()&gt;) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.onAppear(perform: Swift.Optional&lt;() -&gt; ()&gt;) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.onAppear(perform: Swift.Optional&lt;() -&gt; ()&gt;) -&gt; some&gt;&gt;.0&gt;&gt;&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.onChange&lt;&#x3c4;_0_0 where &#x3c4;_1_0: Swift.Equatable&gt;(of: &#x3c4;_1_0, initial: Swift.Bool, _: (&#x3c4;_1_0, &#x3c4;_1_0) -&gt; ()) -&gt; some&gt;&gt;.0&gt;&gt;&gt;)&gt; in Touch_Grass.ContentView.gameContentView.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - 15800073eace943b"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #1 () -&gt; SwiftUI.TupleView&lt;(&lt;&lt;opaque return type of SwiftUI.View.ignoresSafeArea(_: SwiftUI.SafeAreaRegions, edges: SwiftUI.Edge.Set) -&gt; some&gt;&gt;.0, SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, SwiftUI.EmptyView&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.onAppear(perform: Swift.Optional&lt;() -&gt; ()&gt;) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.onAppear(perform: Swift.Optional&lt;() -&gt; ()&gt;) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.onAppear(perform: Swift.Optional&lt;() -&gt; ()&gt;) -&gt; some&gt;&gt;.0&gt;&gt;&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.onChange&lt;&#x3c4;_0_0 where &#x3c4;_1_0: Swift.Equatable&gt;(of: &#x3c4;_1_0, initial: Swift.Bool, _: (&#x3c4;_1_0, &#x3c4;_1_0) -&gt; ()) -&gt; some&gt;&gt;.0&gt;&gt;&gt;)&gt; in Touch_Grass.ContentView.gameContentView.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+               <Location
+                  uuid = "39D73FE3-A465-4DAA-AE00-69463AEBAF14 - 15800073eace943b"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #1 () -&gt; SwiftUI.TupleView&lt;(&lt;&lt;opaque return type of SwiftUI.View.ignoresSafeArea(_: SwiftUI.SafeAreaRegions, edges: SwiftUI.Edge.Set) -&gt; some&gt;&gt;.0, SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;&gt;, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, SwiftUI.EmptyView&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.onAppear(perform: Swift.Optional&lt;() -&gt; ()&gt;) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.onAppear(perform: Swift.Optional&lt;() -&gt; ()&gt;) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.onAppear(perform: Swift.Optional&lt;() -&gt; ()&gt;) -&gt; some&gt;&gt;.0&gt;&gt;&gt;, SwiftUI._ConditionalContent&lt;SwiftUI._ConditionalContent&lt;&lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0, &lt;&lt;opaque return type of SwiftUI.View.transition&lt;&#x3c4;_0_0 where &#x3c4;_1_0: SwiftUI.Transition&gt;(&#x3c4;_1_0) -&gt; some&gt;&gt;.0&gt;, &lt;&lt;opaque return type of SwiftUI.View.onChange&lt;&#x3c4;_0_0 where &#x3c4;_1_0: Swift.Equatable&gt;(of: &#x3c4;_1_0, initial: Swift.Bool, _: (&#x3c4;_1_0, &#x3c4;_1_0) -&gt; ()) -&gt; some&gt;&gt;.0&gt;&gt;&gt;)&gt; in Touch_Grass.ContentView.gameContentView.getter : some"
+                  moduleName = "Touch-Grass"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/jasoncharwin/Personal%20Code%20Projects/Touch%20Grass/Touch-Grass/Touch-Grass/ViewModels/GameViewModel.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "39"
+                  endingLineNumber = "39">
+               </Location>
+            </Locations>
+         </BreakpointContent>
+      </BreakpointProxy>
+   </Breakpoints>
+</Bucket>

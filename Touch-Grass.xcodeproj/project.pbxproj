@@ -1,0 +1,624 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		26C6B0312EFF6F5600DF9D3A /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 26C6B0302EFF6F5600DF9D3A /* FirebaseFirestore */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		26B91E442EFEFD8900AA3E78 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 26B91E2E2EFEFD8700AA3E78 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 26B91E352EFEFD8700AA3E78;
+			remoteInfo = "Touch-Grass";
+		};
+		26B91E4E2EFEFD8900AA3E78 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 26B91E2E2EFEFD8700AA3E78 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 26B91E352EFEFD8700AA3E78;
+			remoteInfo = "Touch-Grass";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		26B91E362EFEFD8700AA3E78 /* Touch-Grass.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Touch-Grass.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		26B91E432EFEFD8900AA3E78 /* Touch-GrassTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Touch-GrassTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		26B91E4D2EFEFD8900AA3E78 /* Touch-GrassUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Touch-GrassUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		26B91E612EFEFF1700AA3E78 /* Exceptions for "Touch-Grass" folder in "Touch-Grass" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 26B91E352EFEFD8700AA3E78 /* Touch-Grass */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		26B91E382EFEFD8700AA3E78 /* Touch-Grass */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				26B91E612EFEFF1700AA3E78 /* Exceptions for "Touch-Grass" folder in "Touch-Grass" target */,
+			);
+			path = "Touch-Grass";
+			sourceTree = "<group>";
+		};
+		26B91E462EFEFD8900AA3E78 /* Touch-GrassTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Touch-GrassTests";
+			sourceTree = "<group>";
+		};
+		26B91E502EFEFD8900AA3E78 /* Touch-GrassUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Touch-GrassUITests";
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		26B91E332EFEFD8700AA3E78 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				26C6B0312EFF6F5600DF9D3A /* FirebaseFirestore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		26B91E402EFEFD8900AA3E78 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		26B91E4A2EFEFD8900AA3E78 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		26B91E2D2EFEFD8700AA3E78 = {
+			isa = PBXGroup;
+			children = (
+				26B91E382EFEFD8700AA3E78 /* Touch-Grass */,
+				26B91E462EFEFD8900AA3E78 /* Touch-GrassTests */,
+				26B91E502EFEFD8900AA3E78 /* Touch-GrassUITests */,
+				26B91E372EFEFD8700AA3E78 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		26B91E372EFEFD8700AA3E78 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				26B91E362EFEFD8700AA3E78 /* Touch-Grass.app */,
+				26B91E432EFEFD8900AA3E78 /* Touch-GrassTests.xctest */,
+				26B91E4D2EFEFD8900AA3E78 /* Touch-GrassUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		26B91E352EFEFD8700AA3E78 /* Touch-Grass */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 26B91E572EFEFD8900AA3E78 /* Build configuration list for PBXNativeTarget "Touch-Grass" */;
+			buildPhases = (
+				26B91E322EFEFD8700AA3E78 /* Sources */,
+				26B91E332EFEFD8700AA3E78 /* Frameworks */,
+				26B91E342EFEFD8700AA3E78 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				26B91E382EFEFD8700AA3E78 /* Touch-Grass */,
+			);
+			name = "Touch-Grass";
+			packageProductDependencies = (
+				26C6B0302EFF6F5600DF9D3A /* FirebaseFirestore */,
+			);
+			productName = "Touch-Grass";
+			productReference = 26B91E362EFEFD8700AA3E78 /* Touch-Grass.app */;
+			productType = "com.apple.product-type.application";
+		};
+		26B91E422EFEFD8900AA3E78 /* Touch-GrassTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 26B91E5A2EFEFD8900AA3E78 /* Build configuration list for PBXNativeTarget "Touch-GrassTests" */;
+			buildPhases = (
+				26B91E3F2EFEFD8900AA3E78 /* Sources */,
+				26B91E402EFEFD8900AA3E78 /* Frameworks */,
+				26B91E412EFEFD8900AA3E78 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				26B91E452EFEFD8900AA3E78 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				26B91E462EFEFD8900AA3E78 /* Touch-GrassTests */,
+			);
+			name = "Touch-GrassTests";
+			packageProductDependencies = (
+			);
+			productName = "Touch-GrassTests";
+			productReference = 26B91E432EFEFD8900AA3E78 /* Touch-GrassTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		26B91E4C2EFEFD8900AA3E78 /* Touch-GrassUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 26B91E5D2EFEFD8900AA3E78 /* Build configuration list for PBXNativeTarget "Touch-GrassUITests" */;
+			buildPhases = (
+				26B91E492EFEFD8900AA3E78 /* Sources */,
+				26B91E4A2EFEFD8900AA3E78 /* Frameworks */,
+				26B91E4B2EFEFD8900AA3E78 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				26B91E4F2EFEFD8900AA3E78 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				26B91E502EFEFD8900AA3E78 /* Touch-GrassUITests */,
+			);
+			name = "Touch-GrassUITests";
+			packageProductDependencies = (
+			);
+			productName = "Touch-GrassUITests";
+			productReference = 26B91E4D2EFEFD8900AA3E78 /* Touch-GrassUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		26B91E2E2EFEFD8700AA3E78 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2620;
+				LastUpgradeCheck = 2620;
+				TargetAttributes = {
+					26B91E352EFEFD8700AA3E78 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					26B91E422EFEFD8900AA3E78 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 26B91E352EFEFD8700AA3E78;
+					};
+					26B91E4C2EFEFD8900AA3E78 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 26B91E352EFEFD8700AA3E78;
+					};
+				};
+			};
+			buildConfigurationList = 26B91E312EFEFD8700AA3E78 /* Build configuration list for PBXProject "Touch-Grass" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 26B91E2D2EFEFD8700AA3E78;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				26C6B02D2EFF6F5600DF9D3A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 26B91E372EFEFD8700AA3E78 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				26B91E352EFEFD8700AA3E78 /* Touch-Grass */,
+				26B91E422EFEFD8900AA3E78 /* Touch-GrassTests */,
+				26B91E4C2EFEFD8900AA3E78 /* Touch-GrassUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		26B91E342EFEFD8700AA3E78 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		26B91E412EFEFD8900AA3E78 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		26B91E4B2EFEFD8900AA3E78 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		26B91E322EFEFD8700AA3E78 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		26B91E3F2EFEFD8900AA3E78 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		26B91E492EFEFD8900AA3E78 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		26B91E452EFEFD8900AA3E78 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 26B91E352EFEFD8700AA3E78 /* Touch-Grass */;
+			targetProxy = 26B91E442EFEFD8900AA3E78 /* PBXContainerItemProxy */;
+		};
+		26B91E4F2EFEFD8900AA3E78 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 26B91E352EFEFD8700AA3E78 /* Touch-Grass */;
+			targetProxy = 26B91E4E2EFEFD8900AA3E78 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		26B91E552EFEFD8900AA3E78 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		26B91E562EFEFD8900AA3E78 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		26B91E582EFEFD8900AA3E78 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = PT6FF3RQ8N;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Touch-Grass/Info.plist";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Location is used during active games, even when the app is in the background";
+				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "Location is required for live hide-and-seek gameplay";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "Jason-Charwin.Touch-Grass";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		26B91E592EFEFD8900AA3E78 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = PT6FF3RQ8N;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Touch-Grass/Info.plist";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Location is used during active games, even when the app is in the background";
+				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "Location is required for live hide-and-seek gameplay";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "Jason-Charwin.Touch-Grass";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		26B91E5B2EFEFD8900AA3E78 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "Jason-Charwin.Touch-GrassTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Touch-Grass.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Touch-Grass";
+			};
+			name = Debug;
+		};
+		26B91E5C2EFEFD8900AA3E78 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "Jason-Charwin.Touch-GrassTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Touch-Grass.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Touch-Grass";
+			};
+			name = Release;
+		};
+		26B91E5E2EFEFD8900AA3E78 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "Jason-Charwin.Touch-GrassUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "Touch-Grass";
+			};
+			name = Debug;
+		};
+		26B91E5F2EFEFD8900AA3E78 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "Jason-Charwin.Touch-GrassUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "Touch-Grass";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		26B91E312EFEFD8700AA3E78 /* Build configuration list for PBXProject "Touch-Grass" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				26B91E552EFEFD8900AA3E78 /* Debug */,
+				26B91E562EFEFD8900AA3E78 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		26B91E572EFEFD8900AA3E78 /* Build configuration list for PBXNativeTarget "Touch-Grass" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				26B91E582EFEFD8900AA3E78 /* Debug */,
+				26B91E592EFEFD8900AA3E78 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		26B91E5A2EFEFD8900AA3E78 /* Build configuration list for PBXNativeTarget "Touch-GrassTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				26B91E5B2EFEFD8900AA3E78 /* Debug */,
+				26B91E5C2EFEFD8900AA3E78 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		26B91E5D2EFEFD8900AA3E78 /* Build configuration list for PBXNativeTarget "Touch-GrassUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				26B91E5E2EFEFD8900AA3E78 /* Debug */,
+				26B91E5F2EFEFD8900AA3E78 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		26C6B02D2EFF6F5600DF9D3A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.7.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		26C6B0302EFF6F5600DF9D3A /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 26C6B02D2EFF6F5600DF9D3A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 26B91E2E2EFEFD8700AA3E78 /* Project object */;
+}
