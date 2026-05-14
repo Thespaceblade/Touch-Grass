@@ -36,7 +36,7 @@ struct GameSession: Identifiable {
     var teamBSafeZone: SafeZone? = nil // Team B safe zone (center + radius)
 
     // Predator compass pulse ability (Manhunt hunters / Zombie Tag zombies).
-    // The latest committed pulse on this session — every client renders the
+    // The latest committed pulse on this session, every client renders the
     // SAME `distanceMeters` from this value, so the actor's bearing/distance
     // are authoritative for display once written. `usedAt` is a client-
     // generated timestamp; rules tie it to the cooldown map entry below.

@@ -79,11 +79,11 @@ extension Player {
     /// Decide whether this target should be rendered with location obfuscation
     /// for the given viewer.
     ///
-    /// Rules (pure, no ping/epoch involvement — obfuscation is now always-on
+    /// Rules (pure, no ping/epoch involvement, obfuscation is now always-on
     /// across the cross-team boundary):
     /// - Always show your own exact coordinate.
     /// - Same-team players: exact.
-    /// - Cross-team players: obfuscated (alive only — dead opponents are not
+    /// - Cross-team players: obfuscated (alive only, dead opponents are not
     ///   drawn on the map at all per the v1 dead-hide rule).
     /// - Flag players in CTF are always exact (handled upstream as a special
     ///   case before calling this helper).

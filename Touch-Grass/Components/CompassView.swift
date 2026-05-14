@@ -13,7 +13,22 @@ struct CompassView: View {
     let distance: Double?
     let threatType: ThreatType
     let isVisible: Bool
-    
+    /// When set, rotates the arrow so “up” matches device facing.
+    let headingDegreesFromNorth: Double?
+
+    init(
+        direction: Double?,
+        distance: Double?,
+        threatType: ThreatType,
+        isVisible: Bool,
+        headingDegreesFromNorth: Double? = nil
+    ) {
+        self.direction = direction
+        self.distance = distance
+        self.threatType = threatType
+        self.isVisible = isVisible
+        self.headingDegreesFromNorth = headingDegreesFromNorth
+    }
     enum ThreatType {
         case hunter
         case hider
@@ -55,7 +70,12 @@ struct CompassView: View {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 24, weight: .bold))
                         .foregroundColor(threatType.color)
-                        .rotationEffect(.degrees(direction))
+                        .rotationEffect(.degrees(
+                            CompassAbilityConfig.screenRelativeBearing(
+                                geographicBearingDegrees: direction,
+                                headingDegreesFromNorth: headingDegreesFromNorth
+                            )
+                        ))
                         .shadow(color: AppColors.cartoonInk.opacity(0.45), radius: 0, x: 1.5, y: 1.5)
                     
                     // Center icon

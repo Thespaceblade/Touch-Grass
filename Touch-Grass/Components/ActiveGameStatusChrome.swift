@@ -102,7 +102,7 @@ struct ActiveGameStatusStrip: View {
                     .font(.system(size: 13, weight: .black, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.9))
             } else {
-                Text("—")
+                Text("-")
                     .font(.system(size: 13, weight: .black, design: .rounded))
                     .foregroundStyle(.white.opacity(0.6))
             }

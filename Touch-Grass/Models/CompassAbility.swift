@@ -39,7 +39,7 @@ struct CompassPulse: Codable, Equatable {
 
     /// Client-generated timestamp at commit time. Rules tie this to
     /// `compassLastUsedAtByPlayerId[usedByPlayerId]`. Not authoritative
-    /// — server time would require a Cloud Function.
+    ///, server time would require a Cloud Function.
     let usedAt: Date
 }
 
@@ -121,13 +121,28 @@ enum CompassAbilityConfig {
         let proportional = min(maxFirstUseDelay, max(0, totalDuration * 0.15))
         return max(baseFirstUseDelay, proportional)
     }
+
+    /// Rotates a geographic bearing (0° = north, clockwise) so an arrow that
+    /// starts pointing **up** on screen aims at the target when the top edge
+    /// of the device points `headingDegreesFromNorth` (same convention as
+    /// `CLHeading.trueHeading` / `magneticHeading`). Pass `nil` to keep raw
+    /// map-north bearings (simulator, denied compass, or first frame).
+    static func screenRelativeBearing(
+        geographicBearingDegrees: Double,
+        headingDegreesFromNorth: Double?
+    ) -> Double {
+        guard let h = headingDegreesFromNorth, h.isFinite, !h.isNaN else {
+            return geographicBearingDegrees
+        }
+        return (geographicBearingDegrees - h + 360).truncatingRemainder(dividingBy: 360)
+    }
 }
 
 // MARK: - Eligibility helpers
 
 extension GameSession {
     /// Game types that support the predator compass pulse ability.
-    /// CTF intentionally excluded — flags already give location signal.
+    /// CTF intentionally excluded, flags already give location signal.
     static let compassAbilitySupportedGameTypes: Set<GameType> = [.manhunt, .zombieTag]
 
     /// True if the gameType supports the predator compass pulse.

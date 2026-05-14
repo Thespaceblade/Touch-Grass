@@ -330,7 +330,7 @@ struct CTFTeamManagementView: View {
             
             // You badge
             if player.id == currentPlayer?.id {
-                CartoonPill(text: "You", color: AppColors.cartoonSun, textColor: AppColors.cartoonInk)
+                CartoonPill(text: "You", color: AppColors.cartoonSun, textColor: AppColors.cartoonInkOnSunFill, strokeColor: AppColors.cartoonInkOnSunFill)
             }
             
             // Toggle team button

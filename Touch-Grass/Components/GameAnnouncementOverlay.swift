@@ -2,8 +2,13 @@
 //  GameAnnouncementOverlay.swift
 //  Touch-Grass
 //
-//  Unified in-game announcement feed — compact bottom-leading pills that
-//  slide in and auto-dismiss after a few seconds.
+//  Unified in-game announcement pipeline. `GameAnnouncementManager` is the
+//  single source of truth: each `post(_:type:)` call appends to a persistent
+//  `notificationHistory` ring buffer and bumps an observable new-post signal.
+//  The hub (see `ActiveGameMapHubView`) drives the bell panel + transient
+//  toast from that signal. `activeAnnouncements` and `GameAnnouncementOverlay`
+//  remain for legacy consumers (previews, ad-hoc overlays) but are NOT
+//  authoritative for active gameplay UI.
 //
 
 import SwiftUI
@@ -19,6 +24,7 @@ enum AnnouncementType {
     case warning
     case general
     case compassPulse
+    case achievementUnlocked
 
     var icon: String {
         switch self {
@@ -29,6 +35,7 @@ enum AnnouncementType {
         case .warning:           return "exclamationmark.triangle.fill"
         case .general:           return "megaphone.fill"
         case .compassPulse:      return "dot.radiowaves.left.and.right"
+        case .achievementUnlocked: return "trophy.fill"
         }
     }
 
@@ -41,6 +48,7 @@ enum AnnouncementType {
         case .warning:           return AppColors.hunterSecondary
         case .general:           return AppColors.grassPrimary
         case .compassPulse:      return AppColors.hunterPrimary
+        case .achievementUnlocked: return AppColors.cartoonSun
         }
     }
 }
@@ -60,10 +68,26 @@ struct GameAnnouncement: Identifiable, Equatable {
 
 @MainActor
 final class GameAnnouncementManager: ObservableObject {
+    /// Persistent history surfaced by the active-game hub bell panel.
+    /// Newest first. Capped so we never grow without bound in long sessions.
+    @Published private(set) var notificationHistory: [GameAnnouncement] = []
+
+    /// Monotonically increasing counter the hub observes to trigger the bell
+    /// shake animation + transient toast for the latest announcement, without
+    /// needing to diff the history array.
+    @Published private(set) var eventSequence: Int = 0
+
+    /// Identifier of the most recently posted announcement; convenient for
+    /// hub views that want to render a single toast tied to a specific entry.
+    @Published private(set) var lastPostedAnnouncementID: UUID?
+
+    /// Legacy bottom-overlay queue. Retained for `GameAnnouncementOverlay`
+    /// and any non-gameplay consumers. The new hub UI must not read this.
     @Published private(set) var activeAnnouncements: [GameAnnouncement] = []
 
     private static let maxVisible = 3
     private static let dismissDelay: TimeInterval = 4.0
+    private static let maxHistory = 40
 
     func post(_ message: String, type: AnnouncementType) {
         let announcement = GameAnnouncement(
@@ -72,6 +96,14 @@ final class GameAnnouncementManager: ObservableObject {
             type: type,
             timestamp: Date()
         )
+
+        notificationHistory.insert(announcement, at: 0)
+        if notificationHistory.count > Self.maxHistory {
+            notificationHistory.removeLast(notificationHistory.count - Self.maxHistory)
+        }
+
+        lastPostedAnnouncementID = announcement.id
+        eventSequence &+= 1
 
         withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
             activeAnnouncements.append(announcement)
@@ -94,6 +126,8 @@ final class GameAnnouncementManager: ObservableObject {
         withAnimation {
             activeAnnouncements.removeAll()
         }
+        notificationHistory.removeAll()
+        lastPostedAnnouncementID = nil
     }
 }
 

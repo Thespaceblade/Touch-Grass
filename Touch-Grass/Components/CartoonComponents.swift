@@ -7,7 +7,7 @@
 //
 //  Shadow technique: a plain filled RoundedRect (no border) sits as a
 //  .background() behind every card/button, offset down-right. Only the
-//  narrow strip that peeks past the card edge is visible — no duplicate
+//  narrow strip that peeks past the card edge is visible, no duplicate
 //  outline, no "two boxes" look.
 //
 
@@ -18,7 +18,9 @@ import CoreLocation
 
 private let inkColor    = AppColors.cartoonInk
 private let creamColor  = AppColors.cartoonCream
-private let shadowColor = Color(white: 0.18) // dark warm-gray, fully opaque
+// Dynamic: dark warm-gray in day, cool near-black in night so the offset
+// doesn't read as a hard black brick on dark panels.
+private var shadowColor: Color { AppColors.cartoonShadow }
 
 // MARK: - Helpers
 
@@ -206,6 +208,123 @@ struct ThemedExitLobbyConfirmationOverlay: View {
     }
 }
 
+// MARK: - Themed In-Game Confirmation
+
+/// Full-screen dim + cartoon card for destructive or high-stakes in-game actions (e.g. manual tag confirm).
+struct ThemedInGameConfirmationOverlay: View {
+    @Binding var isPresented: Bool
+    let primaryColor: Color
+    let secondaryColor: Color
+    let iconName: String
+    let headerTitle: String
+    let headerSubtitle: String
+    let title: String
+    let message: String
+    let cancelTitle: String
+    let confirmTitle: String
+    let confirmAccentColor: Color
+    let onConfirm: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.42)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    dismiss()
+                }
+
+            CartoonCard(padding: 0, cornerRadius: 18, shadowOffset: 6) {
+                VStack(spacing: 0) {
+                    header
+
+                    VStack(spacing: AppSpacing.md) {
+                        Text(title)
+                            .font(.system(size: 28, weight: .black, design: .rounded))
+                            .foregroundColor(AppColors.cartoonInk)
+                            .multilineTextAlignment(.center)
+
+                        Text(message)
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundColor(AppColors.cartoonInk.opacity(0.78))
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        VStack(spacing: AppSpacing.sm) {
+                            Button {
+                                dismiss()
+                            } label: {
+                                Label(cancelTitle, systemImage: "arrow.uturn.left")
+                            }
+                            .buttonStyle(SecondaryButtonStyle(accentColor: primaryColor))
+
+                            Button {
+                                isPresented = false
+                                HapticFeedbackManager.shared.warning()
+                                onConfirm()
+                            } label: {
+                                Label(confirmTitle, systemImage: "hand.raised.fill")
+                            }
+                            .buttonStyle(PrimaryButtonStyle(accentColor: confirmAccentColor))
+                        }
+                    }
+                    .padding(AppSpacing.lg)
+                }
+            }
+            .frame(maxWidth: 340)
+            .padding(.horizontal, AppSpacing.lg)
+            .transition(.scale(scale: 0.94).combined(with: .opacity))
+        }
+        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isPresented)
+    }
+
+    private var header: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [primaryColor, secondaryColor],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            HStack(spacing: AppSpacing.sm) {
+                Image(systemName: iconName)
+                    .font(.system(size: 24, weight: .black))
+                    .foregroundColor(AppColors.cartoonInk)
+                    .frame(width: 48, height: 48)
+                    .background(AppColors.cartoonCream)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(AppColors.cartoonInk, lineWidth: 2.5))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(headerTitle)
+                        .font(.system(size: 17, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
+
+                    Text(headerSubtitle)
+                        .font(.system(size: 13, weight: .heavy, design: .rounded))
+                        .foregroundColor(.white.opacity(0.88))
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(AppSpacing.md)
+        }
+        .frame(height: 80)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(AppColors.cartoonInk, lineWidth: 2.5)
+        )
+    }
+
+    private func dismiss() {
+        HapticFeedbackManager.shared.selection()
+        isPresented = false
+    }
+}
+
 extension View {
     func themedExitLobbyConfirmation(
         isPresented: Binding<Bool>,
@@ -227,6 +346,41 @@ extension View {
             }
         }
     }
+
+    func themedInGameConfirmation(
+        isPresented: Binding<Bool>,
+        primaryColor: Color,
+        secondaryColor: Color,
+        iconName: String,
+        headerTitle: String,
+        headerSubtitle: String,
+        title: String,
+        message: String,
+        cancelTitle: String,
+        confirmTitle: String,
+        confirmAccentColor: Color,
+        onConfirm: @escaping () -> Void
+    ) -> some View {
+        overlay {
+            if isPresented.wrappedValue {
+                ThemedInGameConfirmationOverlay(
+                    isPresented: isPresented,
+                    primaryColor: primaryColor,
+                    secondaryColor: secondaryColor,
+                    iconName: iconName,
+                    headerTitle: headerTitle,
+                    headerSubtitle: headerSubtitle,
+                    title: title,
+                    message: message,
+                    cancelTitle: cancelTitle,
+                    confirmTitle: confirmTitle,
+                    confirmAccentColor: confirmAccentColor,
+                    onConfirm: onConfirm
+                )
+                .zIndex(1000)
+            }
+        }
+    }
 }
 
 // MARK: - CartoonButtonStyle
@@ -234,13 +388,16 @@ extension View {
 struct CartoonButtonStyle: ButtonStyle {
     var accent: Color      = AppColors.grassPrimary
     var textColor: Color   = .white
+    /// When non-nil, used for the ink stroke instead of dynamic `cartoonInk` (e.g. dark stroke on `cartoonSun` fills in night mode).
+    var borderColor: Color? = nil
     var isDisabled: Bool   = false
     var borderWidth: CGFloat = 2.5
     var cornerRadius: CGFloat = 16
     private let offset: CGFloat = 5
 
     func makeBody(configuration: Configuration) -> some View {
-        TapDepressionStateView(isPressed: configuration.isPressed) { visualPressed in
+        let strokeColor = borderColor ?? inkColor
+        return TapDepressionStateView(isPressed: configuration.isPressed) { visualPressed in
             configuration.label
                 .foregroundColor(isDisabled ? Color.white.opacity(0.7) : textColor)
                 .font(.system(size: 19, weight: .black, design: .rounded))
@@ -253,7 +410,7 @@ struct CartoonButtonStyle: ButtonStyle {
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(inkColor, lineWidth: borderWidth)
+                        .stroke(strokeColor, lineWidth: borderWidth)
                 )
                 // Squish down on press; spring back with slight overshoot on release
                 .scaleEffect(visualPressed ? 0.96 : 1.0)
@@ -321,9 +478,12 @@ struct CartoonPill: View {
     let text: String
     var color: Color = AppColors.grassPrimary
     var textColor: Color = .white
+    /// When non-nil, used for the capsule stroke instead of dynamic `cartoonInk`.
+    var strokeColor: Color? = nil
 
     var body: some View {
-        Text(text)
+        let border = strokeColor ?? inkColor
+        return Text(text)
             .font(.system(size: 12, weight: .black, design: .rounded))
             .tracking(0.7)
             .textCase(.uppercase)
@@ -334,7 +494,7 @@ struct CartoonPill: View {
             .padding(.horizontal, 11)
             .background(color)
             .clipShape(Capsule())
-            .overlay(Capsule().stroke(inkColor, lineWidth: 2))
+            .overlay(Capsule().stroke(border, lineWidth: 2))
             .background(shadowCapsule(offset: 2.5))
     }
 }
@@ -454,13 +614,13 @@ struct LocationPermissionCard: View {
                             .font(.system(size: 19, weight: .black, design: .rounded))
                             .tracking(0.4)
                             .textCase(.uppercase)
-                            .foregroundColor(AppColors.cartoonInk)
+                            .foregroundColor(AppColors.cartoonInkOnSunFill)
                             .lineLimit(2)
                             .minimumScaleFactor(0.82)
 
                         Text(message)
                             .font(.system(size: 14, weight: .bold, design: .rounded))
-                            .foregroundColor(AppColors.cartoonInk.opacity(0.68))
+                            .foregroundColor(AppColors.cartoonInkOnSunFill.opacity(0.78))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -469,7 +629,7 @@ struct LocationPermissionCard: View {
                     permissionStep(number: "1", label: "While Using", isComplete: didCompleteStepOne, isActive: locationService.authorization == .notDetermined)
 
                     Rectangle()
-                        .fill(AppColors.cartoonInk.opacity(0.2))
+                        .fill(AppColors.cartoonInkOnSunFill.opacity(0.22))
                         .frame(height: 2)
 
                     permissionStep(number: "2", label: "Always", isComplete: locationService.authorization == .authorizedAlways, isActive: locationService.authorization == .authorizedWhenInUse)
@@ -493,11 +653,11 @@ struct LocationPermissionCard: View {
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(AppColors.cartoonInk, lineWidth: 2.5)
+                    .stroke(AppColors.cartoonInkOnSunFill, lineWidth: 2.5)
             )
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color(white: 0.18))
+                    .fill(AppColors.cartoonShadow)
                     .offset(x: 5, y: 5)
             )
             .transition(.asymmetric(
@@ -591,7 +751,7 @@ struct LocationPermissionCard: View {
             Text(label)
                 .font(.system(size: 12, weight: .black, design: .rounded))
                 .textCase(.uppercase)
-                .foregroundColor(AppColors.cartoonInk)
+                .foregroundColor(AppColors.cartoonInkOnSunFill)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
         }
@@ -887,7 +1047,7 @@ struct CartoonPlayerRow: View {
                 .foregroundColor(isLeader ? AppColors.cartoonSun : inkColor.opacity(0.25))
 
             if isLeader {
-                CartoonPill(text: "Leader", color: AppColors.cartoonSun, textColor: inkColor)
+                CartoonPill(text: "Leader", color: AppColors.cartoonSun, textColor: AppColors.cartoonInkOnSunFill, strokeColor: AppColors.cartoonInkOnSunFill)
             } else {
                 CartoonPill(text: team, color: teamColor)
             }

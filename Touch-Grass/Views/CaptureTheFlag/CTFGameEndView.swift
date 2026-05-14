@@ -11,6 +11,7 @@ struct CTFGameEndView: View {
     let session: GameSession
     let gameStats: GameStats
     let currentPlayer: Player?
+    let gameService: GameService
     let onPlayAgain: () -> Void
     let onBackToLobby: () -> Void
     
@@ -38,9 +39,18 @@ struct CTFGameEndView: View {
                     actionButtons
                     Spacer().frame(height: AppSpacing.lg)
                 }
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, AppSpacing.md)
             }
             .safeAreaPadding(.bottom, AppSpacing.lg)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            gameService.applyPostGameProfileOutcome(
+                session: session,
+                gameStats: gameStats,
+                currentPlayer: currentPlayer
+            )
         }
     }
 
@@ -69,30 +79,40 @@ struct CTFGameEndView: View {
 
     private var winnerSection: some View {
         VStack(spacing: 12) {
-            Text("WINNER")
+            Text(outcome.eyebrow)
                 .font(.system(size: 14, weight: .black, design: .rounded))
                 .foregroundColor(.white.opacity(0.95))
                 .tracking(2.2)
 
-            Text(winnerTeamName)
+            Text(outcome.title)
                 .font(.system(size: 56, weight: .black, design: .rounded))
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.45)
+                .lineLimit(2)
                 .shadow(color: AppColors.cartoonInk.opacity(0.4), radius: 0, x: 3, y: 3)
 
-            // Trophy badge
+            Text(outcome.subtitle)
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundColor(.white.opacity(0.92))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, AppSpacing.md)
+
             HStack(spacing: 6) {
-                Image(systemName: "trophy.fill")
+                Image(systemName: badgeIcon)
                     .font(.system(size: 14, weight: .bold))
-                Text("Flag scored · \(timeString(from: gameStats.totalGameDuration()))")
+                Text("\(badgeLeading) · \(timeString(from: gameStats.totalGameDuration()))")
                     .font(.system(size: 13, weight: .black, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .multilineTextAlignment(.center)
             }
-            .foregroundColor(AppColors.cartoonInk)
+            .foregroundColor(AppColors.cartoonInkOnSunFill)
             .padding(.vertical, 5)
             .padding(.horizontal, 14)
             .background(AppColors.cartoonSun2)
             .clipShape(Capsule())
-            .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 2))
+            .overlay(Capsule().stroke(AppColors.cartoonInkOnSunFill, lineWidth: 2))
             .background(Capsule().fill(Color(white: 0.18)).offset(x: 2, y: 2))
         }
         .padding(.vertical, AppSpacing.lg)
@@ -116,6 +136,7 @@ struct CTFGameEndView: View {
                          value: "\(session.teamAScore) – \(session.teamBScore)",
                          isLast: true)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -158,6 +179,7 @@ struct CTFGameEndView: View {
                                  isLast: idx == allPlayers.count - 1)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -170,20 +192,23 @@ struct CTFGameEndView: View {
 
     private func buildStandings() -> [StandingEntry] {
         let winTeam: Flag.Team? = gameStats.winner == .teamA ? .teamA : (gameStats.winner == .teamB ? .teamB : nil)
-        var entries: [StandingEntry] = []
+        let order: [Flag.Team]
         if let wt = winTeam {
-            for p in session.players.filter({ $0.team == wt }) {
-                entries.append(StandingEntry(name: p.displayName, team: wt.rawValue,
-                                             teamColor: wt == .teamA ? AppColors.ctfTeamA : AppColors.ctfTeamB,
-                                             isYou: p.id == currentPlayer?.id))
-            }
+            order = [wt, wt.opposite]
+        } else {
+            // Draw or no result: list Team A then Team B so the card is never empty.
+            order = [.teamA, .teamB]
         }
-        let loseTeam: Flag.Team? = winTeam == .teamA ? .teamB : (winTeam == .teamB ? .teamA : nil)
-        if let lt = loseTeam {
-            for p in session.players.filter({ $0.team == lt }) {
-                entries.append(StandingEntry(name: p.displayName, team: lt.rawValue,
-                                             teamColor: lt == .teamA ? AppColors.ctfTeamA : AppColors.ctfTeamB,
-                                             isYou: p.id == currentPlayer?.id))
+
+        var entries: [StandingEntry] = []
+        for team in order {
+            for p in session.players.filter({ $0.team == team }) {
+                entries.append(StandingEntry(
+                    name: p.displayName,
+                    team: team.rawValue,
+                    teamColor: team == .teamA ? AppColors.ctfTeamA : AppColors.ctfTeamB,
+                    isYou: p.id == currentPlayer?.id
+                ))
             }
         }
         return entries
@@ -199,14 +224,17 @@ struct CTFGameEndView: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundColor(AppColors.cartoonInk)
                 .lineLimit(1)
+                .truncationMode(.tail)
                 .minimumScaleFactor(0.75)
+                .frame(maxWidth: .infinity, alignment: .leading)
             if isYou {
                 Text("(you)")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(AppColors.cartoonInk.opacity(0.5))
+                    .layoutPriority(1)
             }
-            Spacer()
             CartoonPill(text: team, color: teamColor)
+                .layoutPriority(1)
         }
         .padding(.vertical, 6)
         .overlay(alignment: .bottom) {
@@ -228,7 +256,7 @@ struct CTFGameEndView: View {
                     Text("Play Again")
                 }
             }
-            .buttonStyle(CartoonButtonStyle(accent: AppColors.cartoonSun, textColor: AppColors.cartoonInk))
+            .buttonStyle(CartoonButtonStyle(accent: AppColors.cartoonSun, textColor: AppColors.cartoonInkOnSunFill, borderColor: AppColors.cartoonInkOnSunFill))
 
             Button(action: { HapticFeedbackManager.shared.selection(); showShareSheet = true }) {
                 HStack(spacing: AppSpacing.sm) {
@@ -246,22 +274,20 @@ struct CTFGameEndView: View {
             }
             .buttonStyle(CartoonSecondaryButtonStyle())
         }
+        .frame(maxWidth: .infinity)
         .sheet(isPresented: $showShareSheet) {
             ShareSheet(activityItems: [shareText])
         }
     }
     
     private var shareText: String {
-        let winnerText: String
-        winnerText = gameStats.winner == .teamA ? "Team A" : (gameStats.winner == .teamB ? "Team B" : "Time's Up")
         let duration = timeString(from: gameStats.totalGameDuration())
-        let gameTypeName = "Capture The Flag"
         let finalScore = "\(session.teamAScore) - \(session.teamBScore)"
-        
+
         return """
-        🎮 Touch Grass - \(gameTypeName) Game Results
+        🎮 Touch Grass - Capture The Flag Game Results
         
-        Winner: \(winnerText)
+        \(outcome.title)
         Final Score: \(finalScore)
         Duration: \(duration)
         
@@ -271,13 +297,25 @@ struct CTFGameEndView: View {
     
     // MARK: - Computed Properties
 
-    private var winnerTeamName: String {
-        switch gameStats.winner {
-        case .teamA:  return "Team A"
-        case .teamB:  return "Team B"
-        case .timeUp: return "Time's Up"
-        default:      return "Game Over"
-        }
+    private var outcome: GameEndOutcomeDisplay {
+        GameEndOutcomeDisplay.display(
+            gameType: session.gameType,
+            winner: gameStats.winner,
+            session: session,
+            gameStats: gameStats
+        )
+    }
+
+    private var badgeIcon: String {
+        if outcome.isDraw { return "clock.fill" }
+        if outcome.isNeutral { return "flag.checkered" }
+        return "trophy.fill"
+    }
+
+    private var badgeLeading: String {
+        if outcome.isDraw { return "Time ran out" }
+        if outcome.isNeutral { return "Game ended" }
+        return "Flag scored"
     }
 
     private var winnerPrimaryColor: Color {

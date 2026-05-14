@@ -11,6 +11,7 @@ struct ZombieTagGameEndView: View {
     let session: GameSession
     let gameStats: GameStats
     let currentPlayer: Player?
+    let gameService: GameService
     let onPlayAgain: () -> Void
     let onBackToLobby: () -> Void
     
@@ -42,28 +43,41 @@ struct ZombieTagGameEndView: View {
                     Spacer()
                         .frame(height: AppSpacing.lg)
                 }
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, AppSpacing.md)
             }
             .safeAreaPadding(.bottom, AppSpacing.lg)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            gameService.applyPostGameProfileOutcome(
+                session: session,
+                gameStats: gameStats,
+                currentPlayer: currentPlayer
+            )
         }
     }
     
     private var winnerSection: some View {
         VStack(spacing: AppSpacing.md) {
-            // Winner icon
             Image(systemName: winnerIcon)
                 .font(.system(size: 60))
                 .foregroundStyle(winnerGradient)
                 .symbolEffect(.bounce, options: .repeating)
-            
-            // Winner text
-            Text(winnerText)
+
+            Text(outcome.eyebrow)
+                .font(.system(size: 12, weight: .black, design: .rounded))
+                .tracking(2.2)
+                .foregroundColor(AppColors.cartoonInk.opacity(0.55))
+
+            Text(outcome.title)
                 .font(.system(size: 34, weight: .black, design: .rounded))
                 .foregroundStyle(winnerGradient)
                 .multilineTextAlignment(.center)
-            
-            // Subtitle
-            Text(winnerSubtitle)
+                .minimumScaleFactor(0.55)
+                .lineLimit(2)
+
+            Text(outcome.subtitle)
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                 .multilineTextAlignment(.center)
@@ -105,18 +119,23 @@ struct ZombieTagGameEndView: View {
             if let longest = gameStats.longestSurvival(),
                let player = session.players.first(where: { $0.id == longest.playerId }) {
                 Divider()
-                HStack {
+                HStack(alignment: .firstTextBaseline) {
                     Text("Longest Survival:")
                         .font(AppTypography.bodyMedium())
-                    Spacer()
+                        .fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: AppSpacing.sm)
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(player.displayName)
                             .font(AppTypography.labelSmall())
                             .fontWeight(.semibold)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .multilineTextAlignment(.trailing)
                         Text(timeString(from: longest.time))
                             .font(AppTypography.caption())
                             .foregroundColor(AppColors.textSecondary)
                     }
+                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .trailing)
                 }
             }
             
@@ -134,17 +153,20 @@ struct ZombieTagGameEndView: View {
                             Text(zombie.displayName)
                                 .font(AppTypography.bodySmall())
                                 .lineLimit(1)
+                                .truncationMode(.tail)
                                 .minimumScaleFactor(0.75)
-                            Spacer()
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             Text("\(count)")
                                 .font(AppTypography.labelSmall())
                                 .fontWeight(.semibold)
                                 .foregroundColor(AppColors.zombiePrimary)
+                                .layoutPriority(1)
                         }
                     }
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(AppSpacing.md)
         .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2.5)
     }
@@ -174,13 +196,17 @@ struct ZombieTagGameEndView: View {
                         Text(player.displayName)
                             .font(AppTypography.bodyMedium())
                             .lineLimit(1)
+                            .truncationMode(.tail)
                             .minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         if player.id == currentPlayer?.id {
                             Text("(You)")
                                 .font(AppTypography.caption())
                                 .foregroundColor(AppColors.textSecondary)
+                                .layoutPriority(1)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             
@@ -199,13 +225,17 @@ struct ZombieTagGameEndView: View {
                         Text(player.displayName)
                             .font(AppTypography.bodyMedium())
                             .lineLimit(1)
+                            .truncationMode(.tail)
                             .minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         if player.id == currentPlayer?.id {
                             Text("(You)")
                                 .font(AppTypography.caption())
                                 .foregroundColor(AppColors.textSecondary)
+                                .layoutPriority(1)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             
@@ -225,16 +255,21 @@ struct ZombieTagGameEndView: View {
                             .font(AppTypography.bodyMedium())
                             .foregroundColor(AppColors.textSecondary)
                             .lineLimit(1)
+                            .truncationMode(.tail)
                             .minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         if player.id == currentPlayer?.id {
                             Text("(You)")
                                 .font(AppTypography.caption())
                                 .foregroundColor(AppColors.textSecondary)
+                                .layoutPriority(1)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(AppSpacing.md)
         .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2.5)
     }
@@ -294,22 +329,20 @@ struct ZombieTagGameEndView: View {
             .accessibilityLabel("Back to lobby")
             .accessibilityHint("Returns to the game lobby")
         }
+        .frame(maxWidth: .infinity)
         .sheet(isPresented: $showShareSheet) {
             ShareSheet(activityItems: [shareText])
         }
     }
     
     private var shareText: String {
-        let winnerText: String
-        winnerText = gameStats.winner == .hunters ? "Zombies" : (gameStats.winner == .hiders ? "Humans" : "Time's Up")
         let duration = timeString(from: gameStats.totalGameDuration())
-        let gameTypeName = "Zombie Tag"
         let catches = gameStats.catches.count
-        
+
         return """
-        🎮 Touch Grass - \(gameTypeName) Game Results
+        🎮 Touch Grass - Zombie Tag Game Results
         
-        Winner: \(winnerText)
+        \(outcome.title)
         Duration: \(duration)
         Total Infections: \(catches)
         
@@ -318,47 +351,22 @@ struct ZombieTagGameEndView: View {
     }
     
     // MARK: - Computed Properties
-    
-    private var winnerText: String {
-        switch gameStats.winner {
-        case .hunters:
-            return "Zombies Win!"
-        case .hiders:
-            return "Humans Win!"
-        case .timeUp:
-            return "Time's Up!"
-        case .none:
-            return "Game Over"
-        default:
-            return "Game Over"
-        }
+
+    private var outcome: GameEndOutcomeDisplay {
+        GameEndOutcomeDisplay.display(
+            gameType: session.gameType,
+            winner: gameStats.winner,
+            session: session,
+            gameStats: gameStats
+        )
     }
-    
-    private var winnerSubtitle: String {
-        switch gameStats.winner {
-        case .hunters:
-            return "All humans were infected!"
-        case .hiders:
-            return "Some humans survived!"
-        case .timeUp:
-            return "The zone closed completely!"
-        case .none:
-            return "The game has ended."
-        default:
-            return "The game has ended."
-        }
-    }
-    
+
     private var winnerIcon: String {
         switch gameStats.winner {
         case .hunters:
             return "figure.walk.motion"
-        case .hiders:
+        case .hiders, .timeUp:
             return "figure.run"
-        case .timeUp:
-            return "clock.fill"
-        case .none:
-            return "flag.fill"
         default:
             return "flag.fill"
         }
@@ -372,15 +380,9 @@ struct ZombieTagGameEndView: View {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-        case .hiders:
+        case .hiders, .timeUp:
             return LinearGradient(
                 colors: [AppColors.humanPrimary, AppColors.humanSecondary],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        case .timeUp, .none:
-            return LinearGradient(
-                colors: [AppColors.textPrimary, AppColors.textSecondary],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )

@@ -11,6 +11,7 @@ import PhotosUI
 struct SettingsView: View {
     @ObservedObject private var profileService  = ProfileService.shared
     @ObservedObject private var settingsManager = SettingsManager.shared
+    @ObservedObject private var themeManager    = ThemeManager.shared
     @State private var showImagePicker           = false
     @State private var selectedImage: UIImage?
     @State private var isUploading               = false
@@ -39,7 +40,7 @@ struct SettingsView: View {
 
                 ScrollView {
                     VStack(spacing: AppSpacing.xl) {
-                        // Inline title header — matches Profile page style
+                        // Inline title header, matches Profile page style
                         HStack {
                             Text("Settings")
                                 .font(.system(size: 28, weight: .black, design: .rounded))
@@ -135,12 +136,12 @@ struct SettingsView: View {
                     }) {
                         Text("Change Photo")
                             .font(.system(size: 13, weight: .black, design: .rounded))
-                            .foregroundColor(AppColors.cartoonInk)
+                            .foregroundColor(AppColors.cartoonInkOnSunFill)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
                             .background(AppColors.cartoonSun)
                             .clipShape(Capsule())
-                            .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 2))
+                            .overlay(Capsule().stroke(AppColors.cartoonInkOnSunFill, lineWidth: 2))
                     }
                     .disabled(isUploading)
                 }
@@ -215,13 +216,13 @@ struct SettingsView: View {
                 }) {
                     Text(editingName ? "Done" : "Edit")
                         .font(.system(size: 12, weight: .black, design: .rounded))
-                        .foregroundColor(AppColors.cartoonInk)
+                        .foregroundColor(editingName ? AppColors.cartoonInk : AppColors.cartoonInkOnSunFill)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 5)
                         .background(editingName ? AppColors.cartoonMint : AppColors.cartoonSun2)
                         .clipShape(Capsule())
-                        .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 1.5))
-                        .background(Capsule().fill(Color(white: 0.18)).offset(x: 2, y: 2))
+                        .overlay(Capsule().stroke(editingName ? AppColors.cartoonInk : AppColors.cartoonInkOnSunFill, lineWidth: 1.5))
+                        .background(Capsule().fill(AppColors.cartoonShadow).offset(x: 2, y: 2))
                 }
             }
             .padding(AppSpacing.sm)
@@ -240,29 +241,56 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: AppSpacing.md) {
             sectionHeader(title: "Appearance", icon: "paintbrush.fill")
 
+            VStack(spacing: 0) {
+                ForEach(Array(ThemeManager.Preference.allCases.enumerated()), id: \.element) { index, option in
+                    themeOptionRow(option)
+                    if index < ThemeManager.Preference.allCases.count - 1 {
+                        inkSeparator
+                    }
+                }
+            }
+            .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2)
+        }
+    }
+
+    private func themeOptionRow(_ option: ThemeManager.Preference) -> some View {
+        let isSelected = themeManager.preference == option
+        return Button {
+            guard themeManager.preference != option else { return }
+            if settingsManager.hapticFeedbackEnabled {
+                HapticFeedbackManager.shared.selection()
+            }
+            withAnimation(.easeOut(duration: 0.2)) {
+                themeManager.preference = option
+            }
+        } label: {
             HStack(spacing: AppSpacing.md) {
-                Image(systemName: "sun.max.fill")
+                Image(systemName: option.iconName)
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(AppColors.cartoonSun)
+                    .foregroundColor(themeIconColor(option))
                     .frame(width: 28)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Cartoon Light Theme")
-                        .font(.system(size: 15, weight: .black, design: .rounded))
-                        .foregroundColor(AppColors.cartoonInk)
-                    Text("The cartoon design is always bright and inky")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(AppColors.cartoonInk.opacity(0.5))
-                }
+                Text(option.displayName)
+                    .font(.system(size: 15, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
 
                 Spacer()
 
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(AppColors.cartoonInk)
+                    .foregroundColor(isSelected ? AppColors.grassPrimary : AppColors.cartoonInk.opacity(0.3))
             }
             .padding(AppSpacing.md)
-            .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func themeIconColor(_ option: ThemeManager.Preference) -> Color {
+        switch option {
+        case .light:  return AppColors.cartoonSun
+        case .dark:   return AppColors.ctfPrimary
+        case .system: return AppColors.grassPrimary
         }
     }
 

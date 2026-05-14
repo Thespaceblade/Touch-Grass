@@ -47,9 +47,10 @@ struct ZoneOverlayMetadata {
 // MARK: - Storm Overlay Metadata (Fortnite-style outside-zone UI)
 //
 // The "storm" treatment paints a translucent red MKPolygon outside the
-// current playable circle (outer ring with a circular interior hole) and a
-// dashed MKPolyline from the local player to the nearest point on that
-// circle. Metadata is keyed on `ObjectIdentifier` to match the rest of the
+// current playable circle (outer ring with a circular interior hole) and,
+// only while the local player is outside that circle, a dashed MKPolyline
+// from the player to the nearest point on the circle (path back in).
+// Metadata is keyed on `ObjectIdentifier` to match the rest of the
 // composition-based approach used in this file.
 
 struct StormOutsideTintMetadata {
@@ -83,7 +84,7 @@ struct MapViewRepresentable: UIViewRepresentable {
     let teamBSafeZone: GameSession.SafeZone? // Team B safe zone
     
     // Obfuscation: snapshot service + cadence
-    let isPingActive: Bool // Visual emphasis pulse only — obfuscation is always on cross-team
+    let isPingActive: Bool // Visual emphasis pulse only, obfuscation is always on cross-team
     let bubbleEpoch: Int // Used in display-state hash so annotation+overlay refresh on epoch flip
     let zoneRadius: Double? // Live zone radius for bubble-ring sizing
     let obfuscationService: LocationObfuscationService? // Owner of opponent snapshots; nil → exact for everyone
@@ -336,7 +337,7 @@ struct MapViewRepresentable: UIViewRepresentable {
         // session attaches between view-level events and `updateUIView`),
         // populate any missing entries here so we don't draw nothing for an
         // entire epoch. We only refresh when at least one currently-obfuscated
-        // opponent has no snapshot — cheap check, no per-frame churn.
+        // opponent has no snapshot, cheap check, no per-frame churn.
         if let service = obfuscationService, !viewerId.isEmpty {
             let needsBackstopRefresh = playersToShow.contains { player in
                 player.id != viewerId
@@ -360,7 +361,7 @@ struct MapViewRepresentable: UIViewRepresentable {
         //   - quantized zone radius (bubble ring size band)
         //   - viewer role + id
         //   - game type
-        //   - id set + each player's (role, isAlive) — captured implicitly
+        //   - id set + each player's (role, isAlive), captured implicitly
         //     by hashing the playersToShow signature
         let displayStateSignature = Self.makeDisplayStateSignature(
             players: playersToShow,
@@ -389,7 +390,7 @@ struct MapViewRepresentable: UIViewRepresentable {
         }
         
         if displayStateChanged {
-            // Players, epoch, zone band, or viewer changed — rebuild annotations.
+            // Players, epoch, zone band, or viewer changed, rebuild annotations.
             let existingAnnotations = map.annotations.filter { $0 is PlayerAnnotation }
             map.removeAnnotations(existingAnnotations)
             
@@ -420,7 +421,7 @@ struct MapViewRepresentable: UIViewRepresentable {
                         zoneRadius: zoneRadius
                     )
                 } else {
-                    // No obfuscation service (e.g. spectator) — exact for everyone.
+                    // No obfuscation service (e.g. spectator), exact for everyone.
                     displayMode = player.id == viewerId ? .selfExact : .teammateExact
                     resolvedCoord = player.coordinate
                 }
@@ -472,7 +473,7 @@ struct MapViewRepresentable: UIViewRepresentable {
             context.coordinator.lastPingState = isPingActive
             context.coordinator.lastDisplayStateSignature = displayStateSignature
         } else {
-            // Display state unchanged at the "structural" level — but exact
+            // Display state unchanged at the "structural" level, but exact
             // (selfExact / teammateExact) annotations may still need to track
             // live GPS movement. Opponent annotations stay frozen until the
             // next epoch (handled by displayStateChanged above).
@@ -531,9 +532,9 @@ struct MapViewRepresentable: UIViewRepresentable {
     //   the safe zone.
     // - `stormOuterRingCoordinates`: a large rectangle around the zone
     //   center; this is the visible "world" the storm covers. It does not
-    //   need to span the whole globe — just enough for typical zoom levels.
+    //   need to span the whole globe, just enough for typical zoom levels.
     
-    static let stormOuterHalfSizeMeters: Double = 50_000 // 50 km — large enough at game zoom levels.
+    static let stormOuterHalfSizeMeters: Double = 50_000 // 50 km, large enough at game zoom levels.
     static let stormHoleVertexCount: Int = 64
     
     static func nearestPointOnBoundary(
@@ -1185,7 +1186,7 @@ struct MapViewRepresentable: UIViewRepresentable {
         //      top of everything.
         //
         // Throttled by a coarse signature of (center, radius, user coord,
-        // hasGuide) so this only rebuilds when something actually changes.
+        // includeGuideLine) so this only rebuilds when something actually changes.
         
         func updateStormOverlays(
             map: MKMapView,
@@ -1216,10 +1217,19 @@ struct MapViewRepresentable: UIViewRepresentable {
                 return u
             }()
             
+            // Guide line is only for getting back into the safe circle — hide while inside.
+            let includeGuideLine: Bool = {
+                guard let user = validUser else { return false }
+                let dist = CLLocation(latitude: user.latitude, longitude: user.longitude)
+                    .distance(from: CLLocation(latitude: center.latitude, longitude: center.longitude))
+                return dist > radiusMeters
+            }()
+            
             let signature = makeStormSignature(
                 center: center,
                 radiusMeters: radiusMeters,
-                user: validUser
+                user: validUser,
+                includeGuideLine: includeGuideLine
             )
             if signature == lastStormSignature { return }
             
@@ -1253,9 +1263,8 @@ struct MapViewRepresentable: UIViewRepresentable {
             }
             
             // Dashed guide line from the user to the nearest point on the
-            // safe circle. Skipped silently when we don't have a usable
-            // user fix yet.
-            if let user = validUser {
+            // safe circle — only when the player is outside and needs a path back in.
+            if includeGuideLine, let user = validUser {
                 let edge = MapViewRepresentable.nearestPointOnBoundary(
                     center: center,
                     radiusMeters: radiusMeters,
@@ -1292,12 +1301,14 @@ struct MapViewRepresentable: UIViewRepresentable {
         private func makeStormSignature(
             center: CLLocationCoordinate2D,
             radiusMeters: Double,
-            user: CLLocationCoordinate2D?
+            user: CLLocationCoordinate2D?,
+            includeGuideLine: Bool
         ) -> Int {
             var hasher = Hasher()
             hasher.combine(Int(center.latitude * 100_000))   // ~1.1 m
             hasher.combine(Int(center.longitude * 100_000))
             hasher.combine(Int(radiusMeters / 2.0))           // 2 m bands
+            hasher.combine(includeGuideLine)
             if let user {
                 hasher.combine(Int(user.latitude * 100_000))
                 hasher.combine(Int(user.longitude * 100_000))
@@ -1315,39 +1326,23 @@ struct MapViewRepresentable: UIViewRepresentable {
                let zoneMetadata = getZoneOverlayMetadata(for: circle) {
                 let renderer = MKCircleRenderer(circle: circle)
                 
+                // Unified zone visual language:
+                //   - Current playable zone (.boundary): solid blue ring, clear interior.
+                //   - Upcoming zone preview (.safeArea during closing, .nextSafeArea
+                //     during rotation): dashed blue ring, clear interior.
+                let zoneBlue = UIColor(AppColors.bubbleSafe)
+                renderer.fillColor = UIColor.clear
+
                 switch zoneMetadata.type {
-                case .safeArea:
-                    // Safe Area: Green/blue filled circle (target during closing phase)
-                    // Solid stroke (no dashes) - this is the target the boundary is moving toward
-                    renderer.fillColor = UIColor.systemGreen.withAlphaComponent(0.15)
-                    renderer.strokeColor = UIColor.systemGreen
-                    renderer.lineWidth = 3.0
-                    // No dash pattern - solid line for target zone
-                    
                 case .boundary:
-                    // Boundary: Yellow/orange edge (current playable area)
-                    // Always solid stroke - this is the current zone
-                    if zoneMetadata.isClosing {
-                        // Closing: Orange/red with thicker stroke (boundary is moving)
-                        renderer.fillColor = UIColor.systemOrange.withAlphaComponent(0.1)
-                        renderer.strokeColor = UIColor.systemOrange
-                        renderer.lineWidth = 5.0 // Thicker when moving
-                        // No dash pattern - solid line for boundary
-                    } else {
-                        // Static: Yellow edge (normal boundary)
-                        renderer.fillColor = UIColor.systemYellow.withAlphaComponent(0.05)
-                        renderer.strokeColor = UIColor.systemYellow
-                        renderer.lineWidth = 4.0
-                        // No dash pattern - solid line for boundary
-                    }
-                    
-                case .nextSafeArea:
-                    // Next Safe Area Preview: Dashed outline (shown during warning phase)
-                    // This is the preview of where the zone will move to
-                    renderer.fillColor = UIColor.clear // No fill - just outline
-                    renderer.strokeColor = UIColor.systemBlue.withAlphaComponent(0.7)
-                    renderer.lineWidth = 2.5
-                    renderer.lineDashPattern = [10, 5] // Dashed outline for preview
+                    renderer.strokeColor = zoneBlue
+                    renderer.lineWidth = zoneMetadata.isClosing ? 5.0 : 4.0
+                    renderer.lineDashPattern = nil
+
+                case .safeArea, .nextSafeArea:
+                    renderer.strokeColor = zoneBlue.withAlphaComponent(0.8)
+                    renderer.lineWidth = 3.0
+                    renderer.lineDashPattern = [10, 5]
                 }
                 
                 return renderer
@@ -1432,11 +1427,12 @@ struct MapViewRepresentable: UIViewRepresentable {
                     renderer.lineWidth = 2
                     renderer.lineDashPattern = [5, 5]
                 } else {
-                    // Main bubble - MAKE IT VERY VISIBLE
-                    let color = bubbleColor
-                    renderer.strokeColor = color
-                    renderer.fillColor = color.withAlphaComponent(0.25) // Visible fill
-                    renderer.lineWidth = 6 // Thicker line for visibility
+                    // Main legacy bubble: match new-zone language - solid blue
+                    // ring, no interior fill. Proximity emphasis is carried by
+                    // the storm tint outside the ring and the warning ring above.
+                    renderer.strokeColor = UIColor(AppColors.bubbleSafe)
+                    renderer.fillColor = UIColor.clear
+                    renderer.lineWidth = 4
                 }
                 
                 return renderer
@@ -1464,7 +1460,7 @@ struct MapViewRepresentable: UIViewRepresentable {
                 return renderer
             }
             
-            // CTF halfway line — now keyed on metadata so we don't claim
+            // CTF halfway line, now keyed on metadata so we don't claim
             // every 2-point polyline (the storm guide is also 2 points).
             if let polyline = overlay as? MKPolyline,
                getHalfwayLineMetadata(for: polyline) != nil {

@@ -3,8 +3,8 @@
 //  Touch-Grass
 //
 //  Shared predator compass pulse ability widget. One layout, two skins:
-//    - Manhunt "Hunter's Field Compass" — physical, brass ticks, red sweep.
-//    - Zombie Tag "Infected Pulse Sensor" — bio-signal, segmented arcs, jitter.
+//    - Manhunt "Hunter's Field Compass", physical, brass ticks, red sweep.
+//    - Zombie Tag "Infected Pulse Sensor", bio-signal, segmented arcs, jitter.
 //
 //  Same ~80pt face + compact distance pill. All cooldown math comes from
 //  `CompassAbilityConfig` (single source of truth shared with `GameService`).
@@ -20,7 +20,7 @@ enum PulseSkin {
     case zombieBio
 
     /// Map from runtime `GameType` to a skin. CTF is intentionally
-    /// excluded — the control should not be presented in that mode.
+    /// excluded, the control should not be presented in that mode.
     init?(gameType: GameType) {
         switch gameType {
         case .manhunt: self = .manhuntField
@@ -106,7 +106,32 @@ struct PredatorPulseControl: View {
     /// when `nil`, the needle locks to north as a visual fallback but the
     /// distance pill still shows authoritative meters.
     let resultBearing: Double?
+    /// When set, rotates the result needle so “up” on screen matches device
+    /// facing (see `LocationService.headingDegreesFromNorth`).
+    let headingDegreesFromNorth: Double?
     let onTap: () -> Void
+
+    init(
+        skin: PulseSkin,
+        cooldownRemaining: TimeInterval,
+        cooldownTotal: TimeInterval,
+        inFlight: Bool,
+        hasEligiblePrey: Bool,
+        lastResult: GameService.CompassPulseResult?,
+        resultBearing: Double?,
+        headingDegreesFromNorth: Double? = nil,
+        onTap: @escaping () -> Void
+    ) {
+        self.skin = skin
+        self.cooldownRemaining = cooldownRemaining
+        self.cooldownTotal = cooldownTotal
+        self.inFlight = inFlight
+        self.hasEligiblePrey = hasEligiblePrey
+        self.lastResult = lastResult
+        self.resultBearing = resultBearing
+        self.headingDegreesFromNorth = headingDegreesFromNorth
+        self.onTap = onTap
+    }
 
     @State private var spinRotation: Double = 0
     @State private var readyPulse: CGFloat = 1.0
@@ -139,7 +164,12 @@ struct PredatorPulseControl: View {
     private var needleAngle: Double {
         switch phase {
         case .spin: return spinRotation
-        case .result: return resultBearing ?? 0
+        case .result:
+            let geo = resultBearing ?? 0
+            return CompassAbilityConfig.screenRelativeBearing(
+                geographicBearingDegrees: geo,
+                headingDegreesFromNorth: headingDegreesFromNorth
+            )
         default: return jitterAngle
         }
     }
@@ -247,7 +277,7 @@ struct PredatorPulseControl: View {
                     }
                 )
             case .zombieBio:
-                // Center ripple — irregular pulse outward when ready.
+                // Center ripple, irregular pulse outward when ready.
                 Group {
                     if phase == .ready {
                         Circle()
@@ -373,13 +403,13 @@ struct PredatorPulseControl: View {
                 )
             case .noTargets:
                 pillCapsule(
-                    text: "—",
+                    text: "-",
                     label: "NO TARGETS",
                     labelColor: AppColors.cartoonInk.opacity(0.5)
                 )
             case .failed:
                 pillCapsule(
-                    text: "—",
+                    text: "-",
                     label: "PULSE FAILED",
                     labelColor: AppColors.error.opacity(0.8)
                 )
@@ -421,8 +451,8 @@ struct PredatorPulseControl: View {
 
     private var accessibilityLabel: String {
         switch phase {
-        case .ready: return "Pulse ready — \(skin.resultLabel)"
-        case .charging: return "Pulse charging — \(countdownText)"
+        case .ready: return "Pulse ready, \(skin.resultLabel)"
+        case .charging: return "Pulse charging, \(countdownText)"
         case .spin: return "Pulse firing"
         case .result:
             if case .success(let commit) = lastResult {
@@ -467,7 +497,7 @@ struct PredatorPulseControl: View {
         switch newPhase {
         case .ready:
             // Subtle "pop" entrance on the rim when the ability becomes
-            // available — restrained, not flashy.
+            // available, restrained, not flashy.
             withAnimation(.spring(response: 0.35, dampingFraction: 0.55)) {
                 readyPulse = 1.04
             }
@@ -517,7 +547,7 @@ struct PredatorPulseControl: View {
             }
 
         case .failed:
-            // Snap needle down/fade — the underlying opacity change is
+            // Snap needle down/fade, the underlying opacity change is
             // driven by `needleOpacity`, just play the haptic.
             HapticFeedbackManager.shared.warning()
 

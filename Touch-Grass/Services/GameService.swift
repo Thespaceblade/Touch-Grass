@@ -174,6 +174,38 @@ final class GameService: ObservableObject {
     init(locationService: LocationService) {
         self.locationService = locationService
     }
+
+    // MARK: - Post-game profile / achievements
+
+    /// Records local profile stats for the finished game and announces newly unlocked achievements in the map hub.
+    /// Staggers one `announcementManager` post per unlock (0.35s apart) so pills stay readable.
+    func applyPostGameProfileOutcome(
+        session: GameSession,
+        gameStats: GameStats,
+        currentPlayer: Player?,
+        emitToasts: Bool = true
+    ) {
+        /// Unique per finished match: `gameNumber` only advances on "Play Again", not on "Back to lobby",
+        /// so we include the match's start time (stable for that game, distinct across replays in one session).
+        let dedupeKey = "\(session.id):\(session.gameNumber):\(gameStats.gameStartTime.timeIntervalSinceReferenceDate)"
+        let ids = ProfileService.shared.recordLocalGameOutcome(
+            dedupeKey: dedupeKey,
+            gameType: session.gameType,
+            gameStats: gameStats,
+            currentPlayer: currentPlayer,
+            duration: gameStats.totalGameDuration(),
+            wonOverride: nil
+        )
+        guard emitToasts, !ids.isEmpty else { return }
+        for (index, id) in ids.enumerated() {
+            let delay = 0.35 * Double(index)
+            let message = AchievementCatalog.toastMessage(for: id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self else { return }
+                self.announcementManager.post(message, type: .achievementUnlocked)
+            }
+        }
+    }
     
     // Expose BLE service for UI
     var bleService: BluetoothTagService {
@@ -601,7 +633,7 @@ final class GameService: ObservableObject {
             }
         }
         
-        guard let bubble = session.bubble else {
+        guard var bubble = session.bubble else {
             let error = "Cannot begin game: Game settings (bubble) not configured. Please configure the game settings first by tapping the settings button."
             print("❌ \(error)")
             beginGameError = error
@@ -611,6 +643,14 @@ final class GameService: ObservableObject {
                 gameState = .lobby
             }
             return
+        }
+        
+        // Manhunt / Zombie Tag: the lobby UI shows a countdown after `gameState` becomes `.active`,
+        // but `startUpdateTimer()` already runs `checkGameOver()`. `configureGame` uses a real
+        // `Date()` for `bubble.startTime`, so "elapsed" would include lobby + countdown and can
+        // exceed `duration` before `startGameTimer()` commits the real match start — instant false "time's up".
+        if session.gameType == .manhunt || session.gameType == .zombieTag {
+            bubble.startTime = Date.distantFuture
         }
         
         print("🎮 GameService.beginGame called")
@@ -639,8 +679,8 @@ final class GameService: ObservableObject {
             }
         }
         
-        // Don't set bubble.startTime here - it will be set when the countdown completes
-        // This ensures the game timer doesn't run during the pre-game countdown
+        // `bubble.startTime` is `Date.distantFuture` for Manhunt/Zombie until the host's
+        // countdown finishes and `startGameTimer()` commits the real match start.
         session.bubble = bubble
         
         // CTF: Set game state to flag placement if flags need to be placed
@@ -1368,6 +1408,7 @@ final class GameService: ObservableObject {
         session.gameState = .ended
         self.session = session
         self.gameState = .ended  // Update explicit state
+        shouldEndGame = false
         stopUpdateTimer()
         // Don't stop session listener - we need it for "Play Again"
         locationService.stop()
@@ -3360,7 +3401,7 @@ final class GameService: ObservableObject {
     }
     
     private func handleTagConfirmed(playerId: String) {
-        // Idempotency: a confirmed tag may arrive twice — once from our own
+        // Idempotency: a confirmed tag may arrive twice, once from our own
         // local `confirmTag` callback (confirmer side) and once from the
         // remote write/notify on the tagger's side. Skip if we've already
         // recorded this player as caught, or they're no longer alive.
@@ -3470,7 +3511,8 @@ final class GameService: ObservableObject {
     /// How a Manhunt catch was initiated. The post-catch shared mutation
     /// branches on this for stats and announcement copy:
     /// - `.bluetooth` writes a normal `GameStats.CatchRecord` for the hunter.
-    /// - `.honor` writes survival time only — no fake hunter row in stats.
+    /// - `.honor` is the hider confirming a tag Bluetooth missed; survival time
+    ///   only, no fake hunter row in stats.
     enum CatchSource {
         case bluetooth(tagger: Player)
         case honor
@@ -3500,7 +3542,7 @@ final class GameService: ObservableObject {
         }
         
         // Manhunt: route through the shared `applyManhuntHiderCaught` helper
-        // so honor self-tags and BLE-confirmed tags converge on a single
+        // so manual tag confirms and BLE-confirmed tags converge on a single
         // mutation path.
         if session.gameType == .manhunt {
             guard let hunter = tagger, hunter.role == .hunter else {
@@ -3603,7 +3645,7 @@ final class GameService: ObservableObject {
             self?.catchAnimationTrigger = false
         }
         
-        // Update game stats — Zombie Tag uses the standard CatchRecord shape
+        // Update game stats, Zombie Tag uses the standard CatchRecord shape
         // (the "hunter" is the zombie that converted the human).
         if var stats = gameStats, let tagger = tagger {
             let catchRecord = GameStats.CatchRecord(
@@ -3646,9 +3688,9 @@ final class GameService: ObservableObject {
     
     // MARK: - Shared Manhunt catch mutation
     //
-    // Single mutation path used by both BLE-confirmed tags and honor
-    // self-reports. Callers must do their own gating (hunter+proximity for
-    // BLE, alive-hider-self for honor) before invoking this.
+    // Single mutation path used by both BLE-confirmed tags and manual
+    // hider confirms when BLE missed the tag. Callers must do their own gating
+    // (hunter+proximity for BLE, alive-hider-self for manual) before invoking this.
     private func applyManhuntHiderCaught(_ playerId: String, source: CatchSource) {
         guard var session = session,
               var player = session.players.first(where: { $0.id == playerId }) else { return }
@@ -3676,7 +3718,7 @@ final class GameService: ObservableObject {
         }
         
         // Stats. BLE writes a normal CatchRecord with hunter attribution.
-        // Honor records survival time only — no fake hunter row.
+        // Manual confirm (honor) records survival time only, no fake hunter row.
         if var stats = gameStats {
             switch source {
             case .bluetooth(let tagger):
@@ -3713,11 +3755,11 @@ final class GameService: ObservableObject {
             }
         case .honor:
             if playerId == currentPlayer?.id {
-                lastCatchMessage = "You tagged yourself out."
-                announcementManager.post("You tagged yourself out.", type: .playerTagged)
+                lastCatchMessage = "You were tagged."
+                announcementManager.post("You were tagged.", type: .playerTagged)
             } else {
-                lastCatchMessage = "\(player.displayName) tagged themselves out."
-                announcementManager.post("\(player.displayName) tagged themselves out.", type: .playerTagged)
+                lastCatchMessage = "\(player.displayName) was tagged."
+                announcementManager.post("\(player.displayName) was tagged.", type: .playerTagged)
             }
         }
         
@@ -3732,11 +3774,11 @@ final class GameService: ObservableObject {
         }
     }
     
-    // MARK: - Honor self-tag
+    // MARK: - Manual tag confirm (Bluetooth backup)
     
-    /// Hider-initiated "I got tagged" self-report. Bypasses hunter / proximity
-    /// validation but reuses the shared catch mutation so caught state,
-    /// announcements, and Firestore sync stay consistent.
+    /// Hider confirms they were tagged when BLE didn’t register it. Bypasses
+    /// hunter / proximity validation but reuses the shared catch mutation so
+    /// caught state, announcements, and Firestore sync stay consistent.
     ///
     /// Manhunt only in v1. Returns silently for unsupported configurations so
     /// callers can wire it up speculatively from the UI.
@@ -3911,12 +3953,6 @@ final class GameService: ObservableObject {
         if session.gameType == .captureTheFlag {
             // CTF: Skip time validation - no time limit, no shrinking
         } else {
-            // Validate bubble parameters for games with time limits
-            guard bubble.startTime.timeIntervalSinceNow < 0 else {
-                print("⚠️ Invalid bubble start time (future) - skipping time check")
-                return
-            }
-            
             // Only validate duration if it's finite (infinite duration means no time limit)
             if bubble.duration.isFinite {
                 guard bubble.duration > 0 else {
@@ -3926,16 +3962,19 @@ final class GameService: ObservableObject {
             }
         }
         
-        let now = Date()
-        let elapsed = now.timeIntervalSince(bubble.startTime)
-        
-        // Validate elapsed time (only for games with time limits)
-        if session.gameType != .captureTheFlag {
-            guard elapsed.isFinite && elapsed >= 0 else {
-                print("⚠️ Invalid elapsed time calculation - skipping")
-                return
+        // For Manhunt/Zombie, time-limit checks must use elapsed only after the host has committed
+        // `bubble.startTime` in `startGameTimer()` (or joined clients received it). Before that,
+        // `beginGame` uses `Date.distantFuture` so pre-countdown is not counted as match time.
+        let elapsedSinceMatchStart: TimeInterval? = {
+            guard session.gameType != .captureTheFlag else { return nil }
+            guard bubble.startTime <= Date() else { return nil }
+            let e = Date().timeIntervalSince(bubble.startTime)
+            guard e.isFinite && e >= 0 else {
+                print("⚠️ Invalid elapsed time calculation - skipping time-based win checks")
+                return nil
             }
-        }
+            return e
+        }()
         
         // Check win conditions based on game type
         if session.gameType == .zombieTag {
@@ -3950,7 +3989,9 @@ final class GameService: ObservableObject {
             }
             
             // Check if time is up (only if duration is finite - humans win if time runs out)
-            if bubble.duration.isFinite && elapsed >= bubble.duration {
+            if bubble.duration.isFinite,
+               let elapsed = elapsedSinceMatchStart,
+               elapsed >= bubble.duration {
                 print("⏰ Time's up - humans win!")
                 shouldEndGame = true
                 return
@@ -4056,7 +4097,9 @@ final class GameService: ObservableObject {
         } else {
             // Manhunt win conditions
             // Check if time is up (only if duration is finite)
-            if bubble.duration.isFinite && elapsed >= bubble.duration {
+            if bubble.duration.isFinite,
+               let elapsed = elapsedSinceMatchStart,
+               elapsed >= bubble.duration {
                 shouldEndGame = true
                 return
             }
@@ -4216,7 +4259,7 @@ final class GameService: ObservableObject {
         }
 
         guard let location = locationService.getCurrentLocation() else {
-            print("⚠️ Compass pulse aborted — no local GPS fix")
+            print("⚠️ Compass pulse aborted, no local GPS fix")
             compassPulseLastResult = .failed
             announcementManager.post("Pulse failed.", type: .warning)
             scheduleCompassResultClear()
@@ -4224,7 +4267,7 @@ final class GameService: ObservableObject {
         }
         let locationAge = Date().timeIntervalSince(location.timestamp)
         if locationAge.isFinite, locationAge > CompassAbilityConfig.maxActorLocationAge {
-            print("⚠️ Compass pulse aborted — GPS stale (\(Int(locationAge))s)")
+            print("⚠️ Compass pulse aborted, GPS stale (\(Int(locationAge))s)")
             compassPulseLastResult = .failed
             announcementManager.post("Pulse failed.", type: .warning)
             scheduleCompassResultClear()
@@ -4245,7 +4288,7 @@ final class GameService: ObservableObject {
             let pulse = commit.pulse
 
             // Optimistic local merge so the predator's UI doesn't wait on
-            // the listener echo. We do NOT set `isUpdatingSession` here —
+            // the listener echo. We do NOT set `isUpdatingSession` here -
             // compass writes must allow the listener to flow through for
             // other devices, and dedupe relies on `lastProcessedCompassEventId`
             // rather than blocking listener processing.
@@ -4266,7 +4309,7 @@ final class GameService: ObservableObject {
                 announcementManager.post("No targets.", type: .general)
                 HapticFeedbackManager.shared.warning()
             case "cooldownActive":
-                // Silent — local UI should already reflect cooldown; this
+                // Silent, local UI should already reflect cooldown; this
                 // is a tie-breaker against fast double-tap or stale local
                 // cooldown.
                 compassPulseLastResult = nil

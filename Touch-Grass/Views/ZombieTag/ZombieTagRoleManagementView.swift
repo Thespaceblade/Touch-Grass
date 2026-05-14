@@ -139,12 +139,12 @@ struct ZombieTagRoleManagementView: View {
             Text("VS")
                 .font(.system(size: 14, weight: .black, design: .rounded))
                 .tracking(0.8)
-                .foregroundColor(AppColors.cartoonInk)
+                .foregroundColor(AppColors.cartoonInkOnSunFill)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .background(AppColors.cartoonSun)
                 .clipShape(Capsule())
-                .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 2))
+                .overlay(Capsule().stroke(AppColors.cartoonInkOnSunFill, lineWidth: 2))
             
             roleCountTile(
                 title: "Humans",
@@ -233,7 +233,7 @@ struct ZombieTagRoleManagementView: View {
                 
                 // You badge
                 if player.id == currentPlayer?.id {
-                    CartoonPill(text: "You", color: AppColors.cartoonSun, textColor: AppColors.cartoonInk)
+                    CartoonPill(text: "You", color: AppColors.cartoonSun, textColor: AppColors.cartoonInkOnSunFill, strokeColor: AppColors.cartoonInkOnSunFill)
                 }
                 
                 // Toggle icon

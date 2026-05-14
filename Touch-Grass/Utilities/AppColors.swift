@@ -6,6 +6,23 @@
 //
 
 import SwiftUI
+import UIKit
+
+// MARK: - Dynamic Color Helpers
+
+/// Build a SwiftUI `Color` that resolves differently in light vs dark traits.
+/// Used to give the cartoon palette a parallel "night" authoring without
+/// rewriting every call site that already references `AppColors.cartoonInk`,
+/// `AppColors.cartoonCream`, etc.
+private func dyn(light: UIColor, dark: UIColor) -> Color {
+    Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark ? dark : light
+    })
+}
+
+private func hex(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> UIColor {
+    UIColor(red: r, green: g, blue: b, alpha: 1)
+}
 
 struct AppColors {
     // MARK: - Primary Game Colors
@@ -166,16 +183,62 @@ struct AppColors {
     static let buttonTertiary = textSecondary
     
     // MARK: - Cartoon Design Tokens
-    // Cream/ink vocabulary from the Touch Grass design system
+    //
+    // Day vocabulary: cream paper, near-black ink, sunny yellows, soft pastels.
+    // Night vocabulary (dark trait): moonlit navy panels, pale moon-paper ink,
+    // cool moon-gold, and muted variants of mint/rose/cloud so tinted surfaces
+    // (location card, exit confirmation header, profile avatar default, etc.)
+    // remain readable without inverting their *meaning*. Game/role/bubble
+    // ramps are intentionally not changed, semantics stay stable at night.
+    //
+    // Because these are dynamic UIColors, every existing call site of the
+    // form `.foregroundColor(AppColors.cartoonInk)` or
+    // `.background(AppColors.cartoonCream)` inherits night mode automatically.
 
-    static let cartoonCream   = Color(red: 1.00, green: 0.980, blue: 0.925) // #FFFAEC
-    static let cartoonCream2  = Color(red: 0.957, green: 0.925, blue: 0.827) // #F4ECD3
-    static let cartoonInk     = Color(red: 0.102, green: 0.102, blue: 0.102) // #1a1a1a
-    static let cartoonSun     = Color(red: 1.00, green: 0.839, blue: 0.271) // #FFD645
-    static let cartoonSun2    = Color(red: 1.00, green: 0.910, blue: 0.541) // #FFE88A
-    static let cartoonMint    = Color(red: 0.843, green: 0.949, blue: 0.851) // #D7F2D9
-    static let cartoonRose    = Color(red: 1.00, green: 0.843, blue: 0.824) // #FFD7D2
-    static let cartoonCloud   = Color(red: 0.835, green: 0.902, blue: 1.00) // #D5E6FF
+    static let cartoonCream   = dyn(
+        light: hex(1.00, 0.980, 0.925), // #FFFAEC, cream paper
+        dark:  hex(0.105, 0.137, 0.196) // #1B2332, moonlit slate panel
+    )
+    static let cartoonCream2  = dyn(
+        light: hex(0.957, 0.925, 0.827), // #F4ECD3, warmer cream
+        dark:  hex(0.149, 0.184, 0.255)  // #26304D, slightly lifted panel
+    )
+    static let cartoonInk     = dyn(
+        light: hex(0.102, 0.102, 0.102), // #1A1A1A, near-black ink
+        dark:  hex(0.937, 0.918, 0.851)  // #EFEAD9, pale moon-paper ink
+    )
+    static let cartoonSun     = dyn(
+        light: hex(1.00, 0.839, 0.271), // #FFD645, bright sun yellow
+        dark:  hex(0.961, 0.847, 0.498) // #F5D87F, cooler moon-gold
+    )
+    static let cartoonSun2    = dyn(
+        light: hex(1.00, 0.910, 0.541), // #FFE88A, light sun
+        dark:  hex(1.00, 0.890, 0.659)  // #FFE3A8, soft moonlit gold
+    )
+    static let cartoonMint    = dyn(
+        light: hex(0.843, 0.949, 0.851), // #D7F2D9, soft mint
+        dark:  hex(0.149, 0.275, 0.220)  // #264638, muted night mint
+    )
+    static let cartoonRose    = dyn(
+        light: hex(1.00, 0.843, 0.824), // #FFD7D2, warm rose
+        dark:  hex(0.302, 0.196, 0.235) // #4D323C, dusky night rose
+    )
+    static let cartoonCloud   = dyn(
+        light: hex(0.835, 0.902, 1.00), // #D5E6FF, pale sky cloud
+        dark:  hex(0.137, 0.184, 0.290) // #232F4A, deep night blue
+    )
+
+    /// Hard cartoon offset shadow. Dark warm-gray in day; in night it cools
+    /// and softens so the offset doesn't read as a black brick on dark panels.
+    static let cartoonShadow  = dyn(
+        light: hex(0.180, 0.180, 0.180), // #2E2E2E, same as legacy Color(white: 0.18)
+        dark:  hex(0.020, 0.039, 0.071)  // #050A12, deep night shadow (almost merges)
+    )
+
+    /// Text and strokes on warm light fills (`cartoonSun`, `cartoonSun2`). Same
+    /// near-black in light and dark; `cartoonInk` becomes pale in dark mode and
+    /// must not be used on these backgrounds (it washes out on yellow).
+    static let cartoonInkOnSunFill = Color(red: 0.102, green: 0.102, blue: 0.102)
 
     // MARK: - Opacity Constants
 

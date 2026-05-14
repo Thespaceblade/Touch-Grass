@@ -498,39 +498,9 @@ final class GameViewModel: ObservableObject {
     }
     
     private func handleGameOver() {
-        guard let game = _gameService, let session = game.session else { return }
-        
-        let now = Date()
-        let elapsed = session.bubble.map { now.timeIntervalSince($0.startTime) } ?? 0
-        
-        // Determine game over reason
-        if let bubble = session.bubble, abs(elapsed) >= bubble.duration {
-            gameOverMessage = "⏰ Time's up! Game over."
-        } else {
-            let hiders = session.players.filter { $0.role == .hider }
-            let aliveHiders = hiders.filter { $0.isAlive }
-            
-            if hiders.count > 0 && aliveHiders.isEmpty {
-                // Hunter wins
-                if let currentPlayer = game.currentPlayer, currentPlayer.role == .hunter {
-                    gameOverMessage = "🎯 Victory! All hiders caught!"
-                } else {
-                    gameOverMessage = "Game over! All hiders were caught."
-                }
-            } else {
-                // All eliminated or other condition
-                let alivePlayers = session.players.filter { $0.isAlive }
-                if alivePlayers.isEmpty {
-                    gameOverMessage = "Game over! All players eliminated."
-                } else if let currentPlayer = game.currentPlayer, !currentPlayer.isAlive {
-                    gameOverMessage = "You were eliminated! Game over."
-                } else {
-                    gameOverMessage = "Game over!"
-                }
-            }
-        }
-        
-        showGameOverAlert = true
+        guard let game = _gameService, game.session != nil else { return }
+        // Full game-end UI (Manhunt / Zombie / CTF) already covers outcomes including time's up.
+        // Do not show the generic ContentView `.alert` on top of that.
         game.endGame()
     }
     

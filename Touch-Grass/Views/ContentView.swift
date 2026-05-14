@@ -5,6 +5,7 @@ import UserNotifications
 
 struct ContentView: View {
     @StateObject private var viewModel = GameViewModel()
+    @ObservedObject private var themeManager = ThemeManager.shared
     // OPTIMIZATION: Don't observe ProfileService from ContentView (it causes unnecessary re-renders)
     private let profileService = ProfileService.shared
     @Environment(\.scenePhase) private var scenePhase
@@ -20,7 +21,7 @@ struct ContentView: View {
     
     var body: some View {
         ZStack {
-            // Persistent background — always on screen at full opacity so it never
+            // Persistent background, always on screen at full opacity so it never
             // flashes white during page transitions. The landscape inside each tab/
             // lobby view is additive on top of this layer.
             AppColors.backgroundPrimary
@@ -32,7 +33,7 @@ struct ContentView: View {
                 .ignoresSafeArea(.all)
                 .allowsHitTesting(false)
 
-            // Home or Game View — only the content cross-fades, not the background
+            // Home or Game View, only the content cross-fades, not the background
             Group {
                 if viewModel.selectedGame == nil {
                     homeView
@@ -43,7 +44,20 @@ struct ContentView: View {
                 }
             }
         }
-        .preferredColorScheme(.light) // Cartoon design is always light-mode
+        // Theme: Light / Dark / System (`nil` = follow system). Dynamic cartoon
+        // tokens in `AppColors` re-author cream/ink/pastel surfaces for night;
+        // the landscape already swaps to its moon-and-stars branch when the
+        // trait flips. Default preference is Light to preserve existing
+        // behavior on upgrade, users opt in from Settings → Appearance.
+        .preferredColorScheme(themeManager.preferredColorScheme)
+        .onReceive(NotificationCenter.default.publisher(for: ThemeManager.didChangeNotification)) { _ in
+            // UITabBar appearance is built from `AppColors.cartoonInk` etc.
+            // These are dynamic UIColors and re-resolve when the trait
+            // collection changes, but rebuild the proxy explicitly so the
+            // visible tab bar refreshes immediately after the user picks a
+            // new theme, rather than waiting for the next layout pass.
+            setupTabBarAppearance()
+        }
         .animation(.easeOut(duration: 0.2), value: viewModel.selectedGame?.rawValue)
         .alert("Game Over", isPresented: $viewModel.showGameOverAlert) {
             Button("OK") {

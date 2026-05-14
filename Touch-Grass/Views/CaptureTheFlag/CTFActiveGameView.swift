@@ -116,12 +116,13 @@ struct CTFActiveGameView: View {
 
                         HStack(alignment: .top, spacing: AppSpacing.sm) {
                             topHUD
-                                .frame(maxWidth: geometry.size.width * 0.65, alignment: .leading)
+                                .frame(maxWidth: max(0, geometry.size.width - ActiveGameMapHubMetrics.idleHubWidth - AppSpacing.md * 2 - AppSpacing.sm),
+                                       alignment: .leading)
                                 .fixedSize(horizontal: false, vertical: true)
 
                             Spacer(minLength: 8)
 
-                            MapControlsView(
+                            ActiveGameMapHubView(
                                 mapType: $mapType,
                                 showPlayerLabels: $showPlayerLabels,
                                 onZoomToBubble: { zoomToBubbleTrigger = true },
@@ -129,7 +130,8 @@ struct CTFActiveGameView: View {
                                 bubbleExists: gameService.session?.bubble != nil,
                                 playerLocationExists: locationService.coordinate != nil,
                                 gameType: gameService.session?.gameType,
-                                onEndGame: { gameService.endGame() }
+                                onEndGame: { gameService.endGame() },
+                                announcementManager: gameService.announcementManager
                             )
                         }
                         .padding(.leading, AppSpacing.md)
@@ -185,17 +187,6 @@ struct CTFActiveGameView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .activeGameStatusBarHidden()
                 // Note: allowsHitTesting removed - buttons need to be interactive!
-            }
-            
-            // Announcement Feed (bottom-leading)
-            VStack {
-                Spacer()
-                HStack {
-                    GameAnnouncementOverlay(manager: gameService.announcementManager)
-                        .padding(.leading, AppSpacing.md)
-                        .padding(.bottom, AppSpacing.lg + 60)
-                    Spacer()
-                }
             }
             
             // Network Error Banner
@@ -1017,7 +1008,7 @@ struct CTFActiveGameView: View {
                     Text("Check Win Condition")
                 }
             }
-            .buttonStyle(CartoonButtonStyle(accent: AppColors.cartoonSun, textColor: AppColors.cartoonInk))
+            .buttonStyle(CartoonButtonStyle(accent: AppColors.cartoonSun, textColor: AppColors.cartoonInkOnSunFill, borderColor: AppColors.cartoonInkOnSunFill))
         }
         .padding(AppSpacing.lg)
         .cartoonCard(cornerRadius: 20)

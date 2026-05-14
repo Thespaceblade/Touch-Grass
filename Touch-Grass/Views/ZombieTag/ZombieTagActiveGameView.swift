@@ -105,12 +105,13 @@ struct ZombieTagActiveGameView: View {
 
                         HStack(alignment: .top, spacing: AppSpacing.sm) {
                             topHUD
-                                .frame(maxWidth: geometry.size.width * 0.65, alignment: .leading)
+                                .frame(maxWidth: max(0, geometry.size.width - ActiveGameMapHubMetrics.idleHubWidth - AppSpacing.md * 2 - AppSpacing.sm),
+                                       alignment: .leading)
                                 .fixedSize(horizontal: false, vertical: true)
 
                             Spacer(minLength: 8)
 
-                            MapControlsView(
+                            ActiveGameMapHubView(
                                 mapType: $mapType,
                                 showPlayerLabels: $showPlayerLabels,
                                 onZoomToBubble: { zoomToBubbleTrigger = true },
@@ -118,7 +119,8 @@ struct ZombieTagActiveGameView: View {
                                 bubbleExists: gameService.session?.bubble != nil,
                                 playerLocationExists: locationService.coordinate != nil,
                                 gameType: gameService.session?.gameType,
-                                onEndGame: { gameService.endGame() }
+                                onEndGame: { gameService.endGame() },
+                                announcementManager: gameService.announcementManager
                             )
                         }
                         .padding(.leading, AppSpacing.md)
@@ -132,7 +134,7 @@ struct ZombieTagActiveGameView: View {
                     HStack {
                         Spacer()
                         compassOverlayContent
-                            .padding(.trailing, AppSpacing.md + 60) // Space for map icon
+                            .padding(.trailing, AppSpacing.md + ActiveGameMapHubMetrics.idleHubWidth)
                             .padding(.top, topSecondRow)
                     }
                 }
@@ -147,17 +149,7 @@ struct ZombieTagActiveGameView: View {
                 }
                 }
             }
-            // Announcement Feed (bottom-leading)
-            VStack {
-                Spacer()
-                HStack {
-                    GameAnnouncementOverlay(manager: gameService.announcementManager)
-                        .padding(.leading, AppSpacing.md)
-                        .padding(.bottom, AppSpacing.lg + 60)
-                    Spacer()
-                }
-            }
-            
+
             // Network Error Banner
             if let networkError = gameService.networkError {
                 VStack {
@@ -777,7 +769,7 @@ struct ZombieTagActiveGameView: View {
                         .font(.system(size: 14, weight: .black, design: .rounded))
                         .foregroundColor(safeAreaColor)
                 } else {
-                    Text("—")
+                    Text("-")
                         .font(.system(size: 14, weight: .black, design: .rounded))
                         .foregroundColor(AppColors.cartoonInk.opacity(0.55))
                 }
@@ -1027,6 +1019,7 @@ struct ZombieTagActiveGameView: View {
                 hasEligiblePrey: gameService.compassHasEligiblePrey,
                 lastResult: gameService.compassPulseLastResult,
                 resultBearing: pulseCommit.flatMap { gameService.compassBearing(for: $0) },
+                headingDegreesFromNorth: locationService.headingDegreesFromNorth,
                 onTap: { Task { await gameService.requestCompassPulse() } }
             )
         } else if shouldShowPreyPassiveCompass,
@@ -1036,7 +1029,8 @@ struct ZombieTagActiveGameView: View {
                 direction: direction,
                 distance: distance,
                 threatType: .hunter,
-                isVisible: true
+                isVisible: true,
+                headingDegreesFromNorth: locationService.headingDegreesFromNorth
             )
         }
     }

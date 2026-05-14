@@ -46,7 +46,7 @@ final class FirestoreService: ObservableObject {
         var mutableDict = dict
         // Ensure ID matches document ID (use document ID as source of truth).
         // This injection plus `init(from:)` decoding `.id` directly means we
-        // do NOT need to rebuild the session through a manual initializer —
+        // do NOT need to rebuild the session through a manual initializer -
         // doing so silently dropped CTF fields (flag placement flags, safe
         // zones, flag carriers) and would also drop compass fields. Return
         // the fully decoded session instead.
@@ -202,13 +202,13 @@ final class FirestoreService: ObservableObject {
     /// "No target") on the acting device.
     enum CompassPulseError: Error, Equatable {
         /// Caller is not currently a predator (role / alive / game-state).
-        /// Surfaced silently — the UI shouldn't even have been tappable.
+        /// Surfaced silently, the UI shouldn't even have been tappable.
         case notEligible
         /// No alive prey of the required role exist. Surface as
         /// `"No targets"` and DO NOT advance the cooldown.
         case noEligiblePrey
         /// Caller's cooldown is still active per the latest session
-        /// snapshot. Surface silently — UI should reflect this from the
+        /// snapshot. Surface silently, UI should reflect this from the
         /// session listener; this guards against client-side drift.
         case cooldownActive(remaining: TimeInterval)
         /// Session document missing. Generic failure.
@@ -238,8 +238,8 @@ final class FirestoreService: ObservableObject {
     /// `actorLocation` (live local GPS) to the prey's snapshot
     /// coordinates, and writes only:
     ///
-    /// - `compassPulse` — encoded `CompassPulse`
-    /// - `compassLastUsedAtByPlayerId.<actorId>` — same `usedAt`
+    /// - `compassPulse`, encoded `CompassPulse`
+    /// - `compassLastUsedAtByPlayerId.<actorId>`, same `usedAt`
     ///
     /// Returns the committed pulse plus commit-time coordinates. The
     /// transaction closure may retry; the returned value is whichever attempt

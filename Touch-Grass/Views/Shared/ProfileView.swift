@@ -27,40 +27,42 @@ struct ProfileView: View {
                 .allowsHitTesting(false)
                 .zIndex(1)
 
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: AppSpacing.xl) {
-                    // Inline title header
-                    HStack {
-                        Text("Profile")
-                            .font(.system(size: 28, weight: .black, design: .rounded))
-                            .foregroundColor(AppColors.cartoonInk)
-                        Spacer()
+            NavigationStack {
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: AppSpacing.xl) {
+                        // Inline title header
+                        HStack {
+                            Text("Profile")
+                                .font(.system(size: 28, weight: .black, design: .rounded))
+                                .foregroundColor(AppColors.cartoonInk)
+                            Spacer()
+                        }
+                        .padding(.horizontal, AppSpacing.md)
+                        .padding(.top, AppSpacing.md)
+
+                        profileHeaderSection
+                            .padding(.horizontal, AppSpacing.md)
+
+                        quickStatsCard
+                            .padding(.horizontal, AppSpacing.md)
+
+                        StatisticsSectionView(
+                            animatedGamesPlayed: animatedGamesPlayed,
+                            animatedWins: animatedWins,
+                            totalPlaytime: profileService.totalPlaytime,
+                            totalGamesPlayed: profileService.totalGamesPlayed,
+                            totalWins: profileService.totalWins
+                        )
+                        .padding(.horizontal, AppSpacing.md)
+
+                        achievementsSummarySection
+                            .padding(.horizontal, AppSpacing.md)
+
+                        Spacer().frame(height: AppSpacing.xl)
                     }
-                    .padding(.horizontal, AppSpacing.md)
-                    .padding(.top, AppSpacing.md)
-
-                    profileHeaderSection
-                        .padding(.horizontal, AppSpacing.md)
-
-                    quickStatsCard
-                        .padding(.horizontal, AppSpacing.md)
-
-                    StatisticsSectionView(
-                        animatedGamesPlayed: animatedGamesPlayed,
-                        animatedWins: animatedWins,
-                        totalPlaytime: profileService.totalPlaytime,
-                        totalGamesPlayed: profileService.totalGamesPlayed,
-                        totalWins: profileService.totalWins
-                    )
-                    .padding(.horizontal, AppSpacing.md)
-
-                    achievementsSection
-                        .padding(.horizontal, AppSpacing.md)
-
-                    Spacer().frame(height: AppSpacing.xl)
                 }
+                .safeAreaPadding(.bottom, AppSpacing.lg)
             }
-            .safeAreaPadding(.bottom, AppSpacing.lg)
             .zIndex(2)
         }
         .sheet(isPresented: $showBluetoothTest) {
@@ -101,12 +103,12 @@ struct ProfileView: View {
                         Circle()
                             .fill(AppColors.cartoonSun)
                             .frame(width: 30, height: 30)
-                            .overlay(Circle().stroke(AppColors.cartoonInk, lineWidth: 2))
+                            .overlay(Circle().stroke(AppColors.cartoonInkOnSunFill, lineWidth: 2))
                         Text("\(playerLevel)")
                             .font(.system(size: 13, weight: .black, design: .rounded))
-                            .foregroundColor(AppColors.cartoonInk)
+                            .foregroundColor(AppColors.cartoonInkOnSunFill)
                     }
-                    .background(Circle().fill(Color(white: 0.18)).offset(x: 2, y: 2))
+                    .background(Circle().fill(AppColors.cartoonShadow).offset(x: 2, y: 2))
                     .offset(x: 4, y: 4)
                 }
 
@@ -117,7 +119,7 @@ struct ProfileView: View {
                         .foregroundColor(AppColors.cartoonInk)
                         .lineLimit(1)
 
-                    CartoonPill(text: playerRank, color: AppColors.cartoonSun, textColor: AppColors.cartoonInk)
+                    CartoonPill(text: playerRank, color: AppColors.cartoonSun, textColor: AppColors.cartoonInkOnSunFill, strokeColor: AppColors.cartoonInkOnSunFill)
 
                     HStack(spacing: 5) {
                         Image(systemName: "gamecontroller.fill")
@@ -191,8 +193,12 @@ struct ProfileView: View {
 
     // MARK: - Achievements
 
-    private var achievementsSection: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+    private var achievementsSummarySection: some View {
+        let stats = profileService.achievementStatsSnapshot()
+        let unlocked = AchievementCatalog.unlockedCount(for: stats)
+        let total = AchievementCatalog.totalCount
+
+        return VStack(alignment: .leading, spacing: AppSpacing.sm) {
             HStack(spacing: AppSpacing.sm) {
                 Image(systemName: "trophy.fill")
                     .font(.system(size: 15, weight: .black))
@@ -202,103 +208,41 @@ struct ProfileView: View {
                     .foregroundColor(AppColors.cartoonInk)
             }
 
-            CartoonCard(padding: 0) {
-                VStack(spacing: 0) {
-                    achievementRow(
-                        title: "First Steps",
-                        description: "Play your first game",
-                        icon: "star.fill",
-                        unlocked: profileService.totalGamesPlayed > 0,
-                        color: AppColors.grassPrimary,
-                        isLast: false
-                    )
-                    achievementRow(
-                        title: "Winner",
-                        description: "Win your first game",
-                        icon: "trophy.fill",
-                        unlocked: profileService.totalWins > 0,
-                        color: AppColors.cartoonSun,
-                        isLast: false
-                    )
-                    achievementRow(
-                        title: "Veteran",
-                        description: "Play 10 games",
-                        icon: "medal.fill",
-                        unlocked: profileService.totalGamesPlayed >= 10,
-                        color: AppColors.manhuntPrimary,
-                        isLast: false
-                    )
-                    achievementRow(
-                        title: "Champion",
-                        description: "Win 5 games",
-                        icon: "crown.fill",
-                        unlocked: profileService.totalWins >= 5,
-                        color: AppColors.ctfPrimary,
-                        isLast: true
-                    )
+            NavigationLink {
+                AchievementsListView()
+            } label: {
+                HStack(spacing: AppSpacing.md) {
+                    ZStack {
+                        Circle()
+                            .fill(AppColors.cartoonSun.opacity(0.22))
+                            .frame(width: 50, height: 50)
+                            .overlay(Circle().stroke(AppColors.cartoonSun, lineWidth: 2))
+                        Image(systemName: "trophy.fill")
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundColor(AppColors.cartoonSun)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(unlocked) / \(total) unlocked")
+                            .font(.system(size: 15, weight: .black, design: .rounded))
+                            .foregroundColor(AppColors.cartoonInk)
+                        Text("View all achievements")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(AppColors.cartoonInk.opacity(0.5))
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .black))
+                        .foregroundColor(AppColors.cartoonInk.opacity(0.35))
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 13)
+                .contentShape(Rectangle())
             }
-        }
-    }
-
-    private func achievementRow(
-        title: String,
-        description: String,
-        icon: String,
-        unlocked: Bool,
-        color: Color,
-        isLast: Bool
-    ) -> some View {
-        HStack(spacing: AppSpacing.md) {
-            // Icon medallion
-            ZStack {
-                Circle()
-                    .fill(unlocked ? color.opacity(0.18) : AppColors.cartoonInk.opacity(0.07))
-                    .frame(width: 50, height: 50)
-                    .overlay(
-                        Circle().stroke(
-                            unlocked ? color : AppColors.cartoonInk.opacity(0.18),
-                            lineWidth: 2
-                        )
-                    )
-                Image(systemName: icon)
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundColor(unlocked ? color : AppColors.cartoonInk.opacity(0.22))
-            }
-
-            // Text
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 14, weight: .black, design: .rounded))
-                    .foregroundColor(
-                        unlocked ? AppColors.cartoonInk : AppColors.cartoonInk.opacity(0.35)
-                    )
-                Text(description)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(AppColors.cartoonInk.opacity(0.45))
-            }
-
-            Spacer()
-
-            // Status icon
-            if unlocked {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(color)
-            } else {
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(AppColors.cartoonInk.opacity(0.2))
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 13)
-        .overlay(alignment: .bottom) {
-            if !isLast {
-                Rectangle()
-                    .fill(AppColors.cartoonInk.opacity(0.12))
-                    .frame(height: 1.5)
-            }
+            .buttonStyle(.plain)
+            .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2)
         }
     }
 

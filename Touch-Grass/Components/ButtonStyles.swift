@@ -87,7 +87,7 @@ struct PrimaryButtonStyle: ButtonStyle {
                 )
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color(white: 0.18))
+                        .fill(AppColors.cartoonShadow)
                         .offset(x: offset, y: offset)
                 )
                 .opacity(isDisabled ? 0.65 : 1.0)
@@ -130,7 +130,7 @@ struct SecondaryButtonStyle: ButtonStyle {
                 )
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color(white: 0.18))
+                        .fill(AppColors.cartoonShadow)
                         .offset(x: offset, y: offset)
                 )
                 .onChange(of: configuration.isPressed) { _, isPressed in
@@ -164,7 +164,7 @@ struct IconButtonStyle: ButtonStyle {
                 )
                 .background(
                     Circle()
-                        .fill(Color(white: 0.18))
+                        .fill(AppColors.cartoonShadow)
                         .offset(x: offset, y: offset)
                 )
                 .onChange(of: configuration.isPressed) { _, isPressed in
@@ -265,7 +265,7 @@ struct CartoonCardButtonStyle: ButtonStyle {
                 )
                 .background(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(Color(white: 0.18))
+                        .fill(AppColors.cartoonShadow)
                         .offset(x: offset, y: offset)
                 )
                 .animation(.spring(response: 0.2, dampingFraction: 0.72), value: visualPressed)

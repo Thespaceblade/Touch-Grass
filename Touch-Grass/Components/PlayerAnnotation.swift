@@ -14,12 +14,12 @@ import CoreLocation
 /// `LocationObfuscationService.displayMode(...)` so the annotation view never
 /// re-derives styling from scattered role checks.
 enum PlayerMapDisplayMode {
-    /// Local player. Strongest visual treatment — exact live GPS.
+    /// Local player. Strongest visual treatment, exact live GPS.
     case selfExact
     /// Same-team player. Exact live GPS, normal team-colored marker.
     case teammateExact
     /// Opposing-team player. Coordinate is a jittered snapshot inside the
-    /// uncertainty bubble — render with a distinct "signal" treatment so it's
+    /// uncertainty bubble, render with a distinct "signal" treatment so it's
     /// obvious this is *not* a precise location.
     case opponentObfuscated
 }

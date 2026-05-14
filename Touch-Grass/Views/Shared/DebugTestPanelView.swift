@@ -169,6 +169,15 @@ struct DebugTestPanelView: View {
             // Game State Tests
             testCard(title: "Game State", icon: "arrow.triangle.2.circlepath") {
                 VStack(spacing: AppSpacing.md) {
+                    Toggle("Skip pre-game countdown", isOn: Binding(
+                        get: { DebugRuntimeFlags.skipPreGameCountdown },
+                        set: { DebugRuntimeFlags.skipPreGameCountdown = $0 }
+                    ))
+                    .font(AppTypography.bodyMedium())
+                    Text("Lobby → active and CTF flag placement skip the full-screen countdown so you land on the map UI immediately (still starts the game timer).")
+                        .font(AppTypography.bodySmall())
+                        .foregroundColor(AppColors.textSecondary)
+                    
                     if let session = viewModel.gameService.session {
                         Text("Current State: \(session.gameState.rawValue)")
                             .font(AppTypography.bodyMedium())
@@ -332,18 +341,30 @@ struct DebugTestPanelView: View {
                 VStack(alignment: .leading, spacing: AppSpacing.md) {
                     Text("Games Played: \(profileService.totalGamesPlayed)")
                         .font(AppTypography.bodyMedium())
-                    
+
                     Text("Wins: \(profileService.totalWins)")
                         .font(AppTypography.bodyMedium())
-                    
+
+                    Text("MH / ZT / CTF games: \(profileService.gamesManhunt) / \(profileService.gamesZombieTag) / \(profileService.gamesCTF)")
+                        .font(AppTypography.caption())
+                        .foregroundColor(AppColors.textSecondary)
+
+                    Text("Predator tags (total): \(profileService.totalPredatorTags)")
+                        .font(AppTypography.caption())
+                        .foregroundColor(AppColors.textSecondary)
+
                     testButton(title: "Increment Games", color: .green) {
                         incrementGamesPlayed()
                     }
-                    
+
                     testButton(title: "Increment Wins", color: .green) {
                         incrementWins()
                     }
-                    
+
+                    testButton(title: "+5 Predator Tags", color: .purple) {
+                        bumpPredatorTags(5)
+                    }
+
                     testButton(title: "Reset Stats", color: .red) {
                         resetStats()
                     }
@@ -806,27 +827,26 @@ struct DebugTestPanelView: View {
     }
     
     private func incrementGamesPlayed() {
-        let current = profileService.totalGamesPlayed
-        UserDefaults.standard.set(current + 1, forKey: "totalGamesPlayed")
-        // Force UI update by triggering objectWillChange
-        profileService.objectWillChange.send()
-        print("✅ Debug: Incremented games played to \(current + 1)")
+        profileService.debugRecordSyntheticGameOutcome(gameType: .manhunt, won: false)
+        print("✅ Debug: Recorded synthetic game (no win)")
     }
-    
+
     private func incrementWins() {
-        let current = profileService.totalWins
-        UserDefaults.standard.set(current + 1, forKey: "totalWins")
-        // Force UI update by triggering objectWillChange
-        profileService.objectWillChange.send()
-        print("✅ Debug: Incremented wins to \(current + 1)")
+        profileService.debugRecordSyntheticGameOutcome(gameType: .manhunt, won: true)
+        print("✅ Debug: Recorded synthetic game with win")
     }
     
-    private func resetStats() {
-        UserDefaults.standard.set(0, forKey: "totalGamesPlayed")
-        UserDefaults.standard.set(0, forKey: "totalWins")
-        // Force UI update by triggering objectWillChange
+    private func bumpPredatorTags(_ delta: Int) {
+        let key = "profileTotalPredatorTags"
+        let current = UserDefaults.standard.integer(forKey: key)
+        UserDefaults.standard.set(current + delta, forKey: key)
         profileService.objectWillChange.send()
-        print("✅ Debug: Reset all statistics")
+        print("✅ Debug: Predator tags now \(current + delta)")
+    }
+
+    private func resetStats() {
+        profileService.resetAchievementStatsForTesting()
+        print("✅ Debug: Reset all statistics (including per-mode and achievements counters)")
     }
     
     // MARK: - Fake Player GPS Simulation
@@ -942,7 +962,7 @@ struct DebugTestPanelView: View {
     @MainActor
     private func stepFakePlayerMovement() {
         guard var session = viewModel.gameService.session else { return }
-        // Excluded in v1 — CTF has flag/safe-zone semantics that should not
+        // Excluded in v1, CTF has flag/safe-zone semantics that should not
         // be perturbed by random fake movement.
         guard session.gameType != .captureTheFlag else { return }
         

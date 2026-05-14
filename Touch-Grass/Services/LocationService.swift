@@ -9,6 +9,10 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
 
     @Published var coordinate: CLLocationCoordinate2D?
     @Published var accuracy: CLLocationAccuracy?
+    /// Device heading in degrees clockwise from true/magnetic north (0 = north).
+    /// Used to rotate compass needles so “up” on screen matches where the
+    /// player is facing. `nil` when heading updates are unavailable.
+    @Published var headingDegreesFromNorth: Double?
     /// Last GPS fix accepted into `coordinate` / `accuracy` (same `CLLocation`
     /// instance from Core Location, preserving `timestamp` for freshness checks).
     var lastKnownLocation: CLLocation?
@@ -156,6 +160,7 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
         
         isLocationActive = true
         manager.startUpdatingLocation()
+        startHeadingUpdatesIfAvailable()
         DebugLogger.log("📍 GPS started (motion detected)")
     }
     
@@ -165,6 +170,7 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
         
         isLocationActive = false
         manager.stopUpdatingLocation()
+        stopHeadingUpdates()
         DebugLogger.log("📍 GPS stopped (no motion detected)")
     }
 
@@ -221,12 +227,27 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
             isLocationActive = true
             DebugLogger.log("📍 GPS started (initial location request)")
         }
+        startHeadingUpdatesIfAvailable()
     }
 
     func stop() {
         manager.stopUpdatingLocation()
         isLocationActive = false
+        stopHeadingUpdates()
         stopMotionDetection()
+    }
+
+    private func startHeadingUpdatesIfAvailable() {
+        guard CLLocationManager.headingAvailable() else { return }
+        manager.headingFilter = 5
+        manager.startUpdatingHeading()
+    }
+
+    private func stopHeadingUpdates() {
+        if CLLocationManager.headingAvailable() {
+            manager.stopUpdatingHeading()
+        }
+        headingDegreesFromNorth = nil
     }
     
     func getCurrentLocation() -> CLLocation? {
@@ -253,6 +274,7 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
             coordinate = nil
             accuracy = nil
             lastKnownLocation = nil
+            headingDegreesFromNorth = nil
             stopMotionDetection()
         } else if newStatus == .authorizedWhenInUse || newStatus == .authorizedAlways {
             // Start location updates if:
@@ -291,5 +313,16 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
         if let clError = error as? CLError, clError.code != .locationUnknown {
             DebugLogger.error("Location error: \(error.localizedDescription)")
         }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+        // `trueHeading` is -1 until calibrated; magnetic is always defined.
+        let t = newHeading.trueHeading
+        let value = (t >= 0 && t.isFinite) ? t : newHeading.magneticHeading
+        guard value.isFinite, !value.isNaN else {
+            headingDegreesFromNorth = nil
+            return
+        }
+        headingDegreesFromNorth = value
     }
 }

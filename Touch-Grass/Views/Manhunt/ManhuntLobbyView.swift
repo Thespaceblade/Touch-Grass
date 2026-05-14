@@ -92,6 +92,8 @@ struct ManhuntLobbyView: View {
                 showCountdown = false
                 countdownStartTime = nil
                 countdownCompleted = false
+            } else {
+                skipPreGameCountdownIfNeededForDebug()
             }
             
             // If game is already ended, ensure we have the latest session and stats
@@ -116,8 +118,9 @@ struct ManhuntLobbyView: View {
             cachedGameState = newValue
             // When game state changes to active, show countdown
             if oldValue != .active && newValue == .active {
-                // Check if we haven't already started the countdown
-                if countdownStartTime == nil && !countdownCompleted {
+                if DebugRuntimeFlags.skipPreGameCountdown {
+                    skipPreGameCountdownIfNeededForDebug()
+                } else if countdownStartTime == nil && !countdownCompleted {
                     countdownStartTime = Date()
                     countdownCompleted = false
                     withAnimation(.smoothTransition) {
@@ -228,6 +231,16 @@ struct ManhuntLobbyView: View {
         #endif
     }
     
+    /// When `DebugRuntimeFlags.skipPreGameCountdown` is on, jump straight to active UI and start the game timer (host) like a finished countdown.
+    private func skipPreGameCountdownIfNeededForDebug() {
+        guard DebugRuntimeFlags.skipPreGameCountdown else { return }
+        guard viewModel.gameService.gameState == .active, !countdownCompleted else { return }
+        viewModel.gameService.startGameTimer()
+        countdownCompleted = true
+        showCountdown = false
+        countdownStartTime = nil
+    }
+    
     // MARK: - Main Content View
     
     private var mainContentView: some View {
@@ -254,6 +267,7 @@ struct ManhuntLobbyView: View {
                 session: session,
                 gameStats: gameStats,
                 currentPlayer: viewModel.gameService.currentPlayer,
+                gameService: viewModel.gameService,
                 onPlayAgain: {
                     viewModel.playAgain()
                 },
@@ -403,7 +417,7 @@ struct ManhuntLobbyView: View {
         return ZStack {
             // Game Title - Dynamic based on game type
         VStack(spacing: AppSpacing.sm) {
-                // Game Logo/Title — smaller when a session exists to save vertical space
+                // Game Logo/Title, smaller when a session exists to save vertical space
                 gameTitleView(compact: hasSession)
                     .frame(maxWidth: .infinity)
                     .transition(.scale.combined(with: .opacity))
@@ -432,7 +446,7 @@ struct ManhuntLobbyView: View {
         }
     }
     
-    // Manhunt game logo view — compact mode shrinks it when session panel is visible
+    // Manhunt game logo view, compact mode shrinks it when session panel is visible
     private func gameTitleView(compact: Bool = false) -> some View {
         let maxH: CGFloat = compact ? 100 : 216
         let maxW: CGFloat = compact ? 360 : 780
@@ -676,7 +690,7 @@ struct ManhuntLobbyView: View {
                         
                         // You badge
                         if player.id == viewModel.gameService.currentPlayer?.id {
-                            CartoonPill(text: "You", color: AppColors.cartoonSun, textColor: AppColors.cartoonInk)
+                            CartoonPill(text: "You", color: AppColors.cartoonSun, textColor: AppColors.cartoonInkOnSunFill, strokeColor: AppColors.cartoonInkOnSunFill)
                         }
                         
                         // Eliminated indicator

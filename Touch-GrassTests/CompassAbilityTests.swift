@@ -4,7 +4,7 @@
 //
 //  Pure unit tests for `CompassAbilityConfig` math. These guard the
 //  contract that `GameService` (eligibility) and the SwiftUI control
-//  (charging ring) both depend on — if either gets out of sync, the
+//  (charging ring) both depend on, if either gets out of sync, the
 //  cooldown ring would lie about when the ability is actually fireable.
 //
 
@@ -93,6 +93,34 @@ final class CompassAbilityTests: XCTestCase {
         )
         XCTAssertEqual(a, b)
         XCTAssertNotEqual(a, c)
+    }
+
+    // MARK: - screenRelativeBearing
+
+    func testScreenRelativeBearingNilHeadingReturnsGeographic() {
+        let g = 42.0
+        XCTAssertEqual(
+            CompassAbilityConfig.screenRelativeBearing(geographicBearingDegrees: g, headingDegreesFromNorth: nil),
+            g,
+            accuracy: 0.0001
+        )
+    }
+
+    func testScreenRelativeBearingFacingNorthLeavesBearingUnchanged() {
+        XCTAssertEqual(
+            CompassAbilityConfig.screenRelativeBearing(geographicBearingDegrees: 90, headingDegreesFromNorth: 0),
+            90,
+            accuracy: 0.0001
+        )
+    }
+
+    func testScreenRelativeBearingFacingEastShiftsWest() {
+        // Top of phone = east (90°). Target at north (0°) appears toward left (-90° screen) = 270° CW from up.
+        XCTAssertEqual(
+            CompassAbilityConfig.screenRelativeBearing(geographicBearingDegrees: 0, headingDegreesFromNorth: 90),
+            270,
+            accuracy: 0.0001
+        )
     }
 }
 #endif

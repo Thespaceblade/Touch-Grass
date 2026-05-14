@@ -2,139 +2,83 @@
 //  ThemeManager.swift
 //  Touch-Grass
 //
-//  Created by Jason Charwin on 12/26/25.
+//  Owns the user's appearance preference (Light / Dark / System).
+//
+//  Storage shape: `Light`, `Dark`, `System`. Resolution shape: `ColorScheme?`
+//  (`nil` = follow system). Applied at the root via
+//  `.preferredColorScheme(themeManager.preferredColorScheme)` so SwiftUI
+//  propagates the trait to every view, including the UITabBar trait
+//  collection, UIKit dynamic colors then resolve automatically.
 //
 
 import SwiftUI
 import Combine
-import UIKit
+
 @MainActor
-class ThemeManager: ObservableObject {
-    enum ThemePreference: String, CaseIterable {
-        case light = "light"
-        case dark = "dark"
-        case system = "system"
-        
+final class ThemeManager: ObservableObject {
+    static let shared = ThemeManager()
+
+    /// Posted after `preference` changes so UIKit appearance proxies
+    /// (e.g. `UITabBarAppearance`) can be rebuilt against the new trait
+    /// collection if they don't naturally re-resolve dynamic colors.
+    static let didChangeNotification = Notification.Name("ThemeManagerDidChange")
+
+    enum Preference: String, CaseIterable, Identifiable {
+        case light
+        case dark
+        case system
+
+        var id: String { rawValue }
+
         var displayName: String {
             switch self {
-            case .light: return "Light"
-            case .dark: return "Dark"
+            case .light:  return "Light"
+            case .dark:   return "Dark"
             case .system: return "System"
             }
         }
-        
-        var icon: String {
+
+        var iconName: String {
             switch self {
-            case .light: return "sun.max.fill"
-            case .dark: return "moon.fill"
+            case .light:  return "sun.max.fill"
+            case .dark:   return "moon.stars.fill"
             case .system: return "circle.lefthalf.filled"
             }
         }
+
+        /// The override SwiftUI should apply. `nil` means "follow system".
+        var colorScheme: ColorScheme? {
+            switch self {
+            case .light:  return .light
+            case .dark:   return .dark
+            case .system: return nil
+            }
+        }
     }
-    
-    @Published var themePreference: ThemePreference = .system {
+
+    private let storageKey = "themePreference"
+
+    @Published var preference: Preference {
         didSet {
-            UserDefaults.standard.set(themePreference.rawValue, forKey: "themePreference")
-            updateColorScheme()
+            guard oldValue != preference else { return }
+            UserDefaults.standard.set(preference.rawValue, forKey: storageKey)
+            NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
         }
     }
-    
-    @Published var colorScheme: ColorScheme = .dark
-    
-    static let shared = ThemeManager()
-    
-    private let themePreferenceKey = "themePreference"
-    
+
     private init() {
-        // Load saved theme preference
-        if let savedPreference = UserDefaults.standard.string(forKey: themePreferenceKey),
-           let preference = ThemePreference(rawValue: savedPreference) {
-            themePreference = preference
+        if let raw = UserDefaults.standard.string(forKey: storageKey),
+           let saved = Preference(rawValue: raw) {
+            preference = saved
         } else {
-            themePreference = .system // Default to system
-        }
-        
-        // Initialize color scheme based on preference
-        updateColorScheme()
-        
-        // Observe system theme changes if using system preference
-        if themePreference == .system {
-            Task { @MainActor in
-                self.setupSystemThemeObserver()
-            }
+            // Default to Light to preserve the current cartoon-light experience on
+            // upgrade; users opt in to Dark or System from Settings.
+            preference = .light
         }
     }
-    
-    private func updateColorScheme() {
-        withAnimation {
-            switch themePreference {
-            case .light:
-                colorScheme = .light
-            case .dark:
-                colorScheme = .dark
-            case .system:
-                detectSystemTheme()
-            }
-        }
-    }
-    
-    private func detectSystemTheme() {
-        // Auto-detect system theme
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-            let userInterfaceStyle = windowScene.traitCollection.userInterfaceStyle
-            let detectedScheme: ColorScheme = userInterfaceStyle == .dark ? .dark : .light
-            if detectedScheme != colorScheme {
-                colorScheme = detectedScheme
-            }
-        } else {
-            // Fallback to dark if unable to detect
-            colorScheme = .dark
-        }
-    }
-    
-    private func setupSystemThemeObserver() {
-        NotificationCenter.default.addObserver(
-            forName: UIApplication.didBecomeActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self = self else { return }
-            Task { @MainActor in
-                if self.themePreference == .system {
-                    self.detectSystemTheme()
-                }
-            }
-        }
-    }
-    
-    func toggle() {
-        // Legacy toggle function - cycles through preferences
-        switch themePreference {
-        case .light:
-            themePreference = .dark
-        case .dark:
-            themePreference = .system
-        case .system:
-            themePreference = .light
-        }
-    }
-}
 
-// MARK: - View Modifiers for Theming
-
-struct ThemedBackground: ViewModifier {
-    @Environment(\.colorScheme) var colorScheme
-    
-    func body(content: Content) -> some View {
-        content
-            .background(
-                AppColors.backgroundPrimary
-            )
-    }
-}
-
-extension View {
-    func themedBackground() -> some View {
-        modifier(ThemedBackground())
+    /// Bind this at the app/root level: `.preferredColorScheme(themeManager.preferredColorScheme)`.
+    var preferredColorScheme: ColorScheme? {
+        preference.colorScheme
     }
 }

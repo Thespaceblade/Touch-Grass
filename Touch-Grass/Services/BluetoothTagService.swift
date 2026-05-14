@@ -240,7 +240,7 @@ extension BluetoothTagService: CBPeripheralManagerDelegate {
         guard isRunning else { return }
         
         if peripheral.state == .poweredOn {
-            // Create the advertised characteristic with no static value — we
+            // Create the advertised characteristic with no static value, we
             // serve reads dynamically via `peripheralManager(_:didReceiveRead:)`
             // and push updates with `updateValue(_:for:onSubscribedCentrals:)`.
             let characteristic = CBMutableCharacteristic(
@@ -338,7 +338,7 @@ extension BluetoothTagService {
             let components = message.components(separatedBy: ":")
             if components.count >= 3 {
                 let fromPlayerId = components[1]
-                // Names can contain ":" — rejoin everything after the id.
+                // Names can contain ":", rejoin everything after the id.
                 let fromPlayerName = components.dropFirst(2).joined(separator: ":")
                 handleIncomingTagRequest(fromPlayerId: fromPlayerId, fromPlayerName: fromPlayerName)
             }

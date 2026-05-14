@@ -11,6 +11,7 @@ struct ManhuntGameEndView: View {
     let session: GameSession
     let gameStats: GameStats
     let currentPlayer: Player?
+    let gameService: GameService
     let onPlayAgain: () -> Void
     let onBackToLobby: () -> Void
     
@@ -29,7 +30,7 @@ struct ManhuntGameEndView: View {
             )
             
             // Celebration confetti (if won)
-            if showCelebration && (gameStats.winner == .hunters || gameStats.winner == .hiders) {
+            if showCelebration && hasTeamOutcome {
                 celebrationConfetti
             }
             
@@ -53,20 +54,22 @@ struct ManhuntGameEndView: View {
                     Spacer()
                         .frame(height: AppSpacing.lg)
                 }
-                .padding(.horizontal, AppSpacing.md)
+                .frame(maxWidth: .infinity)
+                .padding(.leading, AppSpacing.md)
+                .padding(.trailing, AppSpacing.md + 5) // +5 absorbs cartoon shadow right bleed
             }
             .safeAreaPadding(.bottom, AppSpacing.lg)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            // Record game statistics
-            let won = (gameStats.winner == .hunters && currentPlayer?.role == .hunter) ||
-                     (gameStats.winner == .hiders && currentPlayer?.role == .hider)
-            ProfileService.shared.recordGamePlayed(
-                duration: gameStats.totalGameDuration(),
-                won: won
+            gameService.applyPostGameProfileOutcome(
+                session: session,
+                gameStats: gameStats,
+                currentPlayer: currentPlayer
             )
-            
-            // Initialize profile picture visibility array
+
+            let won = (gameStats.winner == .hunters && currentPlayer?.role == .hunter) ||
+                     ((gameStats.winner == .hiders || gameStats.winner == .timeUp) && currentPlayer?.role == .hider)
             let winningPlayers = getWinningTeamPlayers()
             profilePicturesVisible = Array(repeating: false, count: winningPlayers.count)
             
@@ -98,7 +101,7 @@ struct ManhuntGameEndView: View {
             } else {
                 trophyScale = 1.0
                 // Still show profile pictures even if current player didn't win
-                if gameStats.winner == .hunters || gameStats.winner == .hiders {
+                if hasTeamOutcome {
                     let losingTeamPlayers = getWinningTeamPlayers()
                     for index in 0..<losingTeamPlayers.count {
                         withAnimation(.spring(response: 0.6, dampingFraction: 0.7).delay(Double(index) * 0.1 + 0.2)) {
@@ -118,13 +121,11 @@ struct ManhuntGameEndView: View {
     
     private var winnerSection: some View {
         VStack(spacing: AppSpacing.lg) {
-            // Winner profile pictures (if team won)
-            if gameStats.winner == .hunters || gameStats.winner == .hiders {
+            // Winner profile pictures (if a team survived); otherwise neutral icon.
+            if hasTeamOutcome {
                 winningTeamProfiles
             } else {
-                // Fallback icon for time up or other cases
                 ZStack {
-                    // Glow effect
                     if showCelebration {
                         Circle()
                             .fill(
@@ -149,21 +150,27 @@ struct ManhuntGameEndView: View {
                         .symbolEffect(.bounce, options: showCelebration ? .repeating : .default)
                 }
             }
-            
-            // Winner text
-            Text(winnerText)
+
+            Text(outcome.eyebrow)
+                .font(.system(size: 12, weight: .black, design: .rounded))
+                .tracking(2.2)
+                .foregroundColor(AppColors.cartoonInk.opacity(0.55))
+
+            Text(outcome.title)
                 .font(.system(size: 34, weight: .black, design: .rounded))
                 .foregroundStyle(winnerGradient)
                 .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.55)
+                .lineLimit(2)
                 .scaleEffect(showCelebration ? 1.05 : 1.0)
-            
-            // Subtitle
-            Text(winnerSubtitle)
+
+            Text(outcome.subtitle)
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                 .multilineTextAlignment(.center)
         }
-        .padding(AppSpacing.xl)
+        .padding(.horizontal, AppSpacing.md)
+        .padding(.vertical, AppSpacing.lg)
         .frame(maxWidth: .infinity)
         .cartoonCard(cornerRadius: 20, shadowOffset: 5, borderWidth: 2.5)
     }
@@ -172,42 +179,65 @@ struct ManhuntGameEndView: View {
         let winningPlayers = getWinningTeamPlayers()
         let teamColor = getTeamColor()
         let teamSecondaryColor = getTeamSecondaryColor()
-        
-        let glowSize = CGFloat(max(200, winningPlayers.count * 50))
-        
+        let avatarSize: CGFloat = winningPlayers.count <= 3 ? 68 : 54
+        let rowSpacing: CGFloat = winningPlayers.count <= 3 ? AppSpacing.sm : AppSpacing.xs
+
         return ZStack {
-            // Background glow effect
-            if showCelebration {
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                teamColor.opacity(0.2),
-                                Color.clear
-                            ],
-                            center: .center,
-                            startRadius: 40,
-                            endRadius: glowSize * 0.5
-                        )
-                    )
-                    .frame(width: glowSize, height: glowSize)
-                    .blur(radius: 30)
-                    .scaleEffect(borderPulse)
-            }
-            
-            // Profile pictures arranged in a row (centered)
-            HStack(spacing: winningPlayers.count <= 4 ? AppSpacing.md : AppSpacing.sm) {
-                ForEach(Array(winningPlayers.enumerated()), id: \.element.id) { index, player in
-                    profilePictureView(
-                        player: player,
-                        teamColor: teamColor,
-                        teamSecondaryColor: teamSecondaryColor,
-                        index: index,
-                        size: winningPlayers.count <= 4 ? 70 : 60
-                    )
+            // Decorative glow — kept in `.background` so it never inflates layout width on large teams.
+            Color.clear
+                .background {
+                    if showCelebration {
+                        let glowDiameter = min(280, max(200, CGFloat(winningPlayers.count) * 44 + 72))
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [
+                                        teamColor.opacity(0.2),
+                                        Color.clear
+                                    ],
+                                    center: .center,
+                                    startRadius: 40,
+                                    endRadius: glowDiameter * 0.5
+                                )
+                            )
+                            .frame(width: glowDiameter, height: glowDiameter)
+                            .blur(radius: 30)
+                            .scaleEffect(borderPulse)
+                    }
+                }
+
+            Group {
+                if winningPlayers.count <= 3 {
+                    HStack(spacing: rowSpacing) {
+                        ForEach(Array(winningPlayers.enumerated()), id: \.element.id) { index, player in
+                            profilePictureView(
+                                player: player,
+                                teamColor: teamColor,
+                                teamSecondaryColor: teamSecondaryColor,
+                                index: index,
+                                size: avatarSize
+                            )
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: rowSpacing) {
+                            ForEach(Array(winningPlayers.enumerated()), id: \.element.id) { index, player in
+                                profilePictureView(
+                                    player: player,
+                                    teamColor: teamColor,
+                                    teamSecondaryColor: teamSecondaryColor,
+                                    index: index,
+                                    size: avatarSize
+                                )
+                            }
+                        }
+                        .padding(.horizontal, AppSpacing.xs)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
             }
-            .padding(.horizontal, AppSpacing.sm)
         }
     }
     
@@ -302,11 +332,18 @@ struct ManhuntGameEndView: View {
         )
     }
     
+    private var hasTeamOutcome: Bool {
+        switch gameStats.winner {
+        case .hunters, .hiders, .timeUp: return true
+        default: return false
+        }
+    }
+
     private func getWinningTeamPlayers() -> [Player] {
         switch gameStats.winner {
         case .hunters:
             return session.players.filter { $0.role == .hunter && $0.isAlive }
-        case .hiders:
+        case .hiders, .timeUp:
             return session.players.filter { $0.role == .hider && $0.isAlive }
         default:
             return []
@@ -317,7 +354,7 @@ struct ManhuntGameEndView: View {
         switch gameStats.winner {
         case .hunters:
             return AppColors.hunterPrimary
-        case .hiders:
+        case .hiders, .timeUp:
             return AppColors.hiderPrimary
         default:
             return AppColors.textPrimary
@@ -328,7 +365,7 @@ struct ManhuntGameEndView: View {
         switch gameStats.winner {
         case .hunters:
             return AppColors.hunterSecondary
-        case .hiders:
+        case .hiders, .timeUp:
             return AppColors.hiderSecondary
         default:
             return AppColors.textSecondary
@@ -357,7 +394,9 @@ struct ManhuntGameEndView: View {
                         .opacity(0.8)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
     }
     
@@ -393,18 +432,23 @@ struct ManhuntGameEndView: View {
             if let longest = gameStats.longestSurvival(),
                let player = session.players.first(where: { $0.id == longest.playerId }) {
                 Divider()
-                HStack {
+                HStack(alignment: .firstTextBaseline) {
                     Text("Longest Survival:")
                         .font(AppTypography.bodyMedium())
-                    Spacer()
+                        .fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: AppSpacing.sm)
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(player.displayName)
                             .font(AppTypography.labelSmall())
                             .fontWeight(.semibold)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .multilineTextAlignment(.trailing)
                         Text(timeString(from: longest.time))
                             .font(AppTypography.caption())
                             .foregroundColor(AppColors.textSecondary)
                     }
+                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .trailing)
                 }
             }
             
@@ -421,16 +465,21 @@ struct ManhuntGameEndView: View {
                         HStack {
                             Text(hunter.displayName)
                                 .font(AppTypography.bodySmall())
-                            Spacer()
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .minimumScaleFactor(0.75)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             Text("\(count)")
                                 .font(AppTypography.labelSmall())
                                 .fontWeight(.semibold)
                                 .foregroundColor(AppColors.hunterPrimary)
+                                .layoutPriority(1)
                         }
                     }
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(AppSpacing.md)
         .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2.5)
     }
@@ -460,13 +509,17 @@ struct ManhuntGameEndView: View {
                         Text(player.displayName)
                             .font(AppTypography.bodyMedium())
                             .lineLimit(1)
+                            .truncationMode(.tail)
                             .minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         if player.id == currentPlayer?.id {
                             Text("(You)")
                                 .font(AppTypography.caption())
                                 .foregroundColor(AppColors.textSecondary)
+                                .layoutPriority(1)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             
@@ -485,13 +538,17 @@ struct ManhuntGameEndView: View {
                         Text(player.displayName)
                             .font(AppTypography.bodyMedium())
                             .lineLimit(1)
+                            .truncationMode(.tail)
                             .minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         if player.id == currentPlayer?.id {
                             Text("(You)")
                                 .font(AppTypography.caption())
                                 .foregroundColor(AppColors.textSecondary)
+                                .layoutPriority(1)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             
@@ -511,16 +568,21 @@ struct ManhuntGameEndView: View {
                             .font(AppTypography.bodyMedium())
                             .foregroundColor(AppColors.textSecondary)
                             .lineLimit(1)
+                            .truncationMode(.tail)
                             .minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         if player.id == currentPlayer?.id {
                             Text("(You)")
                                 .font(AppTypography.caption())
                                 .foregroundColor(AppColors.textSecondary)
+                                .layoutPriority(1)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(AppSpacing.md)
         .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2.5)
     }
@@ -580,22 +642,20 @@ struct ManhuntGameEndView: View {
             .accessibilityLabel("Back to lobby")
             .accessibilityHint("Returns to the game lobby")
         }
+        .frame(maxWidth: .infinity)
         .sheet(isPresented: $showShareSheet) {
             ShareSheet(activityItems: [shareText])
         }
     }
     
     private var shareText: String {
-        let winnerText: String
-        winnerText = gameStats.winner == .hunters ? "Hunters" : (gameStats.winner == .hiders ? "Hiders" : "Time's Up")
         let duration = timeString(from: gameStats.totalGameDuration())
-        let gameTypeName = "Manhunt"
         let catches = gameStats.catches.count
-        
+
         return """
-        🎮 Touch Grass - \(gameTypeName) Game Results
+        🎮 Touch Grass - Manhunt Game Results
         
-        Winner: \(winnerText)
+        \(outcome.title)
         Duration: \(duration)
         Total Catches: \(catches)
         
@@ -604,47 +664,22 @@ struct ManhuntGameEndView: View {
     }
     
     // MARK: - Computed Properties
-    
-    private var winnerText: String {
-        switch gameStats.winner {
-        case .hunters:
-            return "Hunters Win!"
-        case .hiders:
-            return "Hiders Win!"
-        case .timeUp:
-            return "Time's Up!"
-        case .none:
-            return "Game Over"
-        default:
-            return "Game Over"
-        }
+
+    private var outcome: GameEndOutcomeDisplay {
+        GameEndOutcomeDisplay.display(
+            gameType: session.gameType,
+            winner: gameStats.winner,
+            session: session,
+            gameStats: gameStats
+        )
     }
-    
-    private var winnerSubtitle: String {
-        switch gameStats.winner {
-        case .hunters:
-            return "All hiders were caught!"
-        case .hiders:
-            return "Some hiders survived!"
-        case .timeUp:
-            return "The zone closed completely!"
-        case .none:
-            return "The game has ended."
-        default:
-            return "The game has ended."
-        }
-    }
-    
+
     private var winnerIcon: String {
         switch gameStats.winner {
         case .hunters:
             return "target"
-        case .hiders:
+        case .hiders, .timeUp:
             return "person.2.fill"
-        case .timeUp:
-            return "clock.fill"
-        case .none:
-            return "flag.fill"
         default:
             return "flag.fill"
         }
@@ -658,15 +693,9 @@ struct ManhuntGameEndView: View {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-        case .hiders:
+        case .hiders, .timeUp:
             return LinearGradient(
                 colors: [AppColors.hiderPrimary, AppColors.hiderSecondary],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        case .timeUp, .none:
-            return LinearGradient(
-                colors: [AppColors.textPrimary, AppColors.textSecondary],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -683,7 +712,7 @@ struct ManhuntGameEndView: View {
         switch gameStats.winner {
         case .hunters:
             return AppColors.hunterPrimary
-        case .hiders:
+        case .hiders, .timeUp:
             return AppColors.hiderPrimary
         default:
             return AppColors.textPrimary

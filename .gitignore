@@ -9,3 +9,6 @@ DesignSystem/
 .screenshot-results/
 firebase-debug.log
 firestore-debug.log
+
+# Firebase iOS config (contains API key; never commit real file, use GoogleService-Info.plist.example)
+Touch-Grass/GoogleService-Info.plist

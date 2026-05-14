@@ -69,6 +69,7 @@ struct ScreenshotScenarioRootView: View {
                     session: session,
                     gameStats: stats,
                     currentPlayer: viewModel.gameService.currentPlayer,
+                    gameService: viewModel.gameService,
                     onPlayAgain: {},
                     onBackToLobby: {}
                 )

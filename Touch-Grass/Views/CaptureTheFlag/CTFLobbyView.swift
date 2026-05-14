@@ -89,6 +89,7 @@ struct CTFLobbyView: View {
                             session: session,
                             gameStats: gameStats,
                             currentPlayer: viewModel.gameService.currentPlayer,
+                            gameService: viewModel.gameService,
                             onPlayAgain: {
                                 viewModel.playAgain()
                             },
@@ -394,7 +395,7 @@ struct CTFLobbyView: View {
         return ZStack {
             // Game Title - Dynamic based on game type
             VStack(spacing: AppSpacing.sm) {
-                // Game Logo/Title — smaller when a session exists to save vertical space
+                // Game Logo/Title, smaller when a session exists to save vertical space
                 gameTitleView(compact: hasSession)
                     .frame(maxWidth: .infinity)
                     .transition(.scale.combined(with: .opacity))

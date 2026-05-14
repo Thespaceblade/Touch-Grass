@@ -43,6 +43,55 @@ struct ManhuntActiveGameView: View {
     @StateObject private var obfuscationService = LocationObfuscationService()
     @State private var showEliminationScreen: Bool = false
     @State private var wasAlive: Bool = true
+    @State private var compassHubExpanded: Bool = false
+    @State private var compassForceClose: Int = 0
+    @State private var notificationsHubExpanded: Bool = false
+    @State private var notificationsForceClose: Int = 0
+    @State private var optionsHubExpanded: Bool = false
+    @State private var optionsForceClose: Int = 0
+    @State private var showOptionsEndGameConfirm: Bool = false
+    
+    /// Host-only: drives hub `onEndGame` and options modal.
+    private var isManhuntHost: Bool {
+        guard let session = gameService.session,
+              let id = gameService.currentPlayer?.id else { return false }
+        return id == session.hostId
+    }
+    
+    @ViewBuilder
+    private var activeGameMapHub: some View {
+        ActiveGameMapHubView(
+            mapType: $mapType,
+            showPlayerLabels: $showPlayerLabels,
+            onZoomToBubble: { zoomToBubbleTrigger = true },
+            onCenterOnPlayer: { centerOnPlayerTrigger = true },
+            bubbleExists: gameService.session?.bubble != nil,
+            playerLocationExists: locationService.coordinate != nil,
+            gameType: gameService.session?.gameType,
+            onEndGame: isManhuntHost ? { _ = performHostEndGameIfAllowed() } : nil,
+            announcementManager: gameService.announcementManager,
+            showCompassButton: shouldShowCompassOverlay,
+            onCompassActivated: { active in
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+                    compassHubExpanded = active
+                }
+            },
+            onNotificationsActivated: { active in
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+                    notificationsHubExpanded = active
+                }
+            },
+            notificationsModalPresented: notificationsHubExpanded,
+            onOptionsActivated: { active in
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+                    optionsHubExpanded = active
+                }
+            },
+            notificationsForceCloseSignal: notificationsForceClose,
+            optionsForceCloseSignal: optionsForceClose,
+            compassForceCloseSignal: compassForceClose
+        )
+    }
     
     var body: some View {
         let bubbleCenter = gameService.session?.bubble?.center
@@ -133,9 +182,28 @@ struct ManhuntActiveGameView: View {
             .onChange(of: gameService.currentPlayer?.role) { _, _ in refreshObfuscationSnapshots() }
             .onChange(of: rosterObfuscationSignature) { _, _ in refreshObfuscationSnapshots() }
             
+            // Full-screen compass overlay
+            if compassHubExpanded {
+                compassFullScreenOverlay
+                    .zIndex(200)
+                    .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .topTrailing)))
+            }
+
+            // Full-screen notifications modal
+            if notificationsHubExpanded {
+                notificationsModal
+                    .zIndex(201)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
+
+            if optionsHubExpanded {
+                optionsModal
+                    .zIndex(202)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
+
             // Game HUD Overlay - Using absolute positioning for fixed elements
             GeometryReader { geometry in
-                let topSecondRow = ActiveGameTopChromeMetrics.stripHeight(for: geometry.safeAreaInsets.top) + AppSpacing.sm
                 ZStack(alignment: .topLeading) {
                     VStack(alignment: .leading, spacing: AppSpacing.sm) {
                         ActiveGameStatusStrip(safeAreaTop: geometry.safeAreaInsets.top)
@@ -143,39 +211,15 @@ struct ManhuntActiveGameView: View {
 
                         HStack(alignment: .top, spacing: AppSpacing.sm) {
                             topHUD
-                                .frame(maxWidth: geometry.size.width * 0.65, alignment: .leading)
-                                .fixedSize(horizontal: false, vertical: true)
 
                             Spacer(minLength: 8)
 
-                            MapControlsView(
-                                mapType: $mapType,
-                                showPlayerLabels: $showPlayerLabels,
-                                onZoomToBubble: { zoomToBubbleTrigger = true },
-                                onCenterOnPlayer: { centerOnPlayerTrigger = true },
-                                bubbleExists: gameService.session?.bubble != nil,
-                                playerLocationExists: locationService.coordinate != nil,
-                                gameType: gameService.session?.gameType,
-                                onEndGame: { gameService.endGame() }
-                            )
+                            activeGameMapHub
                         }
                         .padding(.leading, AppSpacing.md)
                         .padding(.trailing, AppSpacing.sm)
                     }
 
-                // Compass region (middle-right). For predators (hunters)
-                // the new pulse ability is always available when alive in
-                // an active game; for prey (hiders) the passive nearest-
-                // threat compass stays zone-gated as before.
-                if shouldShowCompassOverlay {
-                    HStack {
-                        Spacer()
-                        compassOverlayContent
-                            .padding(.trailing, AppSpacing.md + 60) // Space for map icon
-                            .padding(.top, topSecondRow)
-                    }
-                }
-                
                 // Bottom Section - Only functional buttons (tag, end game)
                 VStack {
                     Spacer()
@@ -186,18 +230,7 @@ struct ManhuntActiveGameView: View {
                 }
                 }
             }
-            
-            // Announcement Feed (bottom-leading)
-            VStack {
-                Spacer()
-                HStack {
-                    GameAnnouncementOverlay(manager: gameService.announcementManager)
-                        .padding(.leading, AppSpacing.md)
-                        .padding(.bottom, AppSpacing.lg + 60)
-                    Spacer()
-                }
-            }
-            
+
             // Network Error Banner
             if let networkError = gameService.networkError {
                 VStack {
@@ -232,6 +265,35 @@ struct ManhuntActiveGameView: View {
                 Text(error)
             }
         }
+        .alert("End game?", isPresented: $showOptionsEndGameConfirm) {
+            Button("Cancel", role: .cancel) { }
+            Button("End Game", role: .destructive) {
+                if performHostEndGameIfAllowed() {
+                    dismissOptionsHub()
+                }
+            }
+        } message: {
+            Text("This ends the current game for everyone.")
+        }
+        .onChange(of: isManhuntHost) { _, isHost in
+            if !isHost { showOptionsEndGameConfirm = false }
+        }
+        .themedInGameConfirmation(
+            isPresented: $showHonorConfirm,
+            primaryColor: AppColors.manhuntPrimary,
+            secondaryColor: AppColors.manhuntSecondary,
+            iconName: "figure.run",
+            headerTitle: "Manhunt",
+            headerSubtitle: "Bluetooth backup",
+            title: "Were you tagged?",
+            message: "Use this if a hunter got you but Bluetooth didn’t register the tag. It removes you from the game like a normal catch. You can’t undo this.",
+            cancelTitle: "Still hiding",
+            confirmTitle: "I'm tagged",
+            confirmAccentColor: AppColors.error,
+            onConfirm: {
+                gameService.honorReportTagged()
+            }
+        )
         .onChange(of: currentBubbleRadius) { oldValue, newValue in
             // Only detect zone shrink if shrinking is enabled
             guard let bubble = gameService.session?.bubble, bubble.enableShrinking else {
@@ -350,61 +412,166 @@ struct ManhuntActiveGameView: View {
     
     // MARK: - Top HUD
     
+    // MARK: - Top HUD (2×2 grid)
+
     private var topHUD: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Top row: Zone timer and Role badge
-            HStack(spacing: AppSpacing.sm) {
-                // Combined Zone Notification & Timer Display
-                combinedZoneTimerCard
-                    .layoutPriority(1)
-                
-                // Role Badge (Manhunt: HUNTER or HIDER)
-                if let currentPlayer = gameService.currentPlayer, currentPlayer.isAlive {
-                    let roleText = currentPlayer.role == .hunter ? "HUNTER" : "HIDER"
-                    let roleColor = currentPlayer.role == .hunter ? AppColors.hunterPrimary : AppColors.hiderPrimary
-                    
-                    CartoonPill(text: roleText, color: roleColor)
-                        .layoutPriority(2)
-                } else {
-                    // Fallback for eliminated players
-                    CartoonPill(text: "ELIMINATED", color: AppColors.error)
-                        .layoutPriority(2)
-                }
-            }
-            
-            // Second row: Zone, safe-area, and player status in one compact line
-            HStack(spacing: AppSpacing.sm) {
-                // Zone Info (compact version)
-                if let bubble = gameService.session?.bubble {
-                    compactZoneInfoRow(bubble: bubble)
-                }
-                
-                if let bubble = gameService.session?.bubble, bubble.usesNewZoneSystem {
-                    if let distanceToSafe = distanceToSafeArea {
-                        let runtimeState = ZoneService.deriveRuntimeZoneState(for: bubble, now: currentTime)
-                        compactSafeAreaRow(distance: distanceToSafe, isClosing: runtimeState.phaseState == .closing)
-                    }
-                } else if gameService.isOutOfBounds || gameService.currentPlayer?.isAlive == false {
-                    compactOutOfBoundsRow()
-                }
-                
-                // Player Count (compact version)
-                if let session = gameService.session {
-                    compactPlayersRow(session: session)
-                }
+        VStack(alignment: .center, spacing: 0) {
+            // Role pill header
+            hudRolePill
+                .padding(.horizontal, 10)
+                .padding(.top, 8)
+                .padding(.bottom, 7)
+
+            Rectangle()
+                .fill(AppColors.cartoonInk.opacity(0.1))
+                .frame(height: 1)
+
+            // 2×2 stat grid: zone | position / hunters | hiders
+            hudStatGrid
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+
+            // Timer row — only visible when a countdown is running
+            if hasActiveZoneTimer {
+                Rectangle()
+                    .fill(AppColors.cartoonInk.opacity(0.1))
+                    .frame(height: 1)
+                hudTimerRow
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
             }
         }
-        .padding(.horizontal, AppSpacing.md)
-        .padding(.vertical, 6)
+        .fixedSize(horizontal: true, vertical: false)
         .cartoonCard(cornerRadius: 14, shadowOffset: 4, borderWidth: 2)
         .onChange(of: currentBubbleRadius) { oldValue, newValue in
-            // Trigger pulse animation when zone shrinks
             if let old = oldValue, let new = newValue, new < old {
                 zoneShrinkPulse = true
                 HapticFeedbackManager.shared.selection()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    zoneShrinkPulse = false
-                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { zoneShrinkPulse = false }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var hudRolePill: some View {
+        if let player = gameService.currentPlayer {
+            let (text, color): (String, Color) = {
+                if !player.isAlive { return ("ELIMINATED", AppColors.error) }
+                return player.role == .hunter
+                    ? ("HUNTER", AppColors.hunterPrimary)
+                    : ("HIDER", AppColors.hiderPrimary)
+            }()
+            CartoonPill(text: text, color: color)
+        }
+    }
+
+    private var hudStatGrid: some View {
+        let distance      = gameService.distanceToEdge ?? 0
+        let isOutside     = distance > 0
+        let distanceAbs   = abs(distance)
+        let isAlive       = gameService.currentPlayer?.isAlive == true
+        let radius        = currentBubbleRadius ?? 0
+
+        let posIcon: String = isOutside ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+        let posColor: Color = isOutside ? AppColors.error : AppColors.success
+        let posValue: String = {
+            if !isAlive    { return "Out" }
+            if isOutside   { return "\(Int(distanceAbs))m" }
+            return "Inside"
+        }()
+        let posLabel: String? = isOutside ? "to edge" : nil
+
+        let hunters = gameService.session?.players.filter { $0.isAlive && $0.role == .hunter }.count ?? 0
+        let hiders  = gameService.session?.players.filter { $0.isAlive && $0.role == .hider  }.count ?? 0
+
+        return Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
+            GridRow {
+                statCell(sfSymbol: "circle.fill", color: bubbleColor,
+                         primary: "\(Int(radius))m", secondary: "zone")
+                statCell(sfSymbol: posIcon, color: posColor,
+                         primary: posValue, secondary: posLabel)
+            }
+            GridRow {
+                statCell(dotColor: AppColors.hunterPrimary, primary: "\(hunters)", secondary: "hunters")
+                statCell(dotColor: AppColors.hiderPrimary,  primary: "\(hiders)",  secondary: "hiders")
+            }
+        }
+    }
+
+    private func statCell(sfSymbol: String, color: Color, primary: String, secondary: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 3) {
+                Image(systemName: sfSymbol)
+                    .font(.system(size: 9, weight: .black, design: .rounded))
+                    .foregroundColor(color)
+                Text(primary)
+                    .font(.system(size: 11, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            if let secondary {
+                Text(secondary)
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk.opacity(0.45))
+            }
+        }
+    }
+
+    private func statCell(dotColor: Color, primary: String, secondary: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 3) {
+                Circle()
+                    .fill(dotColor)
+                    .frame(width: 7, height: 7)
+                Text(primary)
+                    .font(.system(size: 11, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            if let secondary {
+                Text(secondary)
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk.opacity(0.45))
+            }
+        }
+    }
+
+    private var hasActiveZoneTimer: Bool {
+        guard gameService.gameState == .active, let bubble = gameService.session?.bubble else { return false }
+        if bubble.usesNewZoneSystem && bubble.enableShrinking && showZoneNotification { return true }
+        return bubble.showTimer
+    }
+
+    @ViewBuilder
+    private var hudTimerRow: some View {
+        if gameService.gameState == .active,
+           let bubble = gameService.session?.bubble,
+           bubble.usesNewZoneSystem, bubble.enableShrinking, showZoneNotification {
+            HStack(spacing: 5) {
+                Image(systemName: zoneNotificationIcon)
+                    .font(.system(size: 10, weight: .black, design: .rounded))
+                    .foregroundColor(zoneNotificationColor)
+                Text(zoneNotificationTitle)
+                    .font(.system(size: 10, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
+                    .lineLimit(1)
+                Text(formatCountdown(zoneNotificationCountdown))
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(zoneNotificationColor)
+            }
+        } else if gameService.gameState == .active,
+                  let bubble = gameService.session?.bubble, bubble.showTimer {
+            let elapsed   = currentTime.timeIntervalSince(bubble.startTime)
+            let remaining = max(0, bubble.duration - elapsed)
+            HStack(spacing: 5) {
+                Image(systemName: "clock.fill")
+                    .font(.system(size: 10, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk.opacity(0.6))
+                Text(timeString(from: remaining))
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(remaining < 60 ? AppColors.hunterPrimary : AppColors.cartoonInk)
             }
         }
     }
@@ -596,7 +763,7 @@ struct ManhuntActiveGameView: View {
                         .font(.system(size: 14, weight: .black, design: .rounded))
                         .foregroundColor(safeAreaColor)
                 } else {
-                    Text("—")
+                    Text("-")
                         .font(.system(size: 14, weight: .black, design: .rounded))
                         .foregroundColor(AppColors.cartoonInk.opacity(0.55))
                 }
@@ -635,34 +802,36 @@ struct ManhuntActiveGameView: View {
         )
     }
     
+    /// Ends the active session only when the local player is the game host and the game is active.
+    @discardableResult
+    private func performHostEndGameIfAllowed() -> Bool {
+        guard let session = gameService.session else {
+            errorMessage = "Cannot end game: No active session."
+            showErrorAlert = true
+            return false
+        }
+        guard let currentPlayer = gameService.currentPlayer else {
+            errorMessage = "Cannot end game: Player information not available."
+            showErrorAlert = true
+            return false
+        }
+        guard currentPlayer.id == session.hostId else {
+            errorMessage = "Only the host can end the game."
+            showErrorAlert = true
+            return false
+        }
+        guard gameService.gameState == .active else {
+            errorMessage = "Game is not currently active."
+            showErrorAlert = true
+            return false
+        }
+        gameService.endGame()
+        return true
+    }
+    
     private var endGameButton: some View {
         Button(action: {
-            // Verify conditions before ending game
-            guard let session = gameService.session else {
-                errorMessage = "Cannot end game: No active session."
-                showErrorAlert = true
-                return
-            }
-            
-            guard let currentPlayer = gameService.currentPlayer else {
-                errorMessage = "Cannot end game: Player information not available."
-                showErrorAlert = true
-                return
-            }
-            
-            guard currentPlayer.id == session.hostId else {
-                errorMessage = "Only the host can end the game."
-                showErrorAlert = true
-                return
-            }
-            
-            guard gameService.gameState == .active else {
-                errorMessage = "Game is not currently active."
-                showErrorAlert = true
-                return
-            }
-            
-            gameService.endGame()
+            _ = performHostEndGameIfAllowed()
         }) {
             HStack(spacing: AppSpacing.sm) {
                 Image(systemName: "stop.circle.fill")
@@ -746,27 +915,47 @@ struct ManhuntActiveGameView: View {
     
     // MARK: - Compass
 
-    /// True if the compass region should render anything — either the
-    /// hunter's pulse ability or the hider's zone-gated passive compass.
+    /// True if the compass button should appear in the hub.
     private var shouldShowCompassOverlay: Bool {
         gameService.canShowCompassAbility || shouldShowPreyPassiveCompass
     }
 
-    /// Hider-only passive nearest-hunter compass. Zone-gated to "later in
-    /// the game" so it doesn't dominate the early UI.
+    /// Hider-only passive nearest-hunter compass. Zone-gated to later in
+    /// the game so it doesn't dominate the early UI.
     private var shouldShowPreyPassiveCompass: Bool {
         guard let player = gameService.currentPlayer, player.isAlive,
-              player.role == .hider else {
-            return false
-        }
+              player.role == .hider else { return false }
         guard let bubble = gameService.session?.bubble,
               let currentRadius = currentBubbleRadius else { return false }
-        let shrinkRatio = currentRadius / bubble.startRadius
-        return shrinkRatio < 0.3
+        return currentRadius / bubble.startRadius < 0.3
+    }
+
+    /// Full-screen blur + large compass, shown when the hub's compass button is active.
+    private var compassFullScreenOverlay: some View {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    dismissCompassHub()
+                }
+
+            compassFullScreenContent
+        }
+        .overlay(alignment: .top) {
+            Text("TAP ANYWHERE TO DISMISS")
+                .font(.system(size: 11, weight: .black, design: .rounded))
+                .foregroundColor(.white.opacity(0.55))
+                .tracking(2)
+                .padding(.top, 12)
+                .frame(maxWidth: .infinity)
+                .allowsHitTesting(false)
+        }
     }
 
     @ViewBuilder
-    private var compassOverlayContent: some View {
+    private var compassFullScreenContent: some View {
         if gameService.canShowCompassAbility, let skin = PulseSkin(gameType: .manhunt) {
             let pulseCommit = gameService.compassPulseLastResult.flatMap { result -> CompassPulseCommit? in
                 if case .success(let commit) = result { return commit }
@@ -780,8 +969,11 @@ struct ManhuntActiveGameView: View {
                 hasEligiblePrey: gameService.compassHasEligiblePrey,
                 lastResult: gameService.compassPulseLastResult,
                 resultBearing: pulseCommit.flatMap { gameService.compassBearing(for: $0) },
+                headingDegreesFromNorth: locationService.headingDegreesFromNorth,
                 onTap: { Task { await gameService.requestCompassPulse() } }
             )
+            .scaleEffect(2.4)
+            .fixedSize(horizontal: true, vertical: true)
         } else if shouldShowPreyPassiveCompass,
                   let direction = gameService.nearestHunterDirection,
                   let distance = gameService.nearestHunterDistance {
@@ -789,131 +981,152 @@ struct ManhuntActiveGameView: View {
                 direction: direction,
                 distance: distance,
                 threatType: .hunter,
-                isVisible: true
+                isVisible: true,
+                headingDegreesFromNorth: locationService.headingDegreesFromNorth
             )
+            .scaleEffect(2.6)
+            .fixedSize(horizontal: true, vertical: true)
         }
     }
     
-    // MARK: - Compact Top HUD Rows
+    // MARK: - Hub modal dismissals
     
-    private func compactZoneInfoRow(bubble: Bubble) -> some View {
-        let distance = gameService.distanceToEdge ?? 0
-        let isAlive = gameService.currentPlayer?.isAlive == true
-        
-        if bubble.usesNewZoneSystem {
-            let runtimeState = ZoneService.deriveRuntimeZoneState(for: bubble, now: currentTime)
-            let currentRadius = runtimeState.currentActiveZone.radiusMeters
-            let distanceFromEdge = abs(distance)
-            let isOutside = distance > 0
-            
-            return HStack(spacing: 6) {
-                Image(systemName: runtimeState.phaseState == .closing ? "arrow.triangle.2.circlepath" : "circle.fill")
-                    .font(.system(size: 10, weight: .black, design: .rounded))
-                    .foregroundColor(bubbleColor)
-                Text("\(Int(currentRadius))m")
-                    .font(.system(size: 11, weight: .black, design: .rounded))
-                    .foregroundColor(AppColors.cartoonInk)
-                
-                if isAlive {
-                    Text("•")
-                        .font(.system(size: 10, weight: .black, design: .rounded))
+    private func dismissNotificationsHub() {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+            notificationsHubExpanded = false
+        }
+        notificationsForceClose += 1
+    }
+    
+    private func dismissOptionsHub() {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+            optionsHubExpanded = false
+        }
+        optionsForceClose += 1
+    }
+    
+    private func dismissCompassHub() {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+            compassHubExpanded = false
+        }
+        compassForceClose += 1
+    }
+    
+    // MARK: - Notifications Modal
+
+    @ViewBuilder
+    private var notificationsModal: some View {
+        ActiveGameHubSquareModalShell(
+            title: "Notifications",
+            titleIcon: "bell.fill",
+            titleIconTint: AppColors.manhuntPrimary,
+            onDismiss: dismissNotificationsHub
+        ) {
+            let entries = gameService.announcementManager.notificationHistory
+            if entries.isEmpty {
+                VStack(spacing: AppSpacing.sm) {
+                    Image(systemName: "tray")
+                        .font(.system(size: 32, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk.opacity(0.3))
+                    Text("No events yet")
+                        .font(.system(size: 15, weight: .black, design: .rounded))
                         .foregroundColor(AppColors.cartoonInk.opacity(0.5))
-                    Image(systemName: isOutside ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                        .font(.system(size: 10, weight: .black, design: .rounded))
-                        .foregroundColor(isOutside ? AppColors.error : AppColors.success)
-                    Text("\(Int(distanceFromEdge))m")
-                        .font(.system(size: 11, weight: .black, design: .rounded))
-                        .foregroundColor(isOutside ? AppColors.error : AppColors.success)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: AppSpacing.sm) {
+                        ForEach(entries) { entry in
+                            notificationRow(entry)
+                        }
+                    }
+                    .padding(.horizontal, AppSpacing.md)
+                    .padding(.vertical, AppSpacing.sm)
                 }
             }
-        } else {
-            // Legacy system
-            let currentRadius = currentBubbleRadius ?? 0
-            let distanceFromEdge = abs(distance)
-            let isOutside = distance > 0
-            
-            return HStack(spacing: 6) {
-                Image(systemName: "circle.fill")
-                    .font(.system(size: 10, weight: .black, design: .rounded))
-                    .foregroundColor(bubbleColor)
-                Text("\(Int(currentRadius))m")
-                    .font(.system(size: 11, weight: .black, design: .rounded))
-                    .foregroundColor(AppColors.cartoonInk)
-                
-                if isAlive {
-                    Text("•")
-                        .font(.system(size: 10, weight: .black, design: .rounded))
+        }
+    }
+    
+    @ViewBuilder
+    private var optionsModal: some View {
+        ActiveGameHubSquareModalShell(
+            title: "Options",
+            titleIcon: "ellipsis.circle.fill",
+            titleIconTint: AppColors.manhuntPrimary,
+            onDismiss: dismissOptionsHub
+        ) {
+            VStack(spacing: AppSpacing.md) {
+                if isManhuntHost {
+                    Button {
+                        HapticFeedbackManager.shared.selection()
+                        showOptionsEndGameConfirm = true
+                    } label: {
+                        HStack(spacing: AppSpacing.sm) {
+                            Image(systemName: "stop.circle.fill")
+                            Text("End Game")
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(CartoonButtonStyle(accent: AppColors.error))
+                    .padding(.top, AppSpacing.sm)
+                } else {
+                    Text("Only the host can end the game for everyone.")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk.opacity(0.65))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, AppSpacing.sm)
+                        .padding(.top, AppSpacing.md)
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.bottom, AppSpacing.sm)
+        }
+    }
+
+    private func notificationRow(_ entry: GameAnnouncement) -> some View {
+        HStack(spacing: 0) {
+            // Colored left accent bar — instantly communicates notification type
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(entry.type.accentColor)
+                .frame(width: 4)
+                .padding(.vertical, 6)
+                .padding(.leading, 6)
+
+            HStack(spacing: AppSpacing.sm) {
+                CartoonMedallion(background: entry.type.accentColor, size: 30) {
+                    Image(systemName: entry.type.icon)
+                        .font(.system(size: 12, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.message)
+                        .font(.system(size: 13, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(entry.timestamp, style: .relative)
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
                         .foregroundColor(AppColors.cartoonInk.opacity(0.5))
-                    Image(systemName: isOutside ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                        .font(.system(size: 10, weight: .black, design: .rounded))
-                        .foregroundColor(isOutside ? AppColors.error : AppColors.success)
-                    Text("\(Int(distanceFromEdge))m")
-                        .font(.system(size: 11, weight: .black, design: .rounded))
-                        .foregroundColor(isOutside ? AppColors.error : AppColors.success)
                 }
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, AppSpacing.sm)
+            .padding(.vertical, 9)
         }
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(entry.type.accentColor.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(entry.type.accentColor.opacity(0.3), lineWidth: 1.5)
+        )
     }
-    
-    private func compactPlayersRow(session: GameSession) -> some View {
-        let alivePlayers = session.players.filter { $0.isAlive }
-        let hunters = alivePlayers.filter { $0.role == .hunter }
-        let hiders = alivePlayers.filter { $0.role == .hider }
-        
-        return HStack(spacing: 6) {
-            Image(systemName: "person.2.fill")
-                .font(.system(size: 10, weight: .black, design: .rounded))
-                .foregroundColor(AppColors.cartoonInk)
-            Text("\(alivePlayers.count)/\(session.players.count)")
-                .font(.system(size: 11, weight: .black, design: .rounded))
-                .foregroundColor(AppColors.cartoonInk)
-            
-            if !hunters.isEmpty && !hiders.isEmpty {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(AppColors.hunterPrimary)
-                        .frame(width: 4, height: 4)
-                    Text("\(hunters.count)")
-                        .font(.system(size: 10, weight: .black, design: .rounded))
-                        .foregroundColor(AppColors.hunterPrimary)
-                    
-                    Circle()
-                        .fill(AppColors.hiderPrimary)
-                        .frame(width: 4, height: 4)
-                    Text("\(hiders.count)")
-                        .font(.system(size: 10, weight: .black, design: .rounded))
-                        .foregroundColor(AppColors.hiderPrimary)
-                }
-            }
-        }
-    }
-    
-    private func compactSafeAreaRow(distance: Double, isClosing: Bool) -> some View {
-        let distanceFromEdge = abs(distance)
-        let isInside = distance < 0
-        let primaryColor = isClosing ? AppColors.error : AppColors.hunterPrimary
-        let safeAreaColor = isInside ? AppColors.success : (distanceFromEdge < 50 ? AppColors.error : primaryColor)
-        
-        return HStack(spacing: 6) {
-            Image(systemName: isInside ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(.system(size: 10, weight: .black, design: .rounded))
-                .foregroundColor(safeAreaColor)
-            Text(isInside ? "Inside" : "\(Int(distanceFromEdge))m to safe")
-                .font(.system(size: 11, weight: .black, design: .rounded))
-                .foregroundColor(safeAreaColor)
-        }
-    }
-    
-    private func compactOutOfBoundsRow() -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 10, weight: .black, design: .rounded))
-                .foregroundColor(AppColors.error)
-            Text(gameService.currentPlayer?.isAlive == false ? "ELIMINATED" : "OUT OF BOUNDS")
-                .font(.system(size: 11, weight: .black, design: .rounded))
-                .foregroundColor(AppColors.error)
-        }
-    }
+
     
     private var bottomFunctionalButtons: some View {
         VStack(spacing: 12) {
@@ -928,7 +1141,7 @@ struct ManhuntActiveGameView: View {
                 tagButton(player: taggablePlayer)
             }
             
-            // Honor self-tag (for alive hiders when BLE isn't an option)
+            // Manual tag confirm when BLE didn’t register a real tag
             if let currentPlayer = gameService.currentPlayer,
                currentPlayer.role == .hider,
                currentPlayer.isAlive {
@@ -939,14 +1152,6 @@ struct ManhuntActiveGameView: View {
             if let tagRequest = gameService.pendingTagRequest {
                 tagRequestAlert(request: tagRequest)
             }
-        }
-        .alert("Confirm tag", isPresented: $showHonorConfirm) {
-            Button("Cancel", role: .cancel) { }
-            Button("I got tagged", role: .destructive) {
-                gameService.honorReportTagged()
-            }
-        } message: {
-            Text("This will remove you from the game. You can't undo this.")
         }
     }
     
@@ -966,57 +1171,6 @@ struct ManhuntActiveGameView: View {
     
     // MARK: - Combined Zone Timer Card
     
-    private var combinedZoneTimerCard: some View {
-        Group {
-            if gameService.gameState == .active,
-               let bubble = gameService.session?.bubble,
-               bubble.usesNewZoneSystem,
-               bubble.enableShrinking,
-               showZoneNotification {
-                // Show zone notification with countdown timer (time until next stage)
-                HStack(spacing: 12) {
-                    Image(systemName: zoneNotificationIcon)
-                        .font(.system(size: 15, weight: .black, design: .rounded))
-                        .foregroundColor(zoneNotificationColor)
-                    
-                    Text(zoneNotificationTitle)
-                        .font(.system(size: 12, weight: .black, design: .rounded))
-                        .foregroundColor(AppColors.cartoonInk)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
-                    
-                    Text(formatCountdown(zoneNotificationCountdown))
-                        .font(.system(size: 15, weight: .bold, design: .monospaced))
-                        .foregroundColor(zoneNotificationColor)
-                        .lineLimit(1)
-                    
-                    Spacer()
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-            } else if gameService.gameState == .active,
-                      let bubble = gameService.session?.bubble,
-                      bubble.showTimer {
-                // Fallback: Show regular game timer if zone system not active or timer enabled
-                let elapsed = currentTime.timeIntervalSince(bubble.startTime)
-                let remaining = max(0, bubble.duration - elapsed)
-                
-                HStack(spacing: 8) {
-                    Image(systemName: "clock.fill")
-                        .font(.system(size: 14, weight: .black, design: .rounded))
-                        .foregroundColor(AppColors.cartoonInk)
-                    
-                    Text(timeString(from: remaining))
-                        .font(.system(size: 14, weight: .bold, design: .monospaced))
-                        .foregroundColor(remaining < 60 ? AppColors.hunterPrimary : AppColors.cartoonInk)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-            } else {
-                EmptyView()
-            }
-        }
-    }
     
     private func formatCountdown(_ seconds: TimeInterval) -> String {
         let totalSeconds = Int(seconds)
@@ -1164,6 +1318,64 @@ struct ManhuntActiveGameView: View {
             configuration.label
                 .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
                 .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
+        }
+    }
+}
+
+// MARK: - Hub modal chrome
+
+private struct ActiveGameHubSquareModalShell<Content: View>: View {
+    let title: String
+    let titleIcon: String
+    let titleIconTint: Color
+    let onDismiss: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        GeometryReader { geo in
+            let insetW = geo.size.width - AppSpacing.lg * 2
+            let insetH = geo.size.height - geo.safeAreaInsets.top - geo.safeAreaInsets.bottom - AppSpacing.lg * 2
+            let side = max(260, min(min(insetW, insetH), 340))
+
+            ZStack {
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .ignoresSafeArea()
+                    .onTapGesture { onDismiss() }
+
+                VStack(spacing: 0) {
+                    HStack {
+                        Image(systemName: titleIcon)
+                            .font(.system(size: 16, weight: .black, design: .rounded))
+                            .foregroundColor(titleIconTint)
+                        Text(title)
+                            .font(.system(size: 18, weight: .black, design: .rounded))
+                            .foregroundColor(AppColors.cartoonInk)
+                        Spacer()
+                        Button(action: onDismiss) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .black, design: .rounded))
+                                .foregroundColor(AppColors.cartoonInk)
+                                .frame(width: 32, height: 32)
+                                .background(Circle().fill(AppColors.cartoonCream2))
+                                .overlay(Circle().stroke(AppColors.cartoonInk, lineWidth: 2))
+                                .background(Circle().fill(AppColors.cartoonShadow).offset(x: 2.5, y: 2.5))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                    .padding(.horizontal, AppSpacing.md)
+                    .padding(.top, AppSpacing.md)
+                    .padding(.bottom, AppSpacing.sm)
+
+                    Divider()
+                        .background(AppColors.cartoonInk.opacity(0.2))
+
+                    content()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                }
+                .frame(width: side, height: side)
+                .cartoonCard(cornerRadius: 20, shadowOffset: 5, borderWidth: 2.5)
+            }
         }
     }
 }

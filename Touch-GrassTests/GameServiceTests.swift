@@ -144,13 +144,13 @@ final class GameServiceTests: XCTestCase {
     // MARK: - Player Management Tests
     
     func testAddPlayer() throws {
-        throw XCTSkip("addPlayer API not exposed on GameService — players join via joinGame flow")
+        throw XCTSkip("addPlayer API not exposed on GameService, players join via joinGame flow")
     }
     
     // MARK: - CTF Specific Tests
     
     func testCTFFlagPlacement() throws {
-        throw XCTSkip("setTeamBases requires bubble configuration first — covered by integration tests")
+        throw XCTSkip("setTeamBases requires bubble configuration first, covered by integration tests")
     }
     
     // MARK: - Validation Tests

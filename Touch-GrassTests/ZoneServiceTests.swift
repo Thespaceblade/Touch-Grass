@@ -199,7 +199,7 @@ final class ZoneServiceTests: XCTestCase {
         XCTAssertGreaterThan(movingCount, 0, "Late phases should switch to moving")
 
         // Once a phase becomes moving, all subsequent phases should also be
-        // moving — the active radius decreases monotonically, so the threshold
+        // moving, the active radius decreases monotonically, so the threshold
         // can only be crossed in one direction.
         var sawMoving = false
         for entry in schedule {

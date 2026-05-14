@@ -77,8 +77,12 @@ struct CTFFlagPlacementView: View {
                         // Both flags and safe zones placed - show countdown (only on non-flag devices)
                     Color.clear
                         .onAppear {
-                            hasStartedCountdown = true
-                            startCountdown()
+                            if DebugRuntimeFlags.skipPreGameCountdown {
+                                hasStartedCountdown = true
+                                transitionFromFlagPlacementToActive()
+                            } else {
+                                startCountdown()
+                            }
                             }
                         }
                 } else if isFlagPlayer {
@@ -757,6 +761,43 @@ struct CTFFlagPlacementView: View {
         }
     }
     
+    @MainActor
+    private func transitionFromFlagPlacementToActive() {
+        showGoScreen = false
+        showCountdown = false
+        
+        guard var session = gameService.session,
+              session.gameState == .flagPlacement else {
+            print("⚠️ Cannot start game: Session state changed during countdown")
+            return
+        }
+        
+        guard session.teamAFlagPlaced && session.teamBFlagPlaced,
+              let teamASafeZone = session.teamASafeZone,
+              let teamBSafeZone = session.teamBSafeZone,
+              teamASafeZone.confirmedAt.timeIntervalSince1970 > 0,
+              teamBSafeZone.confirmedAt.timeIntervalSince1970 > 0 else {
+            print("⚠️ Cannot start game: Flags or safe zones not fully confirmed")
+            hasStartedCountdown = false
+            return
+        }
+        
+        session.gameState = .active
+        gameService.session = session
+        gameService.gameState = .active
+        gameService.startGameTimer()
+        
+        Task {
+            do {
+                if let session = gameService.session {
+                    try await gameService.firestore.updateSession(session)
+                }
+            } catch {
+                print("❌ Error syncing game start: \(error)")
+            }
+        }
+    }
+    
     private func startCountdown() {
         guard let session = gameService.session,
               session.gameState == .flagPlacement,
@@ -847,44 +888,7 @@ struct CTFFlagPlacementView: View {
                         // Continue with game start after GO! screen
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                             Task { @MainActor in
-                                // Transition to active game
-                                guard var session = gameService.session,
-                                      session.gameState == .flagPlacement else {
-                                    print("⚠️ Cannot start game: Session state changed during countdown")
-                                    return
-                                }
-                                
-                                // HARD LOCK: Final verification before transitioning to active
-                                // Verify both flags and safe zones are placed and confirmed
-                                guard session.teamAFlagPlaced && session.teamBFlagPlaced,
-                                      let teamASafeZone = session.teamASafeZone,
-                                      let teamBSafeZone = session.teamBSafeZone,
-                                      teamASafeZone.confirmedAt.timeIntervalSince1970 > 0,
-                                      teamBSafeZone.confirmedAt.timeIntervalSince1970 > 0 else {
-                                    print("⚠️ Cannot start game: Flags or safe zones not fully confirmed")
-                                    // Reset countdown state to allow retry
-                                    hasStartedCountdown = false
-                                    return
-                                }
-                                
-                                // CRASH FIX: State modifications are already on MainActor via outer Task
-                                session.gameState = .active
-                                gameService.session = session
-                                gameService.gameState = .active
-                                
-                                // Start the game timer when transitioning to active
-                                gameService.startGameTimer()
-                                
-                                // Sync to Firestore
-                                Task {
-                                    do {
-                                        if let session = gameService.session {
-                                            try await gameService.firestore.updateSession(session)
-                                        }
-                                    } catch {
-                                        print("❌ Error syncing game start: \(error)")
-                                    }
-                                }
+                                transitionFromFlagPlacementToActive()
                             }
                         }
                     }
@@ -895,5 +899,6 @@ struct CTFFlagPlacementView: View {
         
         // Store timer reference (would need to add @State for timer if we want to cancel it)
         RunLoop.current.add(timer, forMode: .common)
+        hasStartedCountdown = true
     }
 }

@@ -45,7 +45,7 @@ final class LocationObfuscationService: ObservableObject {
 
     /// Short, optional visual pulse window kept around for animations that
     /// still want to flash on epoch transitions. Obfuscation itself does NOT
-    /// depend on this — cross-team is always obfuscated.
+    /// depend on this, cross-team is always obfuscated.
     static let pingDuration: TimeInterval = 10.0
 
     @Published private(set) var bubbleEpoch: Int = 0
@@ -137,7 +137,7 @@ final class LocationObfuscationService: ObservableObject {
     ) {
         guard !viewerId.isEmpty else { return }
 
-        // CTF flag players are always shown exactly — do not snapshot them.
+        // CTF flag players are always shown exactly, do not snapshot them.
         // Other CTF interactions still go through the cross-team rule below.
         let zoneRadius = lastZoneRadius
 
@@ -151,14 +151,14 @@ final class LocationObfuscationService: ObservableObject {
                   player.shouldShowObfuscatedLocation(viewerRole: viewerRole, viewerId: viewerId)
             else { continue }
 
-            // Skip CTF flag players — they're always exact.
+            // Skip CTF flag players, they're always exact.
             if gameType == .captureTheFlag && player.isFlag { continue }
 
             let bubbleRadius = player.obfuscationBubbleRadius(zoneRadius: zoneRadius)
 
             if let existing = opponentSnapshots[player.id], existing.epoch == currentEpoch {
                 // Already snapshotted this epoch (e.g. joiner from a previous
-                // refresh, or initial load) — keep the existing snapshot so
+                // refresh, or initial load), keep the existing snapshot so
                 // the fake pin stays stable across re-renders within an epoch.
                 nextSnapshots[player.id] = existing
             } else {
@@ -173,7 +173,7 @@ final class LocationObfuscationService: ObservableObject {
         opponentSnapshots = nextSnapshots
     }
 
-    /// Last `zoneRadius` passed into `displayCoordinate(...)` — used as a
+    /// Last `zoneRadius` passed into `displayCoordinate(...)`, used as a
     /// default when refreshing snapshots so the bubble radius scales to the
     /// current zone size. Stored privately; not published.
     private var lastZoneRadius: Double?
@@ -193,7 +193,7 @@ final class LocationObfuscationService: ObservableObject {
     //   • what the uncertainty radius should be
     //
     // The map MUST NOT call `player.coordinate` directly for non-self/non-CTF
-    // rendering — go through `displayCoordinate(...)` / `displayMode(...)`.
+    // rendering, go through `displayCoordinate(...)` / `displayMode(...)`.
 
     /// What style this target should be rendered with from the viewer's
     /// perspective.
@@ -215,7 +215,7 @@ final class LocationObfuscationService: ObservableObject {
     ///   live coordinate.
     /// - Opponents return a jittered coordinate derived from
     ///   `opponentSnapshots[target.id]`.
-    /// - **If an opponent has no snapshot yet, this returns `nil`** —
+    /// - **If an opponent has no snapshot yet, this returns `nil`** -
     ///   callers must skip drawing that pin / bubble until a snapshot is
     ///   populated by `refreshSnapshots(...)`. The previous live-coordinate
     ///   fallback was a privacy leak (one exact frame on first paint), so
@@ -263,7 +263,7 @@ final class LocationObfuscationService: ObservableObject {
     // MARK: - Pure Jitter
 
     /// Deterministic jitter from a basis coordinate. Same `(targetId, viewerId,
-    /// epoch)` always returns the same offset — so within an epoch the fake
+    /// epoch)` always returns the same offset, so within an epoch the fake
     /// pin is stable, and different viewers see different offsets so the
     /// uncertainty actually feels uncertain.
     static func jitteredCoordinate(

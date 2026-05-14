@@ -138,7 +138,7 @@ struct GameSelectionView: View {
 
     private func gameCardContent(_ gameType: GameType, isDisabled: Bool) -> some View {
         HStack(spacing: 12) {
-            // Art thumbnail — 64×64, ink border, tiny hard shadow
+            // Art thumbnail, 64×64, ink border, tiny hard shadow
             Image(artImageName(for: gameType))
                 .resizable()
                 .aspectRatio(contentMode: .fill)
