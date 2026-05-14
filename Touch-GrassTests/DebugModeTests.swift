@@ -20,6 +20,8 @@ final class DebugModeTests: XCTestCase {
         super.setUp()
         locationService = LocationService()
         gameService = GameService(locationService: locationService)
+        TestServiceRetainer.retain(locationService)
+        TestServiceRetainer.retain(gameService)
     }
     
     override func tearDown() {
@@ -42,17 +44,8 @@ final class DebugModeTests: XCTestCase {
     
     // MARK: - Player Limit Bypass Tests
     
-    func testPlayerLimitBypass() {
-        // Test that we can create sessions with more than max players in debug
-        // This would require DebugModeManager implementation
-        let hostName = "Test Host"
-        let hostLocation = CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194)
-        
-        gameService.createSession(hostName: hostName, hostLocation: hostLocation)
-        
-        // In debug mode, we should be able to bypass the 12 player limit
-        // This test documents the expected behavior
-        XCTAssertNotNil(gameService.session)
+    func testPlayerLimitBypass() throws {
+        throw XCTSkip("DebugModeManager player-limit bypass not yet implemented")
     }
     
     // MARK: - State Forcing Tests

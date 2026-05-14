@@ -74,9 +74,9 @@ extension AnyTransition {
 // MARK: - Animation Presets
 
 extension Animation {
-    /// Smooth spring animation for screen transitions
+    /// Smooth spring animation for screen transitions (optimized for performance)
     static var smoothTransition: Animation {
-        .spring(response: 0.5, dampingFraction: 0.8)
+        .spring(response: 0.4, dampingFraction: 0.85) // Faster response for smoother feel
     }
     
     /// Quick spring for interactive elements
@@ -94,6 +94,8 @@ extension Animation {
         .easeOut(duration: 0.6)
     }
 }
+
+
 
 
 

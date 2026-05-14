@@ -12,7 +12,16 @@ import UIKit
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
+        #if DEBUG
+        // In screenshot mode we deliberately bypass Firebase / Auth so that
+        // the app never tries to hit the network and so XCTest sees a clean,
+        // deterministic SwiftUI hierarchy.
+        if ScreenshotScenario.isActive {
+            return true
+        }
+        #endif
         FirebaseApp.configure()
+        AuthService.shared.start()
         return true
     }
 }
@@ -24,7 +33,15 @@ struct Touch_GrassApp: App {
     
     var body: some Scene {
         WindowGroup {
+            #if DEBUG
+            if let scenario = ScreenshotScenario.current() {
+                ScreenshotScenarioRootView(scenario: scenario)
+            } else {
+                ContentView()
+            }
+            #else
             ContentView()
+            #endif
         }
     }
 }

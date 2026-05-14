@@ -25,9 +25,11 @@ final class Touch_GrassTests: XCTestCase {
     func testAppCanInitialize() {
         // Basic smoke test - verify app components can be created
         let locationService = LocationService()
+        TestServiceRetainer.retain(locationService)
         XCTAssertNotNil(locationService, "LocationService should initialize")
         
         let gameService = GameService(locationService: locationService)
+        TestServiceRetainer.retain(gameService)
         XCTAssertNotNil(gameService, "GameService should initialize")
     }
     

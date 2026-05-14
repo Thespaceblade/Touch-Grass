@@ -47,7 +47,8 @@ struct CompassView: View {
                 ZStack {
                     // Outer ring
                     Circle()
-                        .stroke(threatType.color.opacity(0.3), lineWidth: 2)
+                        .stroke(AppColors.cartoonInk, lineWidth: 2.5)
+                        .background(Circle().fill(AppColors.cartoonCream))
                         .frame(width: 80, height: 80)
                     
                     // Direction arrow
@@ -55,7 +56,7 @@ struct CompassView: View {
                         .font(.system(size: 24, weight: .bold))
                         .foregroundColor(threatType.color)
                         .rotationEffect(.degrees(direction))
-                        .shadow(color: threatType.color.opacity(0.5), radius: 4)
+                        .shadow(color: AppColors.cartoonInk.opacity(0.45), radius: 0, x: 1.5, y: 1.5)
                     
                     // Center icon
                     Image(systemName: threatType.icon)
@@ -76,23 +77,25 @@ struct CompassView: View {
                                 .foregroundColor(distanceColor)
                             
                             Text("\(Int(distance))m")
-                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                                .font(.system(size: 16, weight: .black, design: .monospaced))
                                 .foregroundColor(distanceColor)
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(
                             Capsule()
-                                .fill(distanceColor.opacity(0.15))
+                                .fill(AppColors.cartoonCream2)
                                 .overlay(
                                     Capsule()
-                                        .stroke(distanceColor.opacity(0.4), lineWidth: 1.5)
+                                        .stroke(AppColors.cartoonInk, lineWidth: 2)
                                 )
                         )
                         
                         Text(threatType.label)
-                            .font(AppTypography.caption())
-                            .foregroundColor(AppColors.textSecondary)
+                            .font(.system(size: 11, weight: .black, design: .rounded))
+                            .tracking(0.5)
+                            .textCase(.uppercase)
+                            .foregroundColor(AppColors.cartoonInk.opacity(0.62))
                         
                         // Distance progress bar (visual indicator)
                         GeometryReader { geometry in
@@ -124,18 +127,7 @@ struct CompassView: View {
                 }
             }
             .padding(AppSpacing.sm)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(
-                                threatType.color.opacity(0.3),
-                                lineWidth: 1.5
-                            )
-                    )
-                    .shadow(color: threatType.color.opacity(0.2), radius: 8, x: 0, y: 4)
-            )
+            .cartoonCard(cornerRadius: 14, shadowOffset: 4, borderWidth: 2.5)
         }
     }
     
@@ -168,6 +160,5 @@ struct CompassView: View {
         }
     }
 }
-
 
 

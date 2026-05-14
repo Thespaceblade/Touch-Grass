@@ -9,17 +9,70 @@ import Foundation
 import CoreBluetooth
 import Combine
 
+/// Wire-level message envelope used between two phones.
+///
+/// New builds send this as JSON. We continue to parse the legacy
+/// colon-separated strings (`PLAYER_ID:`, `TAG_REQUEST:`, `TAG_CONFIRMED:`)
+/// for one dev/release cycle so mixed-build sessions keep working.
+struct BluetoothMessage: Codable {
+    enum MessageType: String, Codable {
+        case playerId
+        case tagRequest
+        case tagConfirmed
+    }
+
+    let type: MessageType
+    let playerId: String?
+    let playerName: String?
+
+    static func playerId(_ id: String) -> BluetoothMessage {
+        BluetoothMessage(type: .playerId, playerId: id, playerName: nil)
+    }
+
+    static func tagRequest(from id: String, name: String) -> BluetoothMessage {
+        BluetoothMessage(type: .tagRequest, playerId: id, playerName: name)
+    }
+
+    static func tagConfirmed(by id: String) -> BluetoothMessage {
+        BluetoothMessage(type: .tagConfirmed, playerId: id, playerName: nil)
+    }
+
+    func encoded() -> Data? {
+        let encoder = JSONEncoder()
+        return try? encoder.encode(self)
+    }
+
+    static func decode(_ data: Data) -> BluetoothMessage? {
+        let decoder = JSONDecoder()
+        return try? decoder.decode(BluetoothMessage.self, from: data)
+    }
+}
+
 @MainActor
 final class BluetoothTagService: NSObject, ObservableObject {
     // BLE Service UUID (unique identifier for our app)
     private let serviceUUID = CBUUID(string: "A7CE1234-1234-1234-1234-123456789ABC")
     private let characteristicUUID = CBUUID(string: "A7CE5678-5678-5678-5678-123456789ABC")
     
+    private func print(_ message: String) {
+        if message.hasPrefix("❌") {
+            Swift.print(message)
+        } else {
+            DebugLogger.log(message)
+        }
+    }
+    
     // Central Manager (scans for nearby devices)
     private var centralManager: CBCentralManager?
     
     // Peripheral Manager (advertises this device)
     private var peripheralManager: CBPeripheralManager?
+    
+    // Retained advertised characteristic so we can call `updateValue` on it
+    // to notify subscribed centrals when our player id changes.
+    private var advertisedCharacteristic: CBMutableCharacteristic?
+    
+    private var isRunning = false
     
     // Connected peripherals (devices we're connected to)
     private var connectedPeripherals: [String: CBPeripheral] = [:]
@@ -68,6 +121,7 @@ final class BluetoothTagService: NSObject, ObservableObject {
     func start(playerId: String, playerName: String) {
         self.playerId = playerId
         self.playerName = playerName
+        isRunning = true
         
         // Start both advertising and scanning
         startAdvertising()
@@ -75,9 +129,15 @@ final class BluetoothTagService: NSObject, ObservableObject {
     }
     
     func stop() {
+        isRunning = false
         stopAdvertising()
         stopScanning()
         disconnectAll()
+    }
+    
+    func requestPermission() {
+        guard CBCentralManager.authorization == .notDetermined else { return }
+        centralManager = CBCentralManager(delegate: self, queue: nil)
     }
     
     // MARK: - Advertising (Make this device discoverable)
@@ -108,7 +168,6 @@ final class BluetoothTagService: NSObject, ObservableObject {
     // MARK: - Tagging
     
     func requestTag(playerId: String) {
-        // Find peripheral by player ID (check both direct match and mapping)
         let peripheralId = peripheralToPlayerId.first(where: { $0.value == playerId })?.key ?? playerId
         guard let peripheral = nearbyPlayers.first(where: { $0.id == playerId })?.peripheral ?? connectedPeripherals[peripheralId],
               let characteristic = characteristics[peripheralId] ?? characteristics[playerId] else {
@@ -116,14 +175,24 @@ final class BluetoothTagService: NSObject, ObservableObject {
             return
         }
         
-        // Send tag request
-        let tagData = "TAG_REQUEST:\(self.playerId ?? ""):\(self.playerName ?? "")".data(using: .utf8)!
-        peripheral.writeValue(tagData, for: characteristic, type: .withResponse)
+        let message = BluetoothMessage.tagRequest(
+            from: self.playerId ?? "",
+            name: self.playerName ?? ""
+        )
+        guard let data = message.encoded() else {
+            print("❌ Cannot tag: failed to encode tag request")
+            return
+        }
+        peripheral.writeValue(data, for: characteristic, type: .withResponse)
         print("📤 Sent tag request to \(playerId)")
     }
     
+    /// Confirm an incoming tag from `playerId` (the tagger). We write a
+    /// `tagConfirmed` envelope carrying **our own** id (the confirmer / the
+    /// player being caught) so the tagger's device knows who to record as
+    /// caught. The local callback fires with the **same** confirmer id so
+    /// both sides of the wire agree on the payload's meaning.
     func confirmTag(playerId: String) {
-        // Find peripheral by player ID (check both direct match and mapping)
         let peripheralId = peripheralToPlayerId.first(where: { $0.value == playerId })?.key ?? playerId
         guard let peripheral = nearbyPlayers.first(where: { $0.id == playerId })?.peripheral ?? connectedPeripherals[peripheralId],
               let characteristic = characteristics[peripheralId] ?? characteristics[playerId] else {
@@ -131,13 +200,23 @@ final class BluetoothTagService: NSObject, ObservableObject {
             return
         }
         
-        // Send tag confirmation
-        let confirmData = "TAG_CONFIRMED:\(self.playerId ?? "")".data(using: .utf8)!
-        peripheral.writeValue(confirmData, for: characteristic, type: .withResponse)
-        print("✅ Confirmed tag with \(playerId)")
+        guard let confirmerId = self.playerId, !confirmerId.isEmpty else {
+            print("❌ Cannot confirm tag: local player id is missing")
+            return
+        }
         
-        // Notify callback
-        onTagConfirmed?(playerId)
+        let message = BluetoothMessage.tagConfirmed(by: confirmerId)
+        guard let data = message.encoded() else {
+            print("❌ Cannot confirm tag: failed to encode confirmation")
+            return
+        }
+        peripheral.writeValue(data, for: characteristic, type: .withResponse)
+        print("✅ Confirmed tag with \(playerId) as \(confirmerId)")
+        
+        // Drive the local game state with the confirmer's id, matching the
+        // wire payload. Both sides of the catch flow now reference the same
+        // id (the player being caught).
+        onTagConfirmed?(confirmerId)
     }
     
     func rejectTag() {
@@ -158,42 +237,33 @@ final class BluetoothTagService: NSObject, ObservableObject {
 
 extension BluetoothTagService: CBPeripheralManagerDelegate {
     func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
+        guard isRunning else { return }
+        
         if peripheral.state == .poweredOn {
-            // Create service and characteristic
+            // Create the advertised characteristic with no static value — we
+            // serve reads dynamically via `peripheralManager(_:didReceiveRead:)`
+            // and push updates with `updateValue(_:for:onSubscribedCentrals:)`.
             let characteristic = CBMutableCharacteristic(
                 type: characteristicUUID,
                 properties: [.read, .write, .notify],
                 value: nil,
                 permissions: [.readable, .writeable]
             )
+            self.advertisedCharacteristic = characteristic
             
             let service = CBMutableService(type: serviceUUID, primary: true)
             service.characteristics = [characteristic]
             
             peripheralManager?.add(service)
             
-            // Start advertising with player ID in manufacturer data
-            // Format: "PLAYER_ID:\(playerId)"
-            var manufacturerData = Data()
-            if let playerId = self.playerId {
-                let playerIdString = "PLAYER_ID:\(playerId)"
-                manufacturerData = playerIdString.data(using: .utf8) ?? Data()
-            }
-            
-            var advertisementData: [String: Any] = [
+            // Start advertising with service UUID and player name.
+            // iOS doesn't allow manufacturer data in advertisements, so we
+            // identify with service UUID + local name; the real player id is
+            // exchanged once the central connects and reads our characteristic.
+            let advertisementData: [String: Any] = [
                 CBAdvertisementDataServiceUUIDsKey: [serviceUUID],
                 CBAdvertisementDataLocalNameKey: playerName ?? "Player"
             ]
-            
-            // Add manufacturer data if we have a player ID
-            if !manufacturerData.isEmpty {
-                // Use a fake company identifier (0xFFFF is reserved for testing)
-                let companyIdentifier: UInt16 = 0xFFFF
-                var fullManufacturerData = Data()
-                fullManufacturerData.append(contentsOf: withUnsafeBytes(of: companyIdentifier.littleEndian) { Data($0) })
-                fullManufacturerData.append(manufacturerData)
-                advertisementData[CBAdvertisementDataManufacturerDataKey] = fullManufacturerData
-            }
             
             peripheralManager?.startAdvertising(advertisementData)
             isAdvertising = true
@@ -204,41 +274,130 @@ extension BluetoothTagService: CBPeripheralManagerDelegate {
         }
     }
     
+    /// Serve our local `playerId` to a central that's reading our
+    /// characteristic. Uses the new JSON envelope; legacy parsers on the
+    /// other side recognize this as a normal payload as long as they have
+    /// the new build, otherwise they fall back to the colon-string sent
+    /// proactively on connect.
+    func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveRead request: CBATTRequest) {
+        guard request.characteristic.uuid == characteristicUUID else {
+            peripheral.respond(to: request, withResult: .attributeNotFound)
+            return
+        }
+        
+        guard let id = playerId else {
+            peripheral.respond(to: request, withResult: .unlikelyError)
+            return
+        }
+        
+        // Prefer JSON. Fall back to legacy colon-format only if encoding the
+        // JSON envelope fails (effectively never).
+        let data = BluetoothMessage.playerId(id).encoded()
+            ?? "PLAYER_ID:\(id)".data(using: .utf8)
+            ?? Data()
+        
+        // GATT requires that an offset beyond the value be rejected with
+        // `.invalidOffset`. iOS centrals usually read with offset 0, but it's
+        // cheap to be correct here.
+        if request.offset > data.count {
+            peripheral.respond(to: request, withResult: .invalidOffset)
+            return
+        }
+        request.value = data.subdata(in: request.offset..<data.count)
+        peripheral.respond(to: request, withResult: .success)
+    }
+    
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
         for request in requests {
-            guard let data = request.value,
-                  let message = String(data: data, encoding: .utf8) else {
-                peripheral.respond(to: request, withResult: .success)
-                continue
-            }
-            
-            if message.hasPrefix("TAG_REQUEST:") {
-                let components = message.components(separatedBy: ":")
-                if components.count >= 3 {
-                    let fromPlayerId = components[1]
-                    let fromPlayerName = components[2]
-                    
-                    let request = TagRequest(
-                        id: UUID().uuidString,
-                        fromPlayerId: fromPlayerId,
-                        fromPlayerName: fromPlayerName,
-                        timestamp: Date()
-                    )
-                    tagRequestReceived = request
-                    onTagRequest?(fromPlayerId, fromPlayerName)
-                    print("📥 Received tag request from \(fromPlayerName)")
-                }
-            } else if message.hasPrefix("TAG_CONFIRMED:") {
-                let components = message.components(separatedBy: ":")
-                if components.count >= 2 {
-                    let playerId = components[1]
-                    onTagConfirmed?(playerId)
-                    print("✅ Tag confirmed by \(playerId)")
-                }
-            }
-            
-            peripheral.respond(to: request, withResult: .success)
+            defer { peripheral.respond(to: request, withResult: .success) }
+            guard let data = request.value else { continue }
+            handleIncomingPayload(data, fromCentralId: request.central.identifier.uuidString)
         }
+    }
+}
+
+// MARK: - Incoming payload handling (shared between central + peripheral paths)
+
+extension BluetoothTagService {
+    /// Single entry point for any payload we receive over GATT, regardless of
+    /// whether we received it as a `notify`/`read` (central side) or as a
+    /// `write` (peripheral side). Tries JSON first, then falls back to the
+    /// legacy colon-separated strings so mixed-build sessions keep working.
+    fileprivate func handleIncomingPayload(_ data: Data, fromPeripheralId peripheralId: String? = nil, fromCentralId centralId: String? = nil) {
+        if let envelope = BluetoothMessage.decode(data) {
+            handleEnvelope(envelope, fromPeripheralId: peripheralId, fromCentralId: centralId)
+            return
+        }
+        
+        guard let message = String(data: data, encoding: .utf8) else { return }
+        
+        if message.hasPrefix("PLAYER_ID:") {
+            let actualPlayerId = String(message.dropFirst("PLAYER_ID:".count))
+            handlePlayerIdExchange(actualPlayerId, fromPeripheralId: peripheralId)
+        } else if message.hasPrefix("TAG_REQUEST:") {
+            let components = message.components(separatedBy: ":")
+            if components.count >= 3 {
+                let fromPlayerId = components[1]
+                // Names can contain ":" — rejoin everything after the id.
+                let fromPlayerName = components.dropFirst(2).joined(separator: ":")
+                handleIncomingTagRequest(fromPlayerId: fromPlayerId, fromPlayerName: fromPlayerName)
+            }
+        } else if message.hasPrefix("TAG_CONFIRMED:") {
+            let components = message.components(separatedBy: ":")
+            if components.count >= 2 {
+                let id = components[1]
+                handleIncomingTagConfirmation(playerId: id)
+            }
+        }
+    }
+    
+    private func handleEnvelope(_ envelope: BluetoothMessage, fromPeripheralId peripheralId: String?, fromCentralId centralId: String?) {
+        switch envelope.type {
+        case .playerId:
+            if let id = envelope.playerId {
+                handlePlayerIdExchange(id, fromPeripheralId: peripheralId)
+            }
+        case .tagRequest:
+            guard let fromId = envelope.playerId else { return }
+            let fromName = envelope.playerName ?? "Player"
+            handleIncomingTagRequest(fromPlayerId: fromId, fromPlayerName: fromName)
+        case .tagConfirmed:
+            if let id = envelope.playerId {
+                handleIncomingTagConfirmation(playerId: id)
+            }
+        }
+    }
+    
+    private func handlePlayerIdExchange(_ actualPlayerId: String, fromPeripheralId peripheralId: String?) {
+        guard let peripheralId else { return }
+        peripheralToPlayerId[peripheralId] = actualPlayerId
+        print("📥 Received player ID from peripheral \(peripheralId): \(actualPlayerId)")
+        
+        // Promote to `canTagPlayer` if we already have an RSSI-close reading.
+        if let nearbyPlayer = nearbyPlayers.first(where: { $0.peripheral.identifier.uuidString == peripheralId }),
+           nearbyPlayer.rssi > -70,
+           let currentPlayerId = self.playerId,
+           actualPlayerId != currentPlayerId {
+            canTagPlayer = actualPlayerId
+            print("✅ Can tag player: \(nearbyPlayer.name) (ID: \(actualPlayerId))")
+        }
+    }
+    
+    private func handleIncomingTagRequest(fromPlayerId: String, fromPlayerName: String) {
+        let request = TagRequest(
+            id: UUID().uuidString,
+            fromPlayerId: fromPlayerId,
+            fromPlayerName: fromPlayerName,
+            timestamp: Date()
+        )
+        tagRequestReceived = request
+        onTagRequest?(fromPlayerId, fromPlayerName)
+        print("📥 Received tag request from \(fromPlayerName)")
+    }
+    
+    private func handleIncomingTagConfirmation(playerId: String) {
+        onTagConfirmed?(playerId)
+        print("✅ Tag confirmed by \(playerId)")
     }
 }
 
@@ -246,6 +405,8 @@ extension BluetoothTagService: CBPeripheralManagerDelegate {
 
 extension BluetoothTagService: CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        guard isRunning else { return }
+        
         if central.state == .poweredOn {
             // Start scanning for nearby devices
             centralManager?.scanForPeripherals(
@@ -262,28 +423,18 @@ extension BluetoothTagService: CBCentralManagerDelegate {
     
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
         // Extract player info from advertisement
+        // Note: iOS doesn't allow manufacturer data in advertisements, so we rely on:
+        // - Service UUID: identifies this as a Touch Grass device
+        // - Local Name: player name (for display)
+        // - Peripheral identifier: unique device ID (used for player ID matching)
         let playerName = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? "Unknown"
         
-        // Extract actual player ID from manufacturer data
-        var actualPlayerId: String? = nil
-        if let manufacturerData = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data,
-           manufacturerData.count > 2 {
-            // Skip first 2 bytes (company identifier)
-            let playerIdData = manufacturerData.subdata(in: 2..<manufacturerData.count)
-            if let playerIdString = String(data: playerIdData, encoding: .utf8),
-               playerIdString.hasPrefix("PLAYER_ID:") {
-                actualPlayerId = String(playerIdString.dropFirst("PLAYER_ID:".count))
-            }
-        }
-        
-        // Use peripheral identifier as fallback, but prefer actual player ID
+        // Use peripheral identifier as player ID (each device has a unique peripheral identifier)
+        // The actual player ID mapping happens when devices connect and exchange data via characteristics
         let peripheralId = peripheral.identifier.uuidString
-        let playerId = actualPlayerId ?? peripheralId
+        let playerId = peripheralId
         
-        // Store mapping
-        if let actualId = actualPlayerId {
-            peripheralToPlayerId[peripheralId] = actualId
-        }
+        // Player ID mapping will be established when devices connect and exchange IDs via characteristics
         
         // Don't connect to ourselves
         guard playerId != self.playerId else { return }
@@ -387,15 +538,17 @@ extension BluetoothTagService: CBPeripheralDelegate {
                 peripheral.setNotifyValue(true, for: characteristic)
                 self.characteristics[peripheralId] = characteristic
                 
-                // Exchange player IDs via characteristic
-                // Send our player ID to the connected device
-                if let ourPlayerId = self.playerId {
-                    let playerIdData = "PLAYER_ID:\(ourPlayerId)".data(using: .utf8)!
-                    peripheral.writeValue(playerIdData, for: characteristic, type: .withResponse)
+                // Proactively send our player id so the peer can map our
+                // central UUID → real id without waiting for them to read our
+                // characteristic. New JSON envelope; the peer's incoming
+                // handler also understands legacy colon-format.
+                if let ourPlayerId = self.playerId,
+                   let data = BluetoothMessage.playerId(ourPlayerId).encoded() {
+                    peripheral.writeValue(data, for: characteristic, type: .withResponse)
                     print("📤 Sent our player ID to peripheral \(peripheralId)")
                 }
                 
-                // Read any existing value (might contain their player ID)
+                // Read their value (their playerId, served by didReceiveRead).
                 peripheral.readValue(for: characteristic)
                 
                 print("✅ Subscribed to characteristic for peripheral \(peripheralId)")
@@ -404,50 +557,8 @@ extension BluetoothTagService: CBPeripheralDelegate {
     }
     
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard let data = characteristic.value,
-              let message = String(data: data, encoding: .utf8) else { return }
-        
+        guard let data = characteristic.value else { return }
         let peripheralId = peripheral.identifier.uuidString
-        
-        // Handle player ID exchange
-        if message.hasPrefix("PLAYER_ID:") {
-            let actualPlayerId = String(message.dropFirst("PLAYER_ID:".count))
-            peripheralToPlayerId[peripheralId] = actualPlayerId
-            print("📥 Received player ID from peripheral \(peripheralId): \(actualPlayerId)")
-            
-            // Update canTagPlayer if we're close enough
-            if let nearbyPlayer = nearbyPlayers.first(where: { $0.peripheral.identifier.uuidString == peripheralId }),
-               nearbyPlayer.rssi > -70 {
-                if let currentPlayerId = self.playerId, actualPlayerId != currentPlayerId {
-                    canTagPlayer = actualPlayerId
-                    print("✅ Can tag player: \(nearbyPlayer.name) (ID: \(actualPlayerId))")
-                }
-            }
-            return
-        }
-        
-        // Handle tag requests and confirmations
-        if message.hasPrefix("TAG_REQUEST:") {
-            let components = message.components(separatedBy: ":")
-            if components.count >= 3 {
-                let fromPlayerId = components[1]
-                let fromPlayerName = components[2]
-                
-                let request = TagRequest(
-                    id: UUID().uuidString,
-                    fromPlayerId: fromPlayerId,
-                    fromPlayerName: fromPlayerName,
-                    timestamp: Date()
-                )
-                tagRequestReceived = request
-                onTagRequest?(fromPlayerId, fromPlayerName)
-            }
-        } else if message.hasPrefix("TAG_CONFIRMED:") {
-            let components = message.components(separatedBy: ":")
-            if components.count >= 2 {
-                let playerId = components[1]
-                onTagConfirmed?(playerId)
-            }
-        }
+        handleIncomingPayload(data, fromPeripheralId: peripheralId)
     }
 }

@@ -16,16 +16,11 @@ struct ZombieTagGameEndView: View {
     
     var body: some View {
         ZStack {
-            // Background gradient (ZombieTag theme)
-            LinearGradient(
-                colors: [
-                    AppColors.zombiePrimary.opacity(0.2),
-                    AppColors.backgroundPrimary
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+            ThemeBackgroundView(
+                primaryColor: AppColors.zombiePrimary,
+                secondaryColor: AppColors.zombieSecondary,
+                lightColor: AppColors.zombieLight
             )
-            .ignoresSafeArea()
             
             ScrollView {
                 VStack(spacing: AppSpacing.xl) {
@@ -49,6 +44,7 @@ struct ZombieTagGameEndView: View {
                 }
                 .padding(.horizontal, AppSpacing.md)
             }
+            .safeAreaPadding(.bottom, AppSpacing.lg)
         }
     }
     
@@ -62,20 +58,19 @@ struct ZombieTagGameEndView: View {
             
             // Winner text
             Text(winnerText)
-                .font(AppTypography.displayMedium())
+                .font(.system(size: 34, weight: .black, design: .rounded))
                 .foregroundStyle(winnerGradient)
                 .multilineTextAlignment(.center)
             
             // Subtitle
             Text(winnerSubtitle)
-                .font(AppTypography.bodyMedium())
-                .foregroundColor(AppColors.textSecondary)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                 .multilineTextAlignment(.center)
         }
         .padding(AppSpacing.xl)
         .frame(maxWidth: .infinity)
-        .background(.ultraThinMaterial)
-        .cornerRadius(20)
+        .cartoonCard(cornerRadius: 20, shadowOffset: 5, borderWidth: 2.5)
     }
     
     private var statsSection: some View {
@@ -138,6 +133,8 @@ struct ZombieTagGameEndView: View {
                         HStack {
                             Text(zombie.displayName)
                                 .font(AppTypography.bodySmall())
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
                             Spacer()
                             Text("\(count)")
                                 .font(AppTypography.labelSmall())
@@ -149,8 +146,7 @@ struct ZombieTagGameEndView: View {
             }
         }
         .padding(AppSpacing.md)
-        .background(.ultraThinMaterial)
-        .cornerRadius(16)
+        .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2.5)
     }
     
     private var rankingsSection: some View {
@@ -177,6 +173,8 @@ struct ZombieTagGameEndView: View {
                             .foregroundColor(AppColors.zombiePrimary)
                         Text(player.displayName)
                             .font(AppTypography.bodyMedium())
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                         if player.id == currentPlayer?.id {
                             Text("(You)")
                                 .font(AppTypography.caption())
@@ -200,6 +198,8 @@ struct ZombieTagGameEndView: View {
                             .foregroundColor(AppColors.humanPrimary)
                         Text(player.displayName)
                             .font(AppTypography.bodyMedium())
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                         if player.id == currentPlayer?.id {
                             Text("(You)")
                                 .font(AppTypography.caption())
@@ -224,6 +224,8 @@ struct ZombieTagGameEndView: View {
                         Text(player.displayName)
                             .font(AppTypography.bodyMedium())
                             .foregroundColor(AppColors.textSecondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                         if player.id == currentPlayer?.id {
                             Text("(You)")
                                 .font(AppTypography.caption())
@@ -234,8 +236,7 @@ struct ZombieTagGameEndView: View {
             }
         }
         .padding(AppSpacing.md)
-        .background(.ultraThinMaterial)
-        .cornerRadius(16)
+        .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2.5)
     }
     
     @State private var showShareSheet = false
@@ -255,7 +256,7 @@ struct ZombieTagGameEndView: View {
                         .fontWeight(.semibold)
                 }
             }
-            .buttonStyle(PrimaryButtonStyle())
+            .buttonStyle(CartoonButtonStyle(accent: AppColors.zombiePrimary))
             .accessibilityLabel("Play again")
             .accessibilityHint("Starts a new game with the same settings")
             
@@ -272,7 +273,7 @@ struct ZombieTagGameEndView: View {
                         .fontWeight(.semibold)
                 }
             }
-            .buttonStyle(SecondaryButtonStyle())
+            .buttonStyle(CartoonSecondaryButtonStyle())
             .accessibilityLabel("Share results")
             .accessibilityHint("Share your game results")
             
@@ -289,7 +290,7 @@ struct ZombieTagGameEndView: View {
                         .fontWeight(.semibold)
                 }
             }
-            .buttonStyle(SecondaryButtonStyle())
+            .buttonStyle(CartoonSecondaryButtonStyle())
             .accessibilityLabel("Back to lobby")
             .accessibilityHint("Returns to the game lobby")
         }
@@ -321,11 +322,11 @@ struct ZombieTagGameEndView: View {
     private var winnerText: String {
         switch gameStats.winner {
         case .hunters:
-            return "🧟 Zombies Win!"
+            return "Zombies Win!"
         case .hiders:
-            return "🏃 Humans Win!"
+            return "Humans Win!"
         case .timeUp:
-            return "⏰ Time's Up!"
+            return "Time's Up!"
         case .none:
             return "Game Over"
         default:

@@ -31,18 +31,14 @@ struct LoadingOverlay: View {
                     
                     if let message = message {
                         Text(message)
-                            .font(AppTypography.bodyMedium())
-                            .foregroundColor(AppColors.textPrimary)
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundColor(AppColors.cartoonInk)
                             .multilineTextAlignment(.center)
-                            .padding(.horizontal, AppSpacing.lg)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .padding(AppSpacing.xl)
-                .background(
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(.ultraThinMaterial)
-                        .shadow(color: Color.black.opacity(0.2), radius: 20, x: 0, y: 10)
-                )
+                .cartoonCard(cornerRadius: 20, shadowOffset: 5, borderWidth: 2.5)
                 .padding(.horizontal, AppSpacing.xl)
             }
             .transition(.opacity)
@@ -61,6 +57,14 @@ extension View {
         }
     }
 }
+
+
+
+
+
+
+
+
 
 
 

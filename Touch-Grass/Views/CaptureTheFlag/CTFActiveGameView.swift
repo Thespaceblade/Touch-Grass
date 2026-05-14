@@ -37,14 +37,24 @@ struct CTFActiveGameView: View {
     @State private var showTeamADisconnect: Bool = false
     @State private var showTeamBDisconnect: Bool = false
     
+    // Flag capture confirmation dialogs
+    @State private var pendingFlagCapture: String? = nil // Flag player ID pending capture confirmation
+    @State private var showCaptureConfirmation: Bool = false
+    @State private var captureConfirmationTeam: Flag.Team? = nil
+    
+    // Undo window for flag capture (5 second window)
+    @State private var lastFlagCapture: (flagPlayerId: String, timestamp: Date)? = nil
+    @State private var captureUndoTimer: Timer? = nil
+    
     var body: some View {
-        // Check if current player is a flag player
-        if let currentPlayer = gameService.currentPlayer,
-           currentPlayer.isFlag,
-           let session = gameService.session {
-            // Flag phone view - solid color background with "FLAG" title
-            flagPhoneView(session: session, player: currentPlayer)
-        } else {
+        Group {
+            // Check if current player is a flag player
+            if let currentPlayer = gameService.currentPlayer,
+               currentPlayer.isFlag,
+               let session = gameService.session {
+                // Flag phone view - solid color background with "FLAG" title
+                flagPhoneView(session: session, player: currentPlayer)
+            } else {
             // Regular player view
             let bubbleCenter = gameService.session?.bubble?.center
             let bubbleRadius = currentBubbleRadius
@@ -65,20 +75,24 @@ struct CTFActiveGameView: View {
             }
             
             // Full-screen map with bubble and players
+            // VISIBILITY RULES: Filter players based on team and elimination status
+            let visiblePlayers = getVisiblePlayers(for: gameService.session, currentPlayer: gameService.currentPlayer)
+            let visibleSafeZones = getVisibleSafeZones(for: gameService.session, currentPlayer: gameService.currentPlayer)
+            
             MapViewRepresentable(
                 userCoordinate: locationService.coordinate,
                 bubbleCenter: bubbleCenter,
                 bubbleRadius: bubbleRadius,
                 warningLevel: gameService.warningLevel,
-                players: gameService.session?.players ?? [],
+                players: visiblePlayers,
                 currentPlayerId: gameService.currentPlayer?.id,
                 currentPlayerRole: gameService.currentPlayer?.role,
                 gameType: gameService.session?.gameType,
                 flags: gameService.session?.flags ?? [],
                 teamABase: gameService.session?.teamABase,
                 teamBBase: gameService.session?.teamBBase,
-                teamASafeZone: gameService.session?.teamASafeZone,
-                teamBSafeZone: gameService.session?.teamBSafeZone,
+                teamASafeZone: visibleSafeZones.teamA,
+                teamBSafeZone: visibleSafeZones.teamB,
                 isPingActive: false, // CTF doesn't use ping obfuscation
                 zoneRadius: bubbleRadius,
                 mapType: $mapType,
@@ -96,30 +110,32 @@ struct CTFActiveGameView: View {
             // Game HUD Overlay
             GeometryReader { geometry in
                 ZStack(alignment: .topLeading) {
-                    // Top HUD - Timer and Status
-                    topHUD
+                    VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                        ActiveGameStatusStrip(safeAreaTop: geometry.safeAreaInsets.top)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        HStack(alignment: .top, spacing: AppSpacing.sm) {
+                            topHUD
+                                .frame(maxWidth: geometry.size.width * 0.65, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            Spacer(minLength: 8)
+
+                            MapControlsView(
+                                mapType: $mapType,
+                                showPlayerLabels: $showPlayerLabels,
+                                onZoomToBubble: { zoomToBubbleTrigger = true },
+                                onCenterOnPlayer: { centerOnPlayerTrigger = true },
+                                bubbleExists: gameService.session?.bubble != nil,
+                                playerLocationExists: locationService.coordinate != nil,
+                                gameType: gameService.session?.gameType,
+                                onEndGame: { gameService.endGame() }
+                            )
+                        }
                         .padding(.leading, AppSpacing.md)
-                        .padding(.top, AppSpacing.md)
-                        .frame(maxWidth: geometry.size.width * 0.65)
-                        .fixedSize(horizontal: false, vertical: true)
-                
-                // Map Controls
-                HStack {
-                    Spacer()
-                    VStack(alignment: .trailing) {
-                        MapControlsView(
-                            mapType: $mapType,
-                            showPlayerLabels: $showPlayerLabels,
-                            onZoomToBubble: { zoomToBubbleTrigger = true },
-                            onCenterOnPlayer: { centerOnPlayerTrigger = true },
-                            bubbleExists: gameService.session?.bubble != nil,
-                            playerLocationExists: locationService.coordinate != nil
-                        )
+                        .padding(.trailing, AppSpacing.sm)
                     }
-                    .padding(.trailing, AppSpacing.sm)
-                    .padding(.top, AppSpacing.md)
-                }
-                
+
                 // Bottom Section
                 VStack {
                     Spacer()
@@ -167,23 +183,20 @@ struct CTFActiveGameView: View {
                 }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .activeGameStatusBarHidden()
                 // Note: allowsHitTesting removed - buttons need to be interactive!
             }
             
-            // Toast Notifications
+            // Announcement Feed (bottom-leading)
             VStack {
-                if let eliminationMessage = gameService.lastEliminationMessage {
-                    toastView(message: eliminationMessage, type: .elimination)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-                
-                if let catchMessage = gameService.lastCatchMessage {
-                    toastView(message: catchMessage, type: .playerCaught)
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                Spacer()
+                HStack {
+                    GameAnnouncementOverlay(manager: gameService.announcementManager)
+                        .padding(.leading, AppSpacing.md)
+                        .padding(.bottom, AppSpacing.lg + 60)
+                    Spacer()
                 }
             }
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: gameService.lastEliminationMessage)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: gameService.lastCatchMessage)
             
             // Network Error Banner
             if let networkError = gameService.networkError {
@@ -197,21 +210,16 @@ struct CTFActiveGameView: View {
             }
             #if DEBUG
             .overlay(alignment: .topTrailing) {
-                if viewModel != nil {
+                if viewModel != nil, !ScreenshotScenario.isActive {
                     Button(action: {
                         HapticFeedbackManager.shared.selection()
                         showDebugTestPanel = true
                     }) {
                         Image(systemName: "testtube.2")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: 16, weight: .black, design: .rounded))
                             .foregroundColor(.white)
-                            .frame(width: 32, height: 32)
-                            .background(
-                                Circle()
-                                    .fill(AppColors.grassPrimary)
-                                    .shadow(color: Color.black.opacity(0.25), radius: 3, x: 0, y: 2)
-                            )
                     }
+                    .buttonStyle(IconButtonStyle(size: 34, color: AppColors.grassPrimary))
                     .padding(.top, 8)
                     .padding(.trailing, 12)
                 }
@@ -222,74 +230,94 @@ struct CTFActiveGameView: View {
                 }
             }
             #endif
+            }
+        }
+        .alert("Confirm Flag Capture", isPresented: $showCaptureConfirmation) {
+            Button("Cancel", role: .cancel) {
+                pendingFlagCapture = nil
+                captureConfirmationTeam = nil
+            }
+            Button("Capture") {
+                if let flagPlayerId = pendingFlagCapture {
+                    gameService.capturePlayerFlag(flagPlayerId: flagPlayerId)
+                    // Store for undo window
+                    lastFlagCapture = (flagPlayerId: flagPlayerId, timestamp: Date())
+                    // Start undo timer (5 second window)
+                    captureUndoTimer?.invalidate()
+                    captureUndoTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
+                        lastFlagCapture = nil
+                    }
+                }
+                pendingFlagCapture = nil
+                captureConfirmationTeam = nil
+            }
+        } message: {
+            if let team = captureConfirmationTeam {
+                Text("Are you sure you want to capture the \(team.rawValue) flag? This action cannot be undone.")
+            } else {
+                Text("Are you sure you want to capture this flag? This action cannot be undone.")
+            }
+        }
+        .alert("Undo Flag Capture?", isPresented: Binding(
+            get: { lastFlagCapture != nil && Date().timeIntervalSince(lastFlagCapture!.timestamp) < 5.0 },
+            set: { if !$0 { 
+                lastFlagCapture = nil
+                captureUndoTimer?.invalidate()
+            } }
+        )) {
+            Button("Keep Captured") {
+                lastFlagCapture = nil
+                captureUndoTimer?.invalidate()
+            }
+            Button("Undo", role: .destructive) {
+                if let capture = lastFlagCapture {
+                    // Return the flag
+                    gameService.returnPlayerFlag(flagPlayerId: capture.flagPlayerId)
+                    lastFlagCapture = nil
+                    captureUndoTimer?.invalidate()
+                }
+            }
+        } message: {
+            Text("You just captured a flag. Tap 'Undo' within 5 seconds to return it.")
         }
     }
     
     // MARK: - Top HUD
     
     private var topHUD: some View {
-        HStack(spacing: AppSpacing.sm) {
-            // Timer Display
-            timerDisplay
-            
-            // Team Badge (CTF: TEAM A or TEAM B)
+        HStack(spacing: 6) {
+            // Zone chip
+            if let bubble = gameService.session?.bubble {
+                CartoonHudChip(label: "Zone", value: "\(Int(currentBubbleRadius ?? 0))m", accent: AppColors.ctfPrimary)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+
+            // Alive chip
+            if let session = gameService.session {
+                let aliveCount = session.players.filter { $0.isAlive }.count
+                CartoonHudChip(label: "Alive", value: "\(aliveCount)/\(session.players.count)", accent: AppColors.grassPrimary)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+
+            // Team badge
             if let currentPlayer = gameService.currentPlayer, currentPlayer.isAlive {
                 let teamText = currentPlayer.role == .teamA ? "TEAM A" : "TEAM B"
                 let teamColor = currentPlayer.role == .teamA ? AppColors.ctfTeamA : AppColors.ctfTeamB
-                let teamGradient = currentPlayer.role == .teamA ?
-                    LinearGradient(
-                        colors: [AppColors.ctfTeamA, AppColors.ctfTeamASecondary],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    ) :
-                    LinearGradient(
-                        colors: [AppColors.ctfTeamB, AppColors.ctfTeamBSecondary],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                
-                Text(teamText)
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(teamGradient)
-                            .shadow(color: teamColor.opacity(0.5), radius: 4, x: 0, y: 2)
-                    )
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.white.opacity(0.3), lineWidth: 1)
-                    )
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+                CartoonPill(text: teamText, color: teamColor)
             } else {
-                // Fallback for eliminated players
-                Text("ELIMINATED")
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(AppColors.error)
-                    )
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+                CartoonPill(text: "ELIMINATED", color: AppColors.error)
             }
         }
-        .padding(.horizontal, AppSpacing.md)
-        .padding(.vertical, AppSpacing.sm)
-        .background(.ultraThinMaterial)
-        .cornerRadius(12)
         .onAppear {
-            startTimer()
+            if gameService.gameState == .active { startTimer() }
         }
-        .onDisappear {
-            stopTimer()
+        .onDisappear { stopTimer() }
+        .onChange(of: gameService.gameState) { oldValue, newValue in
+            if newValue == .active && timer == nil {
+                startTimer()
+            } else if newValue != .active {
+                stopTimer()
+            }
         }
     }
     
@@ -301,140 +329,38 @@ struct CTFActiveGameView: View {
     // MARK: - CTF Score Display
     
     private func ctfScoreDisplay(session: GameSession) -> some View {
-        HStack(spacing: AppSpacing.md) {
-            // Team A Score
-            VStack(spacing: AppSpacing.xs) {
-                Text("Team A")
-                    .font(AppTypography.caption())
-                    .foregroundColor(AppColors.ctfTeamA)
-                Text("\(session.teamAScore)")
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundColor(AppColors.ctfTeamA)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(AppSpacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(AppColors.ctfTeamA.opacity(0.1))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(AppColors.ctfTeamA.opacity(0.3), lineWidth: 2)
-                    )
-            )
-            
-            // VS Divider
-            Text("VS")
-                .font(AppTypography.labelMedium())
-                .foregroundColor(AppColors.textSecondary)
-                .padding(.horizontal, AppSpacing.sm)
-            
-            // Team B Score
-            VStack(spacing: AppSpacing.xs) {
-                Text("Team B")
-                    .font(AppTypography.caption())
-                    .foregroundColor(AppColors.ctfTeamB)
-                Text("\(session.teamBScore)")
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundColor(AppColors.ctfTeamB)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(AppSpacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(AppColors.ctfTeamB.opacity(0.1))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(AppColors.ctfTeamB.opacity(0.3), lineWidth: 2)
-                    )
-            )
+        HStack(spacing: 6) {
+            CartoonHudChip(label: "Team A", value: "\(session.teamAScore)", accent: AppColors.ctfTeamA)
+            CartoonHudChip(label: "Team B", value: "\(session.teamBScore)", accent: AppColors.ctfTeamB)
         }
     }
     
     // MARK: - CTF Flag Status Panel
     
     private func ctfFlagStatusPanel(session: GameSession) -> some View {
-        VStack(spacing: AppSpacing.sm) {
-            Text("Flag Status")
-                .font(AppTypography.labelLarge())
-                .fontWeight(.semibold)
-                .foregroundColor(AppColors.textPrimary)
-            
-            HStack(spacing: AppSpacing.md) {
-                // Team A Flag
-                flagStatusCard(
-                    team: .teamA,
-                    session: session
-                )
-                
-                // Team B Flag
-                flagStatusCard(
-                    team: .teamB,
-                    session: session
-                )
-            }
+        HStack(spacing: 6) {
+            CartoonFlagStatusChip(
+                team: "A",
+                statusText: flagStatusText(team: .teamA, session: session),
+                teamColor: AppColors.ctfTeamA
+            )
+            CartoonFlagStatusChip(
+                team: "B",
+                statusText: flagStatusText(team: .teamB, session: session),
+                teamColor: AppColors.ctfTeamB
+            )
         }
-        .padding(AppSpacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(.ultraThinMaterial)
-                .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
-        )
     }
-    
-    private func flagStatusCard(team: Flag.Team, session: GameSession) -> some View {
-        let teamColor = team == .teamA ? AppColors.ctfTeamA : AppColors.ctfTeamB
+
+    private func flagStatusText(team: Flag.Team, session: GameSession) -> String {
         let flagPlayer = session.players.first { $0.team == team && $0.isFlag }
-        let isAtBase = flagPlayer != nil && session.flagCarriers[flagPlayer!.id] == nil
-        let carrierId = flagPlayer.flatMap { session.flagCarriers[$0.id] }
-        let carrierName = carrierId.flatMap { carrierId in
-            session.players.first(where: { $0.id == carrierId })?.displayName
+        guard let fp = flagPlayer else { return "No Flag" }
+        if let carrierId = session.flagCarriers[fp.id],
+           let carrier = session.players.first(where: { $0.id == carrierId }) {
+            if carrierId == gameService.currentPlayer?.id { return "Carried by You" }
+            return "Carried by \(carrier.displayName)"
         }
-        let flagPlayerName = flagPlayer?.displayName ?? "No Flag"
-        
-        return VStack(spacing: AppSpacing.xs) {
-            Image(systemName: "flag.fill")
-                .font(.title2)
-                .foregroundColor(teamColor)
-            
-            Text(team.rawValue)
-                .font(AppTypography.caption())
-                .foregroundColor(teamColor)
-            
-            if flagPlayer == nil {
-                Text("No Flag")
-                    .font(AppTypography.bodySmall())
-                    .foregroundColor(AppColors.textTertiary)
-            } else if isAtBase {
-                Text("At Base")
-                    .font(AppTypography.bodySmall())
-                    .foregroundColor(AppColors.success)
-                Text(flagPlayerName)
-                    .font(AppTypography.caption())
-                    .foregroundColor(AppColors.textSecondary)
-            } else if let carrier = carrierName {
-                Text("Carried by")
-                    .font(AppTypography.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                Text(carrier)
-                    .font(AppTypography.bodySmall())
-                    .fontWeight(.semibold)
-                    .foregroundColor(teamColor)
-            } else {
-                Text("Dropped")
-                    .font(AppTypography.bodySmall())
-                    .foregroundColor(AppColors.warning)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(AppSpacing.sm)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(teamColor.opacity(0.1))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(teamColor.opacity(0.3), lineWidth: 1)
-                )
-        )
+        return "At Base"
     }
     
     // MARK: - CTF Flag Action Buttons
@@ -459,68 +385,37 @@ struct CTFActiveGameView: View {
                         if teamAFlag.team != playerTeam && session.flagCarriers[teamAFlag.id] == nil {
                             Button(action: {
                                 HapticFeedbackManager.shared.selection()
-                                gameService.capturePlayerFlag(flagPlayerId: teamAFlag.id)
+                                pendingFlagCapture = teamAFlag.id
+                                captureConfirmationTeam = .teamA
+                                showCaptureConfirmation = true
                             }) {
                                 HStack(spacing: AppSpacing.sm) {
-                                    Image(systemName: "hand.raised.fill")
-                                        .font(.title3)
+                                    Image(systemName: "hand.raised.fill").font(.title3)
                                     Text("Capture Team A Flag")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.bold)
-                                        .multilineTextAlignment(.center)
                                 }
-                                .frame(maxWidth: .infinity)
-                                .foregroundColor(.white)
-                                .padding()
-                                .background(
-                                    LinearGradient(
-                                        colors: [AppColors.ctfPrimary, AppColors.ctfSecondary],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .cornerRadius(16)
-                                .shadow(color: AppColors.ctfPrimary.opacity(0.4), radius: 12, x: 0, y: 6)
                             }
-                            .buttonStyle(ScaleButtonStyle())
+                            .buttonStyle(CartoonButtonStyle(accent: AppColors.ctfTeamA))
                         }
-                        
-                        // Take Possession button (your team's flag captured by enemy, you tagged the carrier)
+
+                        // Take Possession button
                         if teamAFlag.team == playerTeam,
                            let enemyCarrierId = session.flagCarriers[teamAFlag.id],
                            let enemyCarrier = session.players.first(where: { $0.id == enemyCarrierId }),
                            enemyCarrier.team != playerTeam,
                            currentPlayer.id != enemyCarrierId {
-                            // Show "Take Possession" button if flag is captured by enemy and you're not the carrier
                             Button(action: {
                                 HapticFeedbackManager.shared.selection()
                                 gameService.takePossessionOfFlag(flagPlayerId: teamAFlag.id)
                             }) {
                                 HStack(spacing: AppSpacing.sm) {
-                                    Image(systemName: "hand.raised.fill")
-                                        .font(.title3)
+                                    Image(systemName: "hand.raised.fill").font(.title3)
                                     Text("Take Possession")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.bold)
-                                        .multilineTextAlignment(.center)
                                 }
-                                .frame(maxWidth: .infinity)
-                                .foregroundColor(.white)
-                                .padding()
-                                .background(
-                                    LinearGradient(
-                                        colors: [AppColors.ctfTeamA, AppColors.ctfTeamASecondary],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .cornerRadius(16)
-                                .shadow(color: AppColors.ctfTeamA.opacity(0.4), radius: 12, x: 0, y: 6)
                             }
-                            .buttonStyle(ScaleButtonStyle())
+                            .buttonStyle(CartoonButtonStyle(accent: AppColors.ctfTeamA))
                         }
-                        
-                        // Return button (your team's flag captured - you have possession)
+
+                        // Return button
                         if teamAFlag.team == playerTeam,
                            let carrierId = session.flagCarriers[teamAFlag.id],
                            carrierId == currentPlayer.id {
@@ -529,27 +424,11 @@ struct CTFActiveGameView: View {
                                 gameService.returnPlayerFlag(flagPlayerId: teamAFlag.id)
                             }) {
                                 HStack(spacing: AppSpacing.sm) {
-                                    Image(systemName: "arrow.uturn.backward.circle.fill")
-                                        .font(.title3)
+                                    Image(systemName: "arrow.uturn.backward.circle.fill").font(.title3)
                                     Text("Return Team A Flag")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.bold)
-                                        .multilineTextAlignment(.center)
                                 }
-                                .frame(maxWidth: .infinity)
-                                .foregroundColor(.white)
-                                .padding()
-                                .background(
-                                    LinearGradient(
-                                        colors: [AppColors.ctfTeamA, AppColors.ctfTeamASecondary],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .cornerRadius(16)
-                                .shadow(color: AppColors.ctfTeamA.opacity(0.4), radius: 12, x: 0, y: 6)
                             }
-                            .buttonStyle(ScaleButtonStyle())
+                            .buttonStyle(CartoonButtonStyle(accent: AppColors.ctfTeamA))
                         }
                     }
                 }
@@ -564,68 +443,37 @@ struct CTFActiveGameView: View {
                         if teamBFlag.team != playerTeam && session.flagCarriers[teamBFlag.id] == nil {
                             Button(action: {
                                 HapticFeedbackManager.shared.selection()
-                                gameService.capturePlayerFlag(flagPlayerId: teamBFlag.id)
+                                pendingFlagCapture = teamBFlag.id
+                                captureConfirmationTeam = .teamB
+                                showCaptureConfirmation = true
                             }) {
                                 HStack(spacing: AppSpacing.sm) {
-                                    Image(systemName: "hand.raised.fill")
-                                        .font(.title3)
+                                    Image(systemName: "hand.raised.fill").font(.title3)
                                     Text("Capture Team B Flag")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.bold)
-                                        .multilineTextAlignment(.center)
                                 }
-                                .frame(maxWidth: .infinity)
-                                .foregroundColor(.white)
-                                .padding()
-                                .background(
-                                    LinearGradient(
-                                        colors: [AppColors.ctfPrimary, AppColors.ctfSecondary],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .cornerRadius(16)
-                                .shadow(color: AppColors.ctfPrimary.opacity(0.4), radius: 12, x: 0, y: 6)
                             }
-                            .buttonStyle(ScaleButtonStyle())
+                            .buttonStyle(CartoonButtonStyle(accent: AppColors.ctfTeamB))
                         }
-                        
-                        // Take Possession button (your team's flag captured by enemy, you tagged the carrier)
+
+                        // Take Possession button
                         if teamBFlag.team == playerTeam,
                            let enemyCarrierId = session.flagCarriers[teamBFlag.id],
                            let enemyCarrier = session.players.first(where: { $0.id == enemyCarrierId }),
                            enemyCarrier.team != playerTeam,
                            currentPlayer.id != enemyCarrierId {
-                            // Show "Take Possession" button if flag is captured by enemy and you're not the carrier
                             Button(action: {
                                 HapticFeedbackManager.shared.selection()
                                 gameService.takePossessionOfFlag(flagPlayerId: teamBFlag.id)
                             }) {
                                 HStack(spacing: AppSpacing.sm) {
-                                    Image(systemName: "hand.raised.fill")
-                                        .font(.title3)
+                                    Image(systemName: "hand.raised.fill").font(.title3)
                                     Text("Take Possession")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.bold)
-                                        .multilineTextAlignment(.center)
                                 }
-                                .frame(maxWidth: .infinity)
-                                .foregroundColor(.white)
-                                .padding()
-                                .background(
-                                    LinearGradient(
-                                        colors: [AppColors.ctfTeamB, AppColors.ctfTeamBSecondary],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .cornerRadius(16)
-                                .shadow(color: AppColors.ctfTeamB.opacity(0.4), radius: 12, x: 0, y: 6)
                             }
-                            .buttonStyle(ScaleButtonStyle())
+                            .buttonStyle(CartoonButtonStyle(accent: AppColors.ctfTeamB))
                         }
-                        
-                        // Return button (your team's flag captured - you have possession)
+
+                        // Return button
                         if teamBFlag.team == playerTeam,
                            let carrierId = session.flagCarriers[teamBFlag.id],
                            carrierId == currentPlayer.id {
@@ -634,27 +482,11 @@ struct CTFActiveGameView: View {
                                 gameService.returnPlayerFlag(flagPlayerId: teamBFlag.id)
                             }) {
                                 HStack(spacing: AppSpacing.sm) {
-                                    Image(systemName: "arrow.uturn.backward.circle.fill")
-                                        .font(.title3)
+                                    Image(systemName: "arrow.uturn.backward.circle.fill").font(.title3)
                                     Text("Return Team B Flag")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.bold)
-                                        .multilineTextAlignment(.center)
                                 }
-                                .frame(maxWidth: .infinity)
-                                .foregroundColor(.white)
-                                .padding()
-                                .background(
-                                    LinearGradient(
-                                        colors: [AppColors.ctfTeamB, AppColors.ctfTeamBSecondary],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .cornerRadius(16)
-                                .shadow(color: AppColors.ctfTeamB.opacity(0.4), radius: 12, x: 0, y: 6)
                             }
-                            .buttonStyle(ScaleButtonStyle())
+                            .buttonStyle(CartoonButtonStyle(accent: AppColors.ctfTeamB))
                         }
                     }
                 }
@@ -678,27 +510,11 @@ struct CTFActiveGameView: View {
                                 gameService.scorePlayerFlag(flagPlayerId: flagPlayerId)
                             }) {
                                 HStack(spacing: AppSpacing.sm) {
-                                    Image(systemName: "target")
-                                        .font(.title3)
-                                    Text("Score \(flagTeam.rawValue) Flag")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.bold)
-                                        .multilineTextAlignment(.center)
+                                    Image(systemName: "target").font(.title3)
+                                    Text("Score \(flagTeam.rawValue) Flag!")
                                 }
-                                .frame(maxWidth: .infinity)
-                                .foregroundColor(.white)
-                                .padding()
-                                .background(
-                                    LinearGradient(
-                                        colors: [AppColors.success, AppColors.success.opacity(0.8)],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .cornerRadius(16)
-                                .shadow(color: AppColors.success.opacity(0.4), radius: 12, x: 0, y: 6)
                             }
-                            .buttonStyle(ScaleButtonStyle())
+                            .buttonStyle(CartoonButtonStyle(accent: AppColors.grassPrimary))
                         }
                     }
                 }
@@ -717,18 +533,18 @@ struct CTFActiveGameView: View {
             // Bubble Radius (no shrink indicator for CTF)
             HStack(spacing: 4) {
                 Image(systemName: "circle.fill")
-                    .font(.system(size: 8))
+                    .font(.system(size: 8, weight: .black, design: .rounded))
                     .foregroundColor(bubbleColor)
                 Text("\(Int(currentRadius))m")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(AppColors.textPrimary)
+                    .font(.system(size: 12, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
             }
             
             // Divider
             if isAlive {
                 Rectangle()
-                    .fill(AppColors.textSecondary.opacity(0.3))
-                    .frame(width: 1, height: 16)
+                    .fill(AppColors.cartoonInk.opacity(0.22))
+                    .frame(width: 2, height: 16)
             }
             
             // Distance to Edge
@@ -737,20 +553,23 @@ struct CTFActiveGameView: View {
                 let isOutside = distance > 0
                 HStack(spacing: 4) {
                     Image(systemName: isOutside ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                        .font(.system(size: 8))
+                        .font(.system(size: 8, weight: .black, design: .rounded))
                         .foregroundColor(isOutside ? AppColors.error : AppColors.success)
                     Text("\(Int(distanceFromEdge))m")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 12, weight: .black, design: .rounded))
                         .foregroundColor(isOutside ? AppColors.error : AppColors.success)
                 }
             }
         }
         .padding(.horizontal, AppSpacing.sm)
         .padding(.vertical, AppSpacing.xs)
+        .background(AppColors.cartoonCream)
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 2))
         .background(
             Capsule()
-                .fill(.ultraThinMaterial)
-                .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
+                .fill(Color(white: 0.18))
+                .offset(x: 3, y: 3)
         )
     }
     
@@ -766,11 +585,11 @@ struct CTFActiveGameView: View {
             // Total count
             HStack(spacing: 4) {
                 Image(systemName: "person.2.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(AppColors.textPrimary)
+                    .font(.system(size: 12, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
                 Text("\(alivePlayers.count)/\(session.players.count)")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(AppColors.textPrimary)
+                    .font(.system(size: 12, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
             }
             
             // Team breakdown
@@ -782,7 +601,7 @@ struct CTFActiveGameView: View {
                             .fill(AppColors.ctfTeamA)
                             .frame(width: 6, height: 6)
                         Text("\(teamAPlayers.count)")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 11, weight: .black, design: .rounded))
                             .foregroundColor(AppColors.ctfTeamA)
                     }
                     
@@ -792,7 +611,7 @@ struct CTFActiveGameView: View {
                             .fill(AppColors.ctfTeamB)
                             .frame(width: 6, height: 6)
                         Text("\(teamBPlayers.count)")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 11, weight: .black, design: .rounded))
                             .foregroundColor(AppColors.ctfTeamB)
                     }
                 }
@@ -802,20 +621,23 @@ struct CTFActiveGameView: View {
             if !eliminated.isEmpty {
                 HStack(spacing: 2) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(AppColors.error.opacity(0.7))
+                        .font(.system(size: 10, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.error)
                     Text("\(eliminated.count)")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(AppColors.error.opacity(0.7))
+                        .font(.system(size: 11, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.error)
                 }
             }
         }
         .padding(.horizontal, AppSpacing.sm)
         .padding(.vertical, AppSpacing.xs)
+        .background(AppColors.cartoonCream)
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 2))
         .background(
             Capsule()
-                .fill(.ultraThinMaterial)
-                .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
+                .fill(Color(white: 0.18))
+                .offset(x: 3, y: 3)
         )
     }
     
@@ -832,9 +654,6 @@ struct CTFActiveGameView: View {
             if gameService.warningLevel != .none {
                 warningBanner
             }
-            
-            // End Game Button
-            endGameButton
         }
     }
     
@@ -843,20 +662,14 @@ struct CTFActiveGameView: View {
             Image(systemName: warningIcon)
                 .foregroundColor(warningColor)
             Text(warningText)
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundColor(warningColor)
+                .font(.system(size: 15, weight: .black, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk)
                 .lineLimit(2)
                 .minimumScaleFactor(0.8)
         }
         .padding()
         .frame(maxWidth: .infinity)
-        .background(warningColor.opacity(0.2))
-        .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(warningColor, lineWidth: 2)
-        )
+        .cartoonCard(cornerRadius: 14, shadowOffset: 4, borderWidth: 2)
     }
     
     private var outOfBoundsCard: some View {
@@ -864,25 +677,24 @@ struct CTFActiveGameView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundColor(.white)
             Text(gameService.currentPlayer?.isAlive == false ? "ELIMINATED" : "OUT OF BOUNDS")
-                .font(AppTypography.labelLarge())
-                .fontWeight(.bold)
+                .font(.system(size: 16, weight: .black, design: .rounded))
+                .tracking(0.5)
                 .foregroundColor(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
         .padding()
         .frame(maxWidth: .infinity)
-        .background(
-            LinearGradient(
-                colors: [AppColors.error, AppColors.error.opacity(0.8)],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        )
-        .cornerRadius(12)
+        .background(AppColors.error)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.white.opacity(0.3), lineWidth: 2)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(AppColors.cartoonInk, lineWidth: 2)
+        )
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(white: 0.18))
+                .offset(x: 4, y: 4)
         )
     }
     
@@ -896,14 +708,8 @@ struct CTFActiveGameView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
-            .font(.headline)
-            .foregroundColor(.white)
-            .padding(.horizontal, AppSpacing.md)
-            .padding(.vertical, AppSpacing.md)
-            .frame(maxWidth: .infinity)
-            .background(Color.red)
-            .cornerRadius(12)
         }
+        .buttonStyle(CartoonButtonStyle(accent: AppColors.error))
     }
     
     // MARK: - Computed Properties
@@ -955,76 +761,11 @@ struct CTFActiveGameView: View {
     
     private var warningText: String {
         switch gameService.warningLevel {
-        case .danger: return "⚠️ DANGER - Near Edge!"
-        case .warning: return "⚠️ Warning - Getting Close"
-        case .safe: return "✓ Safe Distance"
+        case .danger: return "DANGER - Near Edge!"
+        case .warning: return "Warning - Getting Close"
+        case .safe: return "Safe Distance"
         case .none: return ""
         }
-    }
-    
-    // MARK: - Toast Notifications
-    
-    enum ToastType {
-        case elimination
-        case playerCaught
-        
-        var color: Color {
-            switch self {
-            case .elimination: return AppColors.error
-            case .playerCaught: return AppColors.success
-            }
-        }
-        
-        var icon: String {
-            switch self {
-            case .elimination: return "xmark.circle.fill"
-            case .playerCaught: return "checkmark.circle.fill"
-            }
-        }
-    }
-    
-    private func toastView(message: String, type: ToastType) -> some View {
-        let ctfGradient = LinearGradient(
-            colors: [
-                AppColors.ctfPrimary,
-                AppColors.ctfSecondary
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-        
-        let successGradient = LinearGradient(
-            colors: [
-                AppColors.success,
-                AppColors.success.opacity(0.8)
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-        
-        return HStack(spacing: AppSpacing.sm) {
-            Image(systemName: type.icon)
-                .foregroundColor(.white)
-                .font(.title3)
-            Text(message)
-                .font(AppTypography.labelMedium())
-                .fontWeight(.semibold)
-                .foregroundColor(.white)
-        }
-        .padding(.horizontal, AppSpacing.md)
-        .padding(.vertical, AppSpacing.sm)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(type == .elimination ? ctfGradient : successGradient)
-                .shadow(color: (type == .elimination ? AppColors.ctfPrimary : AppColors.success).opacity(0.5), radius: 12, x: 0, y: 6)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-        )
-        .padding(.horizontal, AppSpacing.md)
-        .padding(.top, AppSpacing.lg)
-        .transition(.move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.9)))
     }
     
     // MARK: - Helpers
@@ -1040,31 +781,26 @@ struct CTFActiveGameView: View {
     private func networkErrorBanner(message: String) -> some View {
         HStack(spacing: AppSpacing.sm) {
             Image(systemName: "wifi.slash")
-                .font(.title3)
-                .foregroundColor(.orange)
+                .font(.system(size: 16, weight: .black, design: .rounded))
+                .foregroundColor(.white)
+                .frame(width: 32, height: 32)
+                .background(AppColors.warning)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(AppColors.cartoonInk, lineWidth: 2))
             
             VStack(alignment: .leading, spacing: 4) {
                 Text("Connection Issue")
-                    .font(AppTypography.labelLarge())
-                    .fontWeight(.bold)
-                    .foregroundColor(.orange)
+                    .font(.system(size: 16, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
                 Text(message)
-                    .font(AppTypography.bodySmall())
-                    .foregroundColor(AppColors.textSecondary)
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk.opacity(0.68))
             }
             
             Spacer()
         }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.orange.opacity(0.15))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.orange, lineWidth: 2)
-                )
-        )
-        .shadow(color: Color.orange.opacity(0.3), radius: 8, x: 0, y: 4)
+        .cartoonCard(cornerRadius: 14, shadowOffset: 4, borderWidth: 2)
     }
     
     // MARK: - Flag Phone View
@@ -1092,63 +828,59 @@ struct CTFActiveGameView: View {
                 Text("FLAG")
                     .font(.system(size: 120, weight: .black, design: .rounded))
                     .foregroundColor(.white)
-                    .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
+                    .shadow(color: AppColors.cartoonInk, radius: 0, x: 6, y: 6)
                 
                 // Team name
                 Text(teamName)
-                    .font(.system(size: 48, weight: .bold))
-                    .foregroundColor(.white.opacity(0.9))
-                    .shadow(color: Color.black.opacity(0.2), radius: 5, x: 0, y: 2)
+                    .font(.system(size: 44, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+                    .shadow(color: AppColors.cartoonInk, radius: 0, x: 4, y: 4)
                 
                 // Status
                 if isCaptured {
                     if let carrierId = session.flagCarriers[player.id],
                        let carrier = session.players.first(where: { $0.id == carrierId }) {
                         Text("Carried by \(carrier.displayName)")
-                            .font(.system(size: 32, weight: .semibold))
-                            .foregroundColor(.white.opacity(0.8))
+                            .font(.system(size: 27, weight: .black, design: .rounded))
+                            .foregroundColor(AppColors.cartoonInk)
                             .padding(.top, AppSpacing.lg)
+                            .padding(AppSpacing.lg)
+                            .cartoonCard(cornerRadius: 18)
                     }
                 } else {
                     Text("At Base")
-                        .font(.system(size: 32, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.8))
+                        .font(.system(size: 27, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk)
                         .padding(.top, AppSpacing.lg)
+                        .padding(AppSpacing.lg)
+                        .cartoonCard(cornerRadius: 18)
                 }
                 
                 Spacer()
                 
                 // Flag Acquired Animation
-                if showFlagAcquired, let acquiredTeam = flagAcquiredTeam {
+                if showFlagAcquired, flagAcquiredTeam != nil {
                     VStack(spacing: AppSpacing.md) {
                         Text("Flag Acquired!")
-                            .font(.system(size: 48, weight: .bold))
-                            .foregroundColor(.white)
-                            .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
+                            .font(.system(size: 34, weight: .black, design: .rounded))
+                            .foregroundColor(AppColors.cartoonInk)
                             .scaleEffect(flagAcquiredAnimationScale)
                             .animation(.spring(response: 0.5, dampingFraction: 0.6).repeatForever(autoreverses: true), value: flagAcquiredAnimationScale)
                         
                         Text("Bring to Opposing Side to Capture")
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundColor(.white.opacity(0.9))
+                            .font(.system(size: 17, weight: .bold, design: .rounded))
+                            .foregroundColor(AppColors.cartoonInk.opacity(0.7))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, AppSpacing.xl)
                     }
                     .padding(AppSpacing.xl)
-                    .background(
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(acquiredTeam == .teamA ? Color.blue.opacity(0.3) : Color.red.opacity(0.3))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 20)
-                                    .stroke(Color.white, lineWidth: 3)
-                            )
-                    )
+                    .cartoonCard(cornerRadius: 20)
                     .padding(.horizontal, AppSpacing.xl)
                     .padding(.bottom, AppSpacing.xl)
                 }
                 
-                // CTF doesn't use BLE - flag capture happens via GPS proximity buttons on capturing player's device
-                // The flag phone just displays status and animations when captured
+                // Manual override buttons for edge cases (BLE failure, GPS issues, etc.)
+                flagPhoneManualButtons(session: session, player: player)
             }
             }
         }
@@ -1165,6 +897,132 @@ struct CTFActiveGameView: View {
                 flagAcquiredTeam = nil
             }
         }
+    }
+    
+    // MARK: - Flag Phone Manual Buttons (Edge Case Handling)
+    
+    /// Manual override buttons for flag phone to handle BLE failures and edge cases
+    private func flagPhoneManualButtons(session: GameSession, player: Player) -> some View {
+        let isCaptured = session.flagCarriers[player.id] != nil
+        let flagTeam = player.team ?? .teamA
+        let teamColor = flagTeam == .teamA ? Color.blue : Color.red
+        
+        return VStack(spacing: AppSpacing.md) {
+            // Manual override section
+            VStack(spacing: AppSpacing.sm) {
+                Text("Manual Override")
+                    .font(.system(size: 18, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
+                
+                Text("Use if BLE/GPS fails")
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk.opacity(0.68))
+            }
+            .padding(.top, AppSpacing.lg)
+            .padding(.bottom, AppSpacing.xs)
+            
+            if !isCaptured {
+                // Flag is at base - show "Flag Captured" button
+                Button(action: {
+                    HapticFeedbackManager.shared.selection()
+                    // Manually mark flag as captured
+                    // Find an enemy player to use as carrier (or use first enemy player)
+                    if let enemyPlayer = session.players.first(where: { $0.team != flagTeam && $0.isAlive }) {
+                        // Use enemy player as carrier
+                        if var session = gameService.session,
+                           let _ = session.players.firstIndex(where: { $0.id == player.id }) {
+                            session.flagCarriers[player.id] = enemyPlayer.id
+                            gameService.session = session
+                            
+                            // Sync to Firestore
+                            Task {
+                                do {
+                                    try await gameService.firestore.updateSession(session)
+                                    print("✅ Manual override: Flag marked as captured by \(enemyPlayer.displayName)")
+                                } catch {
+                                    print("❌ Error syncing manual flag capture: \(error)")
+                                }
+                            }
+                        }
+                    } else {
+                        print("⚠️ Cannot manually capture: No enemy players found")
+                    }
+                }) {
+                    HStack(spacing: AppSpacing.sm) {
+                        Image(systemName: "hand.raised.fill")
+                            .font(.title3)
+                        Text("Flag Captured")
+                    }
+                }
+                .buttonStyle(CartoonButtonStyle(accent: AppColors.error))
+            } else {
+                // Flag is captured - show "Flag Returned" and "Flag Scored" buttons
+                VStack(spacing: AppSpacing.sm) {
+                    // Flag Returned button
+                    Button(action: {
+                        HapticFeedbackManager.shared.selection()
+                        // Manually return flag to base
+                        gameService.returnPlayerFlag(flagPlayerId: player.id)
+                    }) {
+                        HStack(spacing: AppSpacing.sm) {
+                            Image(systemName: "arrow.uturn.backward.circle.fill")
+                                .font(.title3)
+                            Text("Flag Returned")
+                        }
+                    }
+                    .buttonStyle(CartoonButtonStyle(accent: teamColor))
+                    
+                    // Flag Scored button (if at enemy safe zone)
+                    if let currentLocation = locationService.coordinate {
+                        // Check if flag is in enemy safe zone
+                        let enemySafeZone = flagTeam == .teamA ? session.teamBSafeZone : session.teamASafeZone
+                        if let safeZone = enemySafeZone {
+                            let safeZoneLocation = CLLocation(latitude: safeZone.center.latitude, longitude: safeZone.center.longitude)
+                            let flagLocation = CLLocation(latitude: currentLocation.latitude, longitude: currentLocation.longitude)
+                            let distance = flagLocation.distance(from: safeZoneLocation)
+                            
+                            // Show "Flag Scored" if within safe zone radius
+                            if distance <= safeZone.radius {
+                                Button(action: {
+                                    HapticFeedbackManager.shared.selection()
+                                    // Manually score flag
+                                    if let carrierId = session.flagCarriers[player.id],
+                                       let _ = session.players.first(where: { $0.id == carrierId }) {
+                                        // Score the flag using the carrier's context
+                                        gameService.scorePlayerFlag(flagPlayerId: player.id)
+                                    }
+                                }) {
+                                    HStack(spacing: AppSpacing.sm) {
+                                        Image(systemName: "flag.checkered")
+                                            .font(.title3)
+                                        Text("Flag Scored")
+                                    }
+                                }
+                                .buttonStyle(CartoonButtonStyle(accent: AppColors.grassPrimary))
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Check Win Condition button (always available)
+            Button(action: {
+                HapticFeedbackManager.shared.selection()
+                // Manually trigger win condition check
+                gameService.checkGameOver()
+            }) {
+                HStack(spacing: AppSpacing.sm) {
+                    Image(systemName: "trophy.fill")
+                        .font(.title3)
+                    Text("Check Win Condition")
+                }
+            }
+            .buttonStyle(CartoonButtonStyle(accent: AppColors.cartoonSun, textColor: AppColors.cartoonInk))
+        }
+        .padding(AppSpacing.lg)
+        .cartoonCard(cornerRadius: 20)
+        .padding(.horizontal, AppSpacing.xl)
+        .padding(.bottom, AppSpacing.xl)
     }
     
     // CTF doesn't use BLE - flag capture happens via GPS proximity buttons on capturing player's device
@@ -1193,34 +1051,37 @@ struct CTFActiveGameView: View {
             Spacer()
             
             // Disconnect icon
-            Image(systemName: "wifi.slash")
-                .font(.system(size: 100, weight: .bold))
-                .foregroundColor(.white)
-                .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
+            CartoonMedallion(background: AppColors.error, size: 98, borderWidth: 3) {
+                Image(systemName: "wifi.slash")
+                    .font(.system(size: 42, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+            }
             
             // Title
             Text("Connection Lost")
-                .font(.system(size: 48, weight: .bold))
+                .font(.system(size: 42, weight: .black, design: .rounded))
                 .foregroundColor(.white)
-                .shadow(color: Color.black.opacity(0.2), radius: 5, x: 0, y: 2)
+                .shadow(color: AppColors.cartoonInk, radius: 0, x: 4, y: 4)
             
             // Message
             VStack(spacing: AppSpacing.md) {
                 Text("Manual Mode")
-                    .font(.system(size: 32, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.9))
+                    .font(.system(size: 27, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
                 
                 Text("Game continues manually")
-                    .font(.system(size: 20))
-                    .foregroundColor(.white.opacity(0.8))
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, AppSpacing.xl)
                 
                 Text("Reconnecting...")
-                    .font(.system(size: 18))
-                    .foregroundColor(.white.opacity(0.7))
+                    .font(.system(size: 15, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk.opacity(0.6))
                     .padding(.top, AppSpacing.sm)
             }
+            .padding(AppSpacing.xl)
+            .cartoonCard(cornerRadius: 20)
             
             Spacer()
         }
@@ -1288,28 +1149,139 @@ struct CTFActiveGameView: View {
         
         return HStack(spacing: AppSpacing.md) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.title2)
+                .font(.system(size: 20, weight: .black, design: .rounded))
                 .foregroundColor(.white)
             
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(teamName) Flag Disconnected")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: 16, weight: .black, design: .rounded))
                     .foregroundColor(.white)
                 
                 Text("Manual mode - game continues")
-                    .font(.system(size: 14))
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
                     .foregroundColor(.white.opacity(0.9))
             }
             
             Spacer()
         }
         .padding(AppSpacing.md)
+        .background(teamColor)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(AppColors.cartoonInk, lineWidth: 2)
+        )
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(teamColor)
-                .shadow(color: Color.black.opacity(0.3), radius: 8, x: 0, y: 4)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(white: 0.18))
+                .offset(x: 4, y: 4)
         )
         .padding(.horizontal, AppSpacing.md)
+    }
+    
+    // MARK: - Visibility Helpers
+    
+    /// Get players visible to current player based on team and elimination status
+    /// RULES:
+    /// - Eliminated players see NO enemy info (spectator mode)
+    /// - Alive players see teammates and flag players (enemy safe zones hidden)
+    /// - Prevents safe zone discovery through movement vectors
+    private func getVisiblePlayers(for session: GameSession?, currentPlayer: Player?) -> [Player] {
+        guard let session = session, let currentPlayer = currentPlayer else {
+            return []
+        }
+        
+        // Eliminated players (spectators) - hide all enemy info
+        if !currentPlayer.isAlive {
+            // Spectators see only their own team and flag players (no enemy locations)
+            return session.players.filter { player in
+                // Always show own player
+                if player.id == currentPlayer.id {
+                    return true
+                }
+                // Show teammates
+                if player.team == currentPlayer.team {
+                    return true
+                }
+                // Show flag players (they're marked on map anyway)
+                if player.isFlag {
+                    return true
+                }
+                // Hide all other enemy players
+                return false
+            }
+        }
+        
+        // Alive players - see teammates and flag players, but not regular enemy players
+        return session.players.filter { player in
+            // Always show own player
+            if player.id == currentPlayer.id {
+                return true
+            }
+            // Show teammates
+            if player.team == currentPlayer.team {
+                return true
+            }
+            // Show flag players (they're the objectives)
+            if player.isFlag {
+                return true
+            }
+            // Hide regular enemy players to prevent safe zone discovery
+            return false
+        }
+    }
+    
+    /// Get safe zones visible to current player
+    /// RULES:
+    /// - Players see their own team's safe zone
+    /// - Players see enemy safe zones only when both flags are in that zone (win condition visible)
+    /// - Eliminated players see no safe zones
+    private func getVisibleSafeZones(for session: GameSession?, currentPlayer: Player?) -> (teamA: GameSession.SafeZone?, teamB: GameSession.SafeZone?) {
+        guard let session = session, let currentPlayer = currentPlayer else {
+            return (nil, nil)
+        }
+        
+        // Eliminated players see no safe zones
+        if !currentPlayer.isAlive {
+            return (nil, nil)
+        }
+        
+        let playerTeam = currentPlayer.team
+        
+        // Players always see their own team's safe zone
+        let ownSafeZone = playerTeam == .teamA ? session.teamASafeZone : session.teamBSafeZone
+        
+        // Check if enemy safe zone should be visible (both flags in enemy safe zone = win condition)
+        let enemySafeZone: GameSession.SafeZone?
+        if let teamAFlag = session.players.first(where: { $0.team == .teamA && $0.isFlag }),
+           let teamBFlag = session.players.first(where: { $0.team == .teamB && $0.isFlag }) {
+            let enemySafeZoneToCheck = playerTeam == .teamA ? session.teamBSafeZone : session.teamASafeZone
+            
+            if let enemyZone = enemySafeZoneToCheck {
+                let flagALocation = teamAFlag.location
+                let flagBLocation = teamBFlag.location
+                let safeZoneLocation = CLLocation(latitude: enemyZone.center.latitude, longitude: enemyZone.center.longitude)
+                
+                let distanceA = flagALocation.distance(from: safeZoneLocation)
+                let distanceB = flagBLocation.distance(from: safeZoneLocation)
+                
+                // Only show enemy safe zone if both flags are in it (win condition visible)
+                if distanceA <= enemyZone.radius && distanceB <= enemyZone.radius {
+                    enemySafeZone = enemyZone
+                } else {
+                    enemySafeZone = nil // Hide enemy safe zone to prevent discovery
+                }
+            } else {
+                enemySafeZone = nil
+            }
+        } else {
+            enemySafeZone = nil
+        }
+        
+        return (
+            teamA: playerTeam == .teamA ? ownSafeZone : enemySafeZone,
+            teamB: playerTeam == .teamB ? ownSafeZone : enemySafeZone
+        )
     }
     
     // MARK: - Button Style
@@ -1322,4 +1294,3 @@ struct CTFActiveGameView: View {
         }
     }
 }
-

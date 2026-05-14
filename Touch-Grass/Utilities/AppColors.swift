@@ -17,8 +17,9 @@ struct AppColors {
     static let bubbleCritical = Color(red: 0.9, green: 0.1, blue: 0.1) // Deep red
     
     // Role Colors
-    static let hunterPrimary = Color(red: 1.0, green: 0.4, blue: 0.2) // Orange-red
-    static let hunterSecondary = Color(red: 1.0, green: 0.6, blue: 0.3) // Light orange
+    // Standardized Manhunt palette: seeker/hunter = red, hider = blue.
+    static let hunterPrimary = manhuntPrimary
+    static let hunterSecondary = manhuntSecondary
     static let hiderPrimary = Color(red: 0.2, green: 0.6, blue: 1.0) // Blue
     static let hiderSecondary = Color(red: 0.4, green: 0.8, blue: 1.0) // Light blue
     
@@ -164,8 +165,20 @@ struct AppColors {
     static let buttonSecondary = backgroundSecondary
     static let buttonTertiary = textSecondary
     
+    // MARK: - Cartoon Design Tokens
+    // Cream/ink vocabulary from the Touch Grass design system
+
+    static let cartoonCream   = Color(red: 1.00, green: 0.980, blue: 0.925) // #FFFAEC
+    static let cartoonCream2  = Color(red: 0.957, green: 0.925, blue: 0.827) // #F4ECD3
+    static let cartoonInk     = Color(red: 0.102, green: 0.102, blue: 0.102) // #1a1a1a
+    static let cartoonSun     = Color(red: 1.00, green: 0.839, blue: 0.271) // #FFD645
+    static let cartoonSun2    = Color(red: 1.00, green: 0.910, blue: 0.541) // #FFE88A
+    static let cartoonMint    = Color(red: 0.843, green: 0.949, blue: 0.851) // #D7F2D9
+    static let cartoonRose    = Color(red: 1.00, green: 0.843, blue: 0.824) // #FFD7D2
+    static let cartoonCloud   = Color(red: 0.835, green: 0.902, blue: 1.00) // #D5E6FF
+
     // MARK: - Opacity Constants
-    
+
     struct Opacity {
         static let light: Double = 0.1
         static let medium: Double = 0.2

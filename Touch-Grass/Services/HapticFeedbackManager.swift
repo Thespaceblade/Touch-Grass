@@ -78,8 +78,8 @@ final class HapticFeedbackManager {
     }
     
     func zoneShrink() {
-        // Medium impact for zone shrink
-        impact(style: .medium)
+        // Heavy impact for zone shrink (stronger feedback)
+        impact(style: .heavy)
     }
     
     func tagRequest() {
@@ -89,6 +89,17 @@ final class HapticFeedbackManager {
     
     func tagConfirmed() {
         success()
+    }
+    
+    // MARK: - Double Haptic Helper
+    
+    /// Performs a double haptic (two haptics in quick succession)
+    /// - Parameter style: The impact style to use (defaults to .heavy for strong feedback)
+    func doubleHaptic(style: UIImpactFeedbackGenerator.FeedbackStyle = .heavy) {
+        impact(style: style)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.impact(style: style)
+        }
     }
 }
 

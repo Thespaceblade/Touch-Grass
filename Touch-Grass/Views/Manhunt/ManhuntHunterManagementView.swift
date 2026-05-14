@@ -25,82 +25,24 @@ struct ManhuntHunterManagementView: View {
     var body: some View {
         NavigationView {
             ZStack {
-                // Background
-                LinearGradient(
-                    colors: [
-                        AppColors.hunterPrimary.opacity(0.1),
-                        AppColors.backgroundPrimary
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
+                ThemeBackgroundView(
+                    primaryColor: AppColors.hunterPrimary,
+                    secondaryColor: AppColors.hunterSecondary,
+                    lightColor: AppColors.manhuntLight
                 )
-                .ignoresSafeArea()
                 
                 ScrollView {
                     VStack(spacing: AppSpacing.lg) {
-                        // Header Info
                         VStack(spacing: AppSpacing.md) {
-                            Text("Manage Hunters")
-                                .font(AppTypography.displaySmall())
-                                .foregroundColor(AppColors.textPrimary)
+                            CartoonConfigurationHero(
+                                iconName: "target",
+                                title: "Manage Hunters",
+                                subtitle: "Tap players to switch Hunter and Hider roles.",
+                                badge: "Target: \(session.hunterCount) hunter\(session.hunterCount == 1 ? "" : "s")",
+                                accent: AppColors.hunterPrimary
+                            )
                             
-                            // Visual balance indicator
-                            HStack(spacing: AppSpacing.lg) {
-                                // Hunters
-                                VStack(spacing: AppSpacing.xs) {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "target")
-                                            .font(.caption)
-                                            .foregroundColor(AppColors.hunterPrimary)
-                                        Text("\(currentHunters.count)")
-                                            .font(.system(size: 24, weight: .bold))
-                                            .foregroundColor(AppColors.hunterPrimary)
-                                    }
-                                    Text("Hunters")
-                                        .font(AppTypography.caption())
-                                        .foregroundColor(AppColors.textSecondary)
-                                }
-                                .padding(.horizontal, AppSpacing.md)
-                                .padding(.vertical, AppSpacing.sm)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(AppColors.hunterPrimary.opacity(0.15))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 12)
-                                                .stroke(AppColors.hunterPrimary.opacity(0.3), lineWidth: 2)
-                                        )
-                                )
-                                
-                                // VS divider
-                                Text("vs")
-                                    .font(AppTypography.bodySmall())
-                                    .foregroundColor(AppColors.textTertiary)
-                                
-                                // Hiders
-                                VStack(spacing: AppSpacing.xs) {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "eye.slash.fill")
-                                            .font(.caption)
-                                            .foregroundColor(AppColors.hiderPrimary)
-                                        Text("\(currentHiders.count)")
-                                            .font(.system(size: 24, weight: .bold))
-                                            .foregroundColor(AppColors.hiderPrimary)
-                                    }
-                                    Text("Hiders")
-                                        .font(AppTypography.caption())
-                                        .foregroundColor(AppColors.textSecondary)
-                                }
-                                .padding(.horizontal, AppSpacing.md)
-                                .padding(.vertical, AppSpacing.sm)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(AppColors.hiderPrimary.opacity(0.15))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 12)
-                                                .stroke(AppColors.hiderPrimary.opacity(0.3), lineWidth: 2)
-                                        )
-                                )
-                            }
+                            roleMatchupCard
                             
                             // Balance status
                             let ratio = currentHunters.count > 0 ? Double(currentHiders.count) / Double(currentHunters.count) : 0
@@ -111,8 +53,8 @@ struct ManhuntHunterManagementView: View {
                                     .foregroundColor(isBalanced ? AppColors.success : AppColors.warning)
                                     .font(.caption)
                                 Text(isBalanced ? "Balanced teams" : "Unbalanced - adjust roles")
-                                    .font(AppTypography.caption())
-                                    .foregroundColor(isBalanced ? AppColors.success : AppColors.warning)
+                                    .font(.system(size: 12, weight: .black, design: .rounded))
+                                    .foregroundColor(AppColors.cartoonInk)
                             }
                             .padding(.horizontal, AppSpacing.sm)
                             .padding(.vertical, AppSpacing.xs)
@@ -120,76 +62,59 @@ struct ManhuntHunterManagementView: View {
                                 Capsule()
                                     .fill((isBalanced ? AppColors.success : AppColors.warning).opacity(0.15))
                             )
+                            .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 1.5))
                             
                             Text("Target: \(session.hunterCount) hunter\(session.hunterCount == 1 ? "" : "s")")
-                                .font(AppTypography.bodySmall())
-                                .foregroundColor(AppColors.textTertiary)
+                                .font(.system(size: 13, weight: .black, design: .rounded))
+                                .foregroundColor(AppColors.cartoonInk.opacity(0.62))
                         }
                         .padding(.top, AppSpacing.md)
                         
                         // Hunters Section
                         if !currentHunters.isEmpty {
                             VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                                HStack {
-                                    Image(systemName: "figure.walk.motion")
-                                        .foregroundColor(AppColors.hunterPrimary)
-                                    Text("Hunters")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.semibold)
-                                    Spacer()
-                                    Text("\(currentHunters.count)")
-                                        .font(AppTypography.labelMedium())
-                                        .foregroundColor(AppColors.hunterPrimary)
-                                }
+                                roleSectionHeader(
+                                    title: "Hunters",
+                                    count: currentHunters.count,
+                                    iconName: "figure.walk.motion",
+                                    accent: AppColors.hunterPrimary
+                                )
                                 
                                 ForEach(currentHunters) { player in
                                     playerRow(player: player, isHunter: true)
                                 }
                             }
                             .padding(AppSpacing.md)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(.ultraThinMaterial)
-                                    .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
-                            )
+                            .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2.5)
                         }
                         
                         // Hiders Section
                         if !currentHiders.isEmpty {
                             VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                                HStack {
-                                    Image(systemName: "figure.run")
-                                        .foregroundColor(AppColors.hiderPrimary)
-                                    Text("Hiders")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.semibold)
-                                    Spacer()
-                                    Text("\(currentHiders.count)")
-                                        .font(AppTypography.labelMedium())
-                                        .foregroundColor(AppColors.hiderPrimary)
-                                }
+                                roleSectionHeader(
+                                    title: "Hiders",
+                                    count: currentHiders.count,
+                                    iconName: "figure.run",
+                                    accent: AppColors.hiderPrimary
+                                )
                                 
                                 ForEach(currentHiders) { player in
                                     playerRow(player: player, isHunter: false)
                                 }
                             }
                             .padding(AppSpacing.md)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(.ultraThinMaterial)
-                                    .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
-                            )
+                            .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2.5)
                         }
                         
                         // Info Text
                         VStack(alignment: .leading, spacing: AppSpacing.xs) {
                             HStack(spacing: AppSpacing.xs) {
                                 Image(systemName: "info.circle.fill")
-                                    .foregroundColor(AppColors.textSecondary)
+                                    .foregroundColor(AppColors.hunterPrimary)
                                     .font(.caption)
                                 Text("Tap a player to toggle their role")
-                                    .font(AppTypography.caption())
-                                    .foregroundColor(AppColors.textSecondary)
+                                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                                    .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                             }
                             
                             if currentHunters.count != session.hunterCount {
@@ -198,30 +123,110 @@ struct ManhuntHunterManagementView: View {
                                         .foregroundColor(AppColors.warning)
                                         .font(.caption)
                                     Text("Current hunter count (\(currentHunters.count)) doesn't match target (\(session.hunterCount))")
-                                        .font(AppTypography.caption())
-                                        .foregroundColor(AppColors.warning)
+                                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                                        .foregroundColor(AppColors.cartoonInk.opacity(0.72))
                                 }
                             }
                         }
                         .padding(AppSpacing.md)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(AppColors.backgroundSecondary)
-                        )
+                        .cartoonCard(cornerRadius: 14, shadowOffset: 3, borderWidth: 2)
                         
                         Spacer()
                             .frame(height: AppSpacing.lg)
                     }
                     .padding(.horizontal, AppSpacing.md)
                 }
+                .safeAreaPadding(.bottom, AppSpacing.lg)
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                        .foregroundColor(AppColors.hunterPrimary)
+                    Button("Done") {
+                        dismiss()
+                    }
                 }
             }
+        }
+    }
+    
+    private var roleMatchupCard: some View {
+        HStack(spacing: AppSpacing.md) {
+            roleCountTile(
+                title: "Hunters",
+                count: currentHunters.count,
+                iconName: "target",
+                accent: AppColors.hunterPrimary
+            )
+            
+            Text("VS")
+                .font(.system(size: 14, weight: .black, design: .rounded))
+                .tracking(0.8)
+                .foregroundColor(AppColors.cartoonInk)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(AppColors.cartoonSun)
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 2))
+            
+            roleCountTile(
+                title: "Hiders",
+                count: currentHiders.count,
+                iconName: "eye.slash.fill",
+                accent: AppColors.hiderPrimary
+            )
+        }
+        .padding(AppSpacing.sm)
+        .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2.5)
+    }
+    
+    private func roleCountTile(title: String, count: Int, iconName: String, accent: Color) -> some View {
+        VStack(spacing: AppSpacing.xs) {
+            CartoonMedallion(background: accent, size: 34) {
+                Image(systemName: iconName)
+                    .font(.system(size: 15, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+            }
+            
+            Text("\(count)")
+                .font(.system(size: 28, weight: .black, design: .rounded))
+                .foregroundColor(accent)
+                .lineLimit(1)
+            
+            Text(title)
+                .font(.system(size: 11, weight: .black, design: .rounded))
+                .tracking(0.7)
+                .textCase(.uppercase)
+                .foregroundColor(AppColors.cartoonInk.opacity(0.72))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, AppSpacing.sm)
+        .background(accent.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(AppColors.cartoonInk.opacity(0.7), lineWidth: 1.5)
+        )
+    }
+    
+    private func roleSectionHeader(title: String, count: Int, iconName: String, accent: Color) -> some View {
+        HStack(spacing: AppSpacing.sm) {
+            CartoonMedallion(background: accent, size: 32) {
+                Image(systemName: iconName)
+                    .font(.system(size: 14, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+            }
+            
+            Text(title)
+                .font(.system(size: 17, weight: .black, design: .rounded))
+                .tracking(0.4)
+                .textCase(.uppercase)
+                .foregroundColor(AppColors.cartoonInk)
+            
+            Spacer()
+            
+            CartoonPill(text: "\(count)", color: accent)
         }
     }
     
@@ -230,54 +235,38 @@ struct ManhuntHunterManagementView: View {
             onSetHunter(player.id)
         }) {
             HStack(spacing: AppSpacing.sm) {
-                // Role indicator
-                Circle()
-                    .fill(isHunter ? AppColors.hunterPrimary : AppColors.hiderPrimary)
-                    .frame(width: 16, height: 16)
+                CartoonMedallion(background: isHunter ? AppColors.hunterPrimary : AppColors.hiderPrimary, size: 32) {
+                    Image(systemName: isHunter ? "target" : "eye.slash.fill")
+                        .font(.system(size: 13, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
+                }
                 
                 // Player name
                 Text(player.displayName)
-                    .font(AppTypography.bodyMedium())
-                    .foregroundColor(AppColors.textPrimary)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 
                 Spacer()
                 
                 // Current role badge
-                Text(isHunter ? "Hunter" : "Hider")
-                    .font(AppTypography.caption())
-                    .fontWeight(.medium)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule()
-                            .fill(isHunter ? AppColors.hunterPrimary : AppColors.hiderPrimary)
-                    )
+                CartoonPill(text: isHunter ? "Hunter" : "Hider", color: isHunter ? AppColors.hunterPrimary : AppColors.hiderPrimary)
                 
                 // You badge
                 if player.id == currentPlayer?.id {
-                    Text("You")
-                        .font(AppTypography.caption())
-                        .fontWeight(.medium)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule()
-                                .fill(AppColors.hunterPrimary)
-                        )
+                    CartoonPill(text: "You", color: AppColors.cartoonSun, textColor: AppColors.cartoonInk)
                 }
                 
                 // Toggle icon
-                Image(systemName: "arrow.left.arrow.right")
-                    .font(.caption)
-                    .foregroundColor(AppColors.textSecondary)
+                CartoonMedallion(background: AppColors.cartoonSun, size: 30) {
+                    Image(systemName: "arrow.left.arrow.right")
+                        .font(.system(size: 12, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk)
+                }
             }
             .padding(AppSpacing.sm)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(AppColors.backgroundSecondary)
-            )
+            .cartoonCard(cornerRadius: 12, shadowOffset: 3, borderWidth: 1.75)
         }
         .buttonStyle(PlainButtonStyle())
     }

@@ -1,0 +1,133 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function hasExpectedSessionShape(data) {
+      return data.keys().hasAll([
+        'id',
+        'hostId',
+        'gameState',
+        'gameType',
+        'joinCode',
+        'players',
+        'playerIds'
+      ]);
+    }
+
+    function isHost() {
+      return signedIn() && resource.data.hostId == request.auth.uid;
+    }
+
+    function isMember() {
+      return signedIn() && request.auth.uid in resource.data.playerIds;
+    }
+
+    function hasJoinCodeLookup() {
+      return signedIn()
+        && resource.data.gameState == 'lobby'
+        && resource.data.joinCode is string
+        && exists(/databases/$(database)/documents/joinCodes/$(resource.data.joinCode));
+    }
+
+    function createsOwnLobby() {
+      return signedIn()
+        && hasExpectedSessionShape(request.resource.data)
+        && request.resource.data.hostId == request.auth.uid
+        && request.resource.data.gameState == 'lobby'
+        && request.resource.data.playerIds.size() == 1
+        && request.resource.data.playerIds[0] == request.auth.uid
+        && request.resource.data.joinCode is string
+        && request.resource.data.joinCode.matches('^[0-9]{6}$');
+    }
+
+    function onlyPlayersChanged() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['players', 'playerIds'])
+        && request.resource.data.playerIds.size() <= 12;
+    }
+
+    function existingMemberPresenceUpdate() {
+      return isMember()
+        && onlyPlayersChanged()
+        && request.resource.data.playerIds == resource.data.playerIds
+        && request.resource.data.players.size() == resource.data.players.size();
+    }
+
+    function authenticatedSelfJoin() {
+      return signedIn()
+        && !(request.auth.uid in resource.data.playerIds)
+        && resource.data.gameState == 'lobby'
+        && request.resource.data.gameState == resource.data.gameState
+        && onlyPlayersChanged()
+        && request.resource.data.playerIds.hasAll(resource.data.playerIds)
+        && request.resource.data.playerIds.hasAll([request.auth.uid])
+        && request.resource.data.playerIds.size() == resource.data.playerIds.size() + 1
+        && request.resource.data.players.size() == resource.data.players.size() + 1;
+    }
+
+    // Narrow predator compass pulse write: an alive predator member commits
+    // their own pulse atomically. Affected keys are restricted to the pair
+    // (compassPulse, compassLastUsedAtByPlayerId) so this rule cannot be
+    // used to mutate roster, zone, or scoring fields. The cooldown map
+    // entry under the actor's uid must equal `compassPulse.usedAt` so the
+    // pulse and the cooldown can't drift apart.
+    function existingMemberCompassOnlyUpdate() {
+      return isMember()
+        && resource.data.gameState == 'active'
+        && request.resource.data.gameState == 'active'
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['compassPulse', 'compassLastUsedAtByPlayerId'])
+        && request.resource.data.compassPulse.usedByPlayerId == request.auth.uid
+        && request.resource.data.compassPulse.eventId is string
+        && request.resource.data.compassPulse.targetPlayerId is string
+        && request.resource.data.compassPulse.targetPlayerId != request.auth.uid
+        && request.resource.data.compassPulse.distanceMeters is number
+        && request.resource.data.compassLastUsedAtByPlayerId[request.auth.uid]
+             == request.resource.data.compassPulse.usedAt;
+    }
+
+    match /sessions/{sessionId} {
+      // Session data includes live locations. Do not allow collection listing;
+      // users get a single session through its join-code lookup document.
+      allow get: if isHost() || isMember() || hasJoinCodeLookup();
+      allow list: if false;
+
+      // The creator must be the host and first player.
+      allow create: if createsOwnLobby();
+
+      // Hosts can configure/start/end/reset the session. Players can join as their
+      // authenticated user and existing members can only perform presence-style
+      // top-level updates; server-side anti-cheat should move players into a
+      // subcollection before this becomes a high-stakes production game.
+      allow update: if isHost()
+        || authenticatedSelfJoin()
+        || existingMemberPresenceUpdate()
+        || existingMemberCompassOnlyUpdate();
+
+      allow delete: if isHost();
+    }
+
+    match /joinCodes/{joinCode} {
+      // Small lookup documents let players resolve a 6-digit code without
+      // querying/listing live session documents that contain player locations.
+      allow get: if signedIn() && joinCode.matches('^[0-9]{6}$');
+      allow list: if false;
+
+      allow create: if signedIn()
+        && joinCode.matches('^[0-9]{6}$')
+        && request.resource.data.hostId == request.auth.uid
+        && request.resource.data.joinCode == joinCode
+        && request.resource.data.sessionId is string
+        && request.resource.data.gameType is string;
+
+      allow update, delete: if signedIn() && resource.data.hostId == request.auth.uid;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -40,28 +40,22 @@ struct ToastView: View {
     var body: some View {
         if isVisible {
             HStack(spacing: AppSpacing.sm) {
-                Image(systemName: type.icon)
-                    .font(.title3)
-                    .foregroundColor(type.color)
+                CartoonMedallion(background: type.color, size: 32) {
+                    Image(systemName: type.icon)
+                        .font(.system(size: 14, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
+                }
                 
                 Text(message)
-                    .font(AppTypography.bodyMedium())
-                    .foregroundColor(AppColors.textPrimary)
+                    .font(.system(size: 14, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                 
                 Spacer()
             }
             .padding(AppSpacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(.ultraThinMaterial)
-                    .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(type.color.opacity(AppColors.Opacity.regular), lineWidth: 1)
-            )
+            .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2.5)
             .padding(.horizontal, AppSpacing.md)
             .transition(.move(edge: .top).combined(with: .opacity))
             .onAppear {
@@ -93,6 +87,14 @@ extension View {
         }
     }
 }
+
+
+
+
+
+
+
+
 
 
 

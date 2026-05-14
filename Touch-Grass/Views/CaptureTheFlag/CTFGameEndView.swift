@@ -14,228 +14,237 @@ struct CTFGameEndView: View {
     let onPlayAgain: () -> Void
     let onBackToLobby: () -> Void
     
+    @State private var showShareSheet = false
+
     var body: some View {
         ZStack {
-            // Background gradient (CTF theme)
+            // Team-colored gradient background
             LinearGradient(
-                colors: [
-                    AppColors.ctfPrimary.opacity(0.2),
-                    AppColors.backgroundPrimary
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                colors: [winnerPrimaryColor, winnerDarkColor],
+                startPoint: .top,
+                endPoint: .bottom
             )
             .ignoresSafeArea()
-            
+
+            // Cartoon confetti overlay
+            confettiOverlay
+
             ScrollView {
-                VStack(spacing: AppSpacing.xl) {
-                    Spacer()
-                        .frame(height: AppSpacing.lg)
-                    
-                    // Winner announcement
+                VStack(spacing: AppSpacing.lg) {
+                    Spacer().frame(height: AppSpacing.lg)
                     winnerSection
-                    
-                    // Game statistics
                     statsSection
-                    
-                    // Player rankings
                     rankingsSection
-                    
-                    // Action buttons
                     actionButtons
-                    
-                    Spacer()
-                        .frame(height: AppSpacing.lg)
+                    Spacer().frame(height: AppSpacing.lg)
                 }
                 .padding(.horizontal, AppSpacing.md)
             }
+            .safeAreaPadding(.bottom, AppSpacing.lg)
         }
     }
-    
+
+    // MARK: - Confetti
+
+    private var confettiOverlay: some View {
+        GeometryReader { geo in
+            Canvas { context, size in
+                let colors: [Color] = [AppColors.cartoonSun, .white, AppColors.ctfLight, AppColors.ctfTeamB.opacity(0.8)]
+                for i in 0..<34 {
+                    let x = CGFloat((i * 37) % Int(size.width))
+                    let y = CGFloat((i * 53) % Int(size.height))
+                    let w = CGFloat(5 + i % 6)
+                    let h = CGFloat(9 + i % 4)
+                    let color = colors[i % colors.count]
+                    let rect = CGRect(x: x, y: y, width: w, height: h)
+                    context.fill(Path(rect), with: .color(color.opacity(0.55)))
+                }
+            }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+
+    // MARK: - Winner Section
+
     private var winnerSection: some View {
-        VStack(spacing: AppSpacing.md) {
-            // Winner icon
-            Image(systemName: winnerIcon)
-                .font(.system(size: 60))
-                .foregroundStyle(winnerGradient)
-                .symbolEffect(.bounce, options: .repeating)
-            
-            // Winner text
-            Text(winnerText)
-                .font(AppTypography.displayMedium())
-                .foregroundStyle(winnerGradient)
+        VStack(spacing: 12) {
+            Text("WINNER")
+                .font(.system(size: 14, weight: .black, design: .rounded))
+                .foregroundColor(.white.opacity(0.95))
+                .tracking(2.2)
+
+            Text(winnerTeamName)
+                .font(.system(size: 56, weight: .black, design: .rounded))
+                .foregroundColor(.white)
                 .multilineTextAlignment(.center)
-            
-            // Subtitle
-            Text(winnerSubtitle)
-                .font(AppTypography.bodyMedium())
-                .foregroundColor(AppColors.textSecondary)
-                .multilineTextAlignment(.center)
+                .shadow(color: AppColors.cartoonInk.opacity(0.4), radius: 0, x: 3, y: 3)
+
+            // Trophy badge
+            HStack(spacing: 6) {
+                Image(systemName: "trophy.fill")
+                    .font(.system(size: 14, weight: .bold))
+                Text("Flag scored · \(timeString(from: gameStats.totalGameDuration()))")
+                    .font(.system(size: 13, weight: .black, design: .rounded))
+            }
+            .foregroundColor(AppColors.cartoonInk)
+            .padding(.vertical, 5)
+            .padding(.horizontal, 14)
+            .background(AppColors.cartoonSun2)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 2))
+            .background(Capsule().fill(Color(white: 0.18)).offset(x: 2, y: 2))
         }
-        .padding(AppSpacing.xl)
+        .padding(.vertical, AppSpacing.lg)
         .frame(maxWidth: .infinity)
-        .background(.ultraThinMaterial)
-        .cornerRadius(20)
     }
-    
+
+    // MARK: - Stats Section
+
     private var statsSection: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.md) {
-            Text("Game Statistics")
-                .font(AppTypography.headlineSmall())
-                .fontWeight(.bold)
-            
-            Divider()
-            
-            // Game duration
-            HStack {
-                Text("Game Duration:")
-                    .font(AppTypography.bodyMedium())
-                Spacer()
-                Text(timeString(from: gameStats.totalGameDuration()))
-                    .font(AppTypography.labelMedium())
-                    .fontWeight(.semibold)
-            }
-            
-            // Final scores (CTF-specific)
-            HStack {
-                Text("Final Score:")
-                    .font(AppTypography.bodyMedium())
-                Spacer()
-                HStack(spacing: AppSpacing.sm) {
-                    Text("\(session.teamAScore)")
-                        .font(AppTypography.labelMedium())
-                        .fontWeight(.bold)
-                        .foregroundColor(AppColors.ctfTeamA)
-                    Text("-")
-                        .font(AppTypography.labelMedium())
-                        .foregroundColor(AppColors.textSecondary)
-                    Text("\(session.teamBScore)")
-                        .font(AppTypography.labelMedium())
-                        .fontWeight(.bold)
-                        .foregroundColor(AppColors.ctfTeamB)
-                }
+        CartoonCard(padding: 14) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Game Statistics")
+                    .font(.system(size: 11, weight: .black, design: .rounded))
+                    .tracking(1.2)
+                    .textCase(.uppercase)
+                    .foregroundColor(winnerPrimaryColor.opacity(0.9))
+                    .padding(.bottom, 10)
+
+                statsRow(label: "Game Duration", value: timeString(from: gameStats.totalGameDuration()), isLast: false)
+                statsRow(label: "Final Score",
+                         value: "\(session.teamAScore) – \(session.teamBScore)",
+                         isLast: true)
             }
         }
-        .padding(AppSpacing.md)
-        .background(.ultraThinMaterial)
-        .cornerRadius(16)
     }
-    
+
+    private func statsRow(label: String, value: String, isLast: Bool) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(AppColors.cartoonInk.opacity(0.8))
+            Spacer()
+            Text(value)
+                .font(.system(size: 15, weight: .bold, design: .monospaced))
+                .foregroundColor(AppColors.cartoonInk)
+        }
+        .padding(.vertical, 7)
+        .overlay(alignment: .bottom) {
+            if !isLast {
+                Rectangle()
+                    .fill(AppColors.cartoonInk.opacity(0.12))
+                    .frame(height: 1.5)
+            }
+        }
+    }
+
+    // MARK: - Rankings Section
+
     private var rankingsSection: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.md) {
-            Text("Final Standings")
-                .font(AppTypography.headlineSmall())
-                .fontWeight(.bold)
-            
-            Divider()
-            
-            // CTF: Show winning team
-            let winningTeam = gameStats.winner == .teamA ? Flag.Team.teamA : (gameStats.winner == .teamB ? Flag.Team.teamB : nil)
-            if let team = winningTeam {
-                let teamPlayers = session.players.filter { $0.team == team }
-                Text("Winning Team: \(team.rawValue)")
-                    .font(AppTypography.bodySmall())
-                    .foregroundColor(team == .teamA ? AppColors.ctfTeamA : AppColors.ctfTeamB)
-                
-                ForEach(teamPlayers) { player in
-                    HStack {
-                        Image(systemName: "flag.fill")
-                            .foregroundColor(team == .teamA ? AppColors.ctfTeamA : AppColors.ctfTeamB)
-                        Text(player.displayName)
-                            .font(AppTypography.bodyMedium())
-                        if player.id == currentPlayer?.id {
-                            Text("(You)")
-                                .font(AppTypography.caption())
-                                .foregroundColor(AppColors.textSecondary)
-                        }
-                    }
-                }
-            }
-            
-            // CTF: No eliminated players - show losing team instead
-            let losingTeam = gameStats.winner == .teamA ? Flag.Team.teamB : (gameStats.winner == .teamB ? Flag.Team.teamA : nil)
-            if let team = losingTeam {
-                Divider()
-                Text("Losing Team: \(team.rawValue)")
-                    .font(AppTypography.bodySmall())
-                    .foregroundColor(team == .teamA ? AppColors.ctfTeamA : AppColors.ctfTeamB)
-                
-                let teamPlayers = session.players.filter { $0.team == team }
-                ForEach(teamPlayers) { player in
-                    HStack {
-                        Image(systemName: "flag.fill")
-                            .foregroundColor(team == .teamA ? AppColors.ctfTeamA.opacity(0.5) : AppColors.ctfTeamB.opacity(0.5))
-                        Text(player.displayName)
-                            .font(AppTypography.bodyMedium())
-                            .foregroundColor(AppColors.textSecondary)
-                        if player.id == currentPlayer?.id {
-                            Text("(You)")
-                                .font(AppTypography.caption())
-                                .foregroundColor(AppColors.textSecondary)
-                        }
-                    }
+        CartoonCard(padding: 14) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Final Standings")
+                    .font(.system(size: 11, weight: .black, design: .rounded))
+                    .tracking(1.2)
+                    .textCase(.uppercase)
+                    .foregroundColor(winnerPrimaryColor.opacity(0.9))
+                    .padding(.bottom, 10)
+
+                let allPlayers = buildStandings()
+                ForEach(Array(allPlayers.enumerated()), id: \.offset) { idx, entry in
+                    standingsRow(rank: idx + 1, name: entry.name, team: entry.team,
+                                 teamColor: entry.teamColor, isYou: entry.isYou,
+                                 isLast: idx == allPlayers.count - 1)
                 }
             }
         }
-        .padding(AppSpacing.md)
-        .background(.ultraThinMaterial)
-        .cornerRadius(16)
     }
-    
-    @State private var showShareSheet = false
-    
+
+    private struct StandingEntry {
+        let name: String
+        let team: String
+        let teamColor: Color
+        let isYou: Bool
+    }
+
+    private func buildStandings() -> [StandingEntry] {
+        let winTeam: Flag.Team? = gameStats.winner == .teamA ? .teamA : (gameStats.winner == .teamB ? .teamB : nil)
+        var entries: [StandingEntry] = []
+        if let wt = winTeam {
+            for p in session.players.filter({ $0.team == wt }) {
+                entries.append(StandingEntry(name: p.displayName, team: wt.rawValue,
+                                             teamColor: wt == .teamA ? AppColors.ctfTeamA : AppColors.ctfTeamB,
+                                             isYou: p.id == currentPlayer?.id))
+            }
+        }
+        let loseTeam: Flag.Team? = winTeam == .teamA ? .teamB : (winTeam == .teamB ? .teamA : nil)
+        if let lt = loseTeam {
+            for p in session.players.filter({ $0.team == lt }) {
+                entries.append(StandingEntry(name: p.displayName, team: lt.rawValue,
+                                             teamColor: lt == .teamA ? AppColors.ctfTeamA : AppColors.ctfTeamB,
+                                             isYou: p.id == currentPlayer?.id))
+            }
+        }
+        return entries
+    }
+
+    private func standingsRow(rank: Int, name: String, team: String, teamColor: Color, isYou: Bool, isLast: Bool) -> some View {
+        HStack(spacing: 10) {
+            Text("\(rank)")
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundColor(AppColors.cartoonInk.opacity(0.5))
+                .frame(width: 22, alignment: .center)
+            Text(name)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundColor(AppColors.cartoonInk)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            if isYou {
+                Text("(you)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(AppColors.cartoonInk.opacity(0.5))
+            }
+            Spacer()
+            CartoonPill(text: team, color: teamColor)
+        }
+        .padding(.vertical, 6)
+        .overlay(alignment: .bottom) {
+            if !isLast {
+                Rectangle()
+                    .fill(AppColors.cartoonInk.opacity(0.12))
+                    .frame(height: 1.5)
+            }
+        }
+    }
+
+    // MARK: - Action Buttons
+
     private var actionButtons: some View {
-        VStack(spacing: AppSpacing.md) {
-            // Play Again button
-            Button(action: {
-                HapticFeedbackManager.shared.selection()
-                onPlayAgain()
-            }) {
+        VStack(spacing: AppSpacing.sm) {
+            Button(action: { HapticFeedbackManager.shared.selection(); onPlayAgain() }) {
                 HStack(spacing: AppSpacing.sm) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.title3)
+                    Image(systemName: "arrow.clockwise").font(.title3)
                     Text("Play Again")
-                        .font(AppTypography.labelLarge())
-                        .fontWeight(.semibold)
                 }
             }
-            .buttonStyle(PrimaryButtonStyle())
-            .accessibilityLabel("Play again")
-            .accessibilityHint("Starts a new game with the same settings")
-            
-            // Share button
-            Button(action: {
-                HapticFeedbackManager.shared.selection()
-                showShareSheet = true
-            }) {
+            .buttonStyle(CartoonButtonStyle(accent: AppColors.cartoonSun, textColor: AppColors.cartoonInk))
+
+            Button(action: { HapticFeedbackManager.shared.selection(); showShareSheet = true }) {
                 HStack(spacing: AppSpacing.sm) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.title3)
+                    Image(systemName: "square.and.arrow.up").font(.title3)
                     Text("Share Results")
-                        .font(AppTypography.labelLarge())
-                        .fontWeight(.semibold)
                 }
             }
-            .buttonStyle(SecondaryButtonStyle())
-            .accessibilityLabel("Share results")
-            .accessibilityHint("Share your game results")
-            
-            // Back to Lobby button
-            Button(action: {
-                HapticFeedbackManager.shared.selection()
-                onBackToLobby()
-            }) {
+            .buttonStyle(CartoonSecondaryButtonStyle())
+
+            Button(action: { HapticFeedbackManager.shared.selection(); onBackToLobby() }) {
                 HStack(spacing: AppSpacing.sm) {
-                    Image(systemName: "house.fill")
-                        .font(.title3)
+                    Image(systemName: "house.fill").font(.title3)
                     Text("Back to Lobby")
-                        .font(AppTypography.labelLarge())
-                        .fontWeight(.semibold)
                 }
             }
-            .buttonStyle(SecondaryButtonStyle())
-            .accessibilityLabel("Back to lobby")
-            .accessibilityHint("Returns to the game lobby")
+            .buttonStyle(CartoonSecondaryButtonStyle())
         }
         .sheet(isPresented: $showShareSheet) {
             ShareSheet(activityItems: [shareText])
@@ -261,76 +270,29 @@ struct CTFGameEndView: View {
     }
     
     // MARK: - Computed Properties
-    
-    private var winnerText: String {
+
+    private var winnerTeamName: String {
         switch gameStats.winner {
-        case .teamA:
-            return "🏆 Team A Wins!"
-        case .teamB:
-            return "🏆 Team B Wins!"
-        case .timeUp:
-            return "⏰ Time's Up!"
-        case .none:
-            return "Game Over"
-        default:
-            return "Game Over"
+        case .teamA:  return "Team A"
+        case .teamB:  return "Team B"
+        case .timeUp: return "Time's Up"
+        default:      return "Game Over"
         }
     }
-    
-    private var winnerSubtitle: String {
+
+    private var winnerPrimaryColor: Color {
         switch gameStats.winner {
-        case .teamA:
-            return "Team A captured both flags!"
-        case .teamB:
-            return "Team B captured both flags!"
-        case .timeUp:
-            return "Time ran out!"
-        case .none:
-            return "The game has ended."
-        default:
-            return "The game has ended."
+        case .teamA:  return AppColors.ctfTeamA
+        case .teamB:  return AppColors.ctfTeamB
+        default:      return AppColors.ctfPrimary
         }
     }
-    
-    private var winnerIcon: String {
+
+    private var winnerDarkColor: Color {
         switch gameStats.winner {
-        case .teamA, .teamB:
-            return "flag.fill"
-        case .timeUp:
-            return "clock.fill"
-        case .none:
-            return "flag.fill"
-        default:
-            return "flag.fill"
-        }
-    }
-    
-    private var winnerGradient: LinearGradient {
-        switch gameStats.winner {
-        case .teamA:
-            return LinearGradient(
-                colors: [AppColors.ctfTeamA, AppColors.ctfTeamASecondary],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        case .teamB:
-            return LinearGradient(
-                colors: [AppColors.ctfTeamB, AppColors.ctfTeamBSecondary],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        case .timeUp, .none:
-            return LinearGradient(
-                colors: [AppColors.textPrimary, AppColors.textSecondary],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        default:
-            return LinearGradient(
-                colors: [AppColors.textPrimary, AppColors.textSecondary],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+        case .teamA:  return AppColors.ctfDark
+        case .teamB:  return AppColors.manhuntDark
+        default:      return AppColors.ctfDark
         }
     }
     

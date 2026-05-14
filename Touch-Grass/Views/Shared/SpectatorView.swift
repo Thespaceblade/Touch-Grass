@@ -54,24 +54,29 @@ struct SpectatorView: View {
                         Image(systemName: "eye.fill")
                             .foregroundColor(.white)
                         Text("SPECTATOR MODE")
-                            .font(.headline)
-                            .fontWeight(.bold)
+                            .font(.system(size: 15, weight: .black, design: .rounded))
+                            .tracking(1.2)
                             .foregroundColor(.white)
                     }
-                    .padding()
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, AppSpacing.md)
                     .frame(maxWidth: .infinity)
-                    .background(
-                        LinearGradient(
-                            colors: [Color.red.opacity(0.8), Color.orange.opacity(0.8)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
+                    .background(AppColors.error)
+                    .overlay(alignment: .bottom) {
+                        Rectangle()
+                            .fill(AppColors.cartoonInk)
+                            .frame(height: 2.5)
+                    }
                     
                     Text("You were eliminated. Watching the game...")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk.opacity(0.68))
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .background(AppColors.cartoonCream)
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 2))
+                        .background(Capsule().fill(Color(white: 0.18)).offset(x: 2, y: 2))
                 }
                 
                 Spacer()
@@ -91,8 +96,8 @@ struct SpectatorView: View {
     private var gameStatsPanel: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
             Text("Game Status")
-                .font(AppTypography.labelLarge())
-                .fontWeight(.semibold)
+                .font(.system(size: 17, weight: .black, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk)
             
             Divider()
             
@@ -153,8 +158,7 @@ struct SpectatorView: View {
             }
         }
         .padding()
-        .background(.ultraThinMaterial)
-        .cornerRadius(12)
+        .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2.5)
     }
     
     private func timeString(from timeInterval: TimeInterval) -> String {

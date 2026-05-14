@@ -24,6 +24,10 @@ final class ProfileService: ObservableObject {
     
     @Published var displayName: String = ""
     
+    // Track if profile picture is being loaded to prevent duplicate loads
+    @Published var isLoadingProfilePicture: Bool = false
+    private var profilePictureLoadTask: Task<Void, Never>?
+    
     // Statistics
     var totalGamesPlayed: Int {
         UserDefaults.standard.integer(forKey: totalGamesPlayedKey)
@@ -38,12 +42,15 @@ final class ProfileService: ObservableObject {
     }
     
     private init() {
-        // Configure image cache - reduced for memory efficiency
+        // Configure image cache - optimized for profile picture
         imageCache.countLimit = 20 // Only cache 20 images max
         imageCache.totalCostLimit = 10 * 1024 * 1024 // 10MB max cache
         
-        // Load saved profile
+        // Load saved profile (lightweight UserDefaults read)
         loadProfile()
+        
+        // PERFORMANCE: Don't preload profile picture on init - it will be loaded
+        // when ProfileView appears or when preloadProfilePicture() is explicitly called
     }
     
     // MARK: - Profile Management
@@ -90,28 +97,80 @@ final class ProfileService: ObservableObject {
         }
     }
     
+    // Synchronous version - checks cache only (fast, for immediate access)
     func loadProfilePicture() -> UIImage? {
         guard let fileName = UserDefaults.standard.string(forKey: profilePictureFileNameKey) else {
             return nil
         }
         
-        // Check cache first
+        // Check cache first - this is instant
+        return imageCache.object(forKey: fileName as NSString)
+    }
+    
+    // Async version - loads from disk off main thread (for background pre-loading)
+    func loadProfilePictureAsync() async -> UIImage? {
+        guard let fileName = UserDefaults.standard.string(forKey: profilePictureFileNameKey) else {
+            return nil
+        }
+        
+        // Check cache first - return immediately if cached
         if let cachedImage = imageCache.object(forKey: fileName as NSString) {
             return cachedImage
         }
         
-        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let fileURL = documentsPath.appendingPathComponent(fileName)
+        // Load from disk off main thread
+        // Capture fileName to avoid MainActor isolation issues
+        let fileNameCopy = fileName
+        let image: UIImage? = await Task.detached(priority: .userInitiated) {
+            let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let fileURL = documentsPath.appendingPathComponent(fileNameCopy)
+            
+            guard FileManager.default.fileExists(atPath: fileURL.path),
+                  let imageData = try? Data(contentsOf: fileURL),
+                  let image = UIImage(data: imageData) else {
+                return nil as UIImage?
+            }
+            
+            return image
+        }.value
         
-        guard FileManager.default.fileExists(atPath: fileURL.path),
-              let imageData = try? Data(contentsOf: fileURL),
-              let image = UIImage(data: imageData) else {
-            return nil
+        // Cache the image on main thread after loading
+        if let image = image {
+            imageCache.setObject(image, forKey: fileNameCopy as NSString)
         }
         
-        // Cache the image
-        imageCache.setObject(image, forKey: fileName as NSString)
         return image
+    }
+    
+    // Pre-load profile picture in background if file exists (optimization)
+    private func preloadProfilePictureIfExists() async {
+        // Prevent duplicate loads
+        guard !isLoadingProfilePicture else { return }
+        guard UserDefaults.standard.string(forKey: profilePictureFileNameKey) != nil else {
+            return // No profile picture to load
+        }
+        
+        // Check if already cached
+        if loadProfilePicture() != nil {
+            return // Already in cache
+        }
+        
+        isLoadingProfilePicture = true
+        defer { isLoadingProfilePicture = false }
+        
+        // Load in background
+        _ = await loadProfilePictureAsync()
+    }
+    
+    // Public method to pre-load profile picture (called when Profile tab is selected)
+    func preloadProfilePicture() {
+        // Cancel any existing load task
+        profilePictureLoadTask?.cancel()
+        
+        // Start new load task
+        profilePictureLoadTask = Task { @MainActor in
+            await preloadProfilePictureIfExists()
+        }
     }
     
     // Get profile picture as base64 string for sending to Firestore

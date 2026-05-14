@@ -372,6 +372,186 @@ final class GameSessionTests: XCTestCase {
         
         XCTAssertEqual(session.players.count, 12) // Use constant instead of accessing @MainActor property
     }
+
+    // MARK: - Codable Round-Trip (regression: dictionaryToSession truncation)
+
+    /// Regression test for the `dictionaryToSession` truncation bug that
+    /// silently dropped CTF fields and would have dropped compass fields.
+    /// All optional / collection-typed fields must survive a full encode
+    /// → decode round-trip with their values intact.
+    func testGameSessionCodableRoundTripPreservesAllFields() throws {
+        let host = Player(
+            displayName: "Host",
+            latitude: 37.7749,
+            longitude: -122.4194,
+            role: .hunter,
+            isAlive: true
+        )
+        let hider = Player(
+            displayName: "Hider",
+            latitude: 37.7750,
+            longitude: -122.4195,
+            role: .hider,
+            isAlive: true
+        )
+
+        var session = GameSession(
+            hostId: host.id,
+            gameState: .active,
+            gameType: .captureTheFlag,
+            players: [host, hider],
+            hunterCount: 0
+        )
+
+        session.teamAFlagPlaced = true
+        session.teamBFlagPlaced = false
+        session.teamABase = CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194)
+        session.teamBBase = CLLocationCoordinate2D(latitude: 37.7752, longitude: -122.4198)
+        session.teamASafeZone = GameSession.SafeZone(
+            center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
+            radius: 42.0
+        )
+        session.flagCarriers = ["flagA": hider.id]
+
+        let usedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        session.compassPulse = CompassPulse(
+            eventId: "evt-1",
+            usedByPlayerId: host.id,
+            targetPlayerId: hider.id,
+            distanceMeters: 123.5,
+            usedAt: usedAt
+        )
+        session.compassLastUsedAtByPlayerId = [host.id: usedAt]
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        let data = try encoder.encode(session)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        let decoded = try decoder.decode(GameSession.self, from: data)
+
+        XCTAssertEqual(decoded.id, session.id)
+        XCTAssertEqual(decoded.gameType, .captureTheFlag)
+        XCTAssertEqual(decoded.teamAFlagPlaced, true)
+        XCTAssertEqual(decoded.teamBFlagPlaced, false)
+        XCTAssertNotNil(decoded.teamABase)
+        XCTAssertNotNil(decoded.teamBBase)
+        guard let decodedSafeZone = decoded.teamASafeZone else {
+            XCTFail("teamASafeZone should round-trip")
+            return
+        }
+        XCTAssertEqual(decodedSafeZone.radius, 42.0, accuracy: 0.001)
+        XCTAssertEqual(decoded.flagCarriers["flagA"], hider.id)
+
+        guard let decodedPulse = decoded.compassPulse else {
+            XCTFail("compassPulse should round-trip")
+            return
+        }
+        XCTAssertEqual(decodedPulse.eventId, "evt-1")
+        XCTAssertEqual(decodedPulse.usedByPlayerId, host.id)
+        XCTAssertEqual(decodedPulse.targetPlayerId, hider.id)
+        XCTAssertEqual(decodedPulse.distanceMeters, 123.5, accuracy: 0.001)
+        XCTAssertEqual(
+            decodedPulse.usedAt.timeIntervalSince1970,
+            usedAt.timeIntervalSince1970,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(decoded.compassLastUsedAtByPlayerId.count, 1)
+        guard let mappedUsedAt = decoded.compassLastUsedAtByPlayerId[host.id] else {
+            XCTFail("compassLastUsedAtByPlayerId should round-trip")
+            return
+        }
+        XCTAssertEqual(
+            mappedUsedAt.timeIntervalSince1970,
+            usedAt.timeIntervalSince1970,
+            accuracy: 0.001
+        )
+    }
+
+    // MARK: - Compass eligibility
+
+    func testEligibleCompassPreyExcludesPredatorAndDeadAndWrongRole() {
+        let hunter = Player(
+            displayName: "Hunter",
+            latitude: 0, longitude: 0,
+            role: .hunter, isAlive: true
+        )
+        let hiderAlive = Player(
+            displayName: "HiderAlive",
+            latitude: 0, longitude: 0,
+            role: .hider, isAlive: true
+        )
+        let hiderDead = Player(
+            displayName: "HiderDead",
+            latitude: 0, longitude: 0,
+            role: .hider, isAlive: false
+        )
+        let otherHunter = Player(
+            displayName: "OtherHunter",
+            latitude: 0, longitude: 0,
+            role: .hunter, isAlive: true
+        )
+
+        let session = GameSession(
+            hostId: hunter.id,
+            gameState: .active,
+            gameType: .manhunt,
+            players: [hunter, hiderAlive, hiderDead, otherHunter],
+            hunterCount: 2
+        )
+
+        let eligible = session.eligibleCompassPrey(firedBy: hunter.id)
+        XCTAssertEqual(eligible.map(\.id), [hiderAlive.id])
+    }
+
+    func testEligibleCompassPreyForZombieTag() {
+        let zombie = Player(
+            displayName: "Zombie",
+            latitude: 0, longitude: 0,
+            role: .zombie, isAlive: true
+        )
+        let humanAlive = Player(
+            displayName: "Human",
+            latitude: 0, longitude: 0,
+            role: .human, isAlive: true
+        )
+
+        let session = GameSession(
+            hostId: zombie.id,
+            gameState: .active,
+            gameType: .zombieTag,
+            players: [zombie, humanAlive],
+            hunterCount: 1
+        )
+
+        let eligible = session.eligibleCompassPrey(firedBy: zombie.id)
+        XCTAssertEqual(eligible.map(\.id), [humanAlive.id])
+    }
+
+    func testEligibleCompassPreyEmptyForCTF() {
+        let teamA = Player(
+            displayName: "TeamA",
+            latitude: 0, longitude: 0,
+            role: .teamA, isAlive: true
+        )
+        let teamB = Player(
+            displayName: "TeamB",
+            latitude: 0, longitude: 0,
+            role: .teamB, isAlive: true
+        )
+
+        let session = GameSession(
+            hostId: teamA.id,
+            gameState: .active,
+            gameType: .captureTheFlag,
+            players: [teamA, teamB],
+            hunterCount: 0
+        )
+
+        XCTAssertTrue(session.eligibleCompassPrey(firedBy: teamA.id).isEmpty)
+        XCTAssertFalse(session.supportsCompassAbility)
+    }
 }
 #endif
 

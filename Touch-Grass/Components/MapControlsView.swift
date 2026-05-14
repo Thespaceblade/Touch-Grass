@@ -16,8 +16,26 @@ struct MapControlsView: View {
     let onCenterOnPlayer: () -> Void
     let bubbleExists: Bool
     let playerLocationExists: Bool
+    let gameType: GameType?
+    var onEndGame: (() -> Void)? = nil
     
     @State private var isExpanded: Bool = false
+    @State private var showEndGameConfirm: Bool = false
+    
+    // Helper to get primary color based on game type
+    private var primaryColor: Color {
+        guard let gameType = gameType else {
+            return AppColors.manhuntPrimary // Default fallback
+        }
+        switch gameType {
+        case .manhunt:
+            return AppColors.manhuntPrimary
+        case .zombieTag:
+            return AppColors.zombiePrimary
+        case .captureTheFlag:
+            return AppColors.ctfPrimary
+        }
+    }
     
     var body: some View {
         VStack(alignment: .trailing, spacing: 0) {
@@ -29,13 +47,18 @@ struct MapControlsView: View {
                 }
             }) {
                 Image(systemName: "map.fill")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 18, weight: .black, design: .rounded))
                     .foregroundColor(.white)
-                    .frame(width: 40, height: 40)
+                    .frame(width: 42, height: 42)
                     .background(
                         Circle()
-                            .fill(AppColors.manhuntPrimary)
-                            .shadow(color: Color.black.opacity(0.3), radius: 5, x: 0, y: 2)
+                            .fill(primaryColor)
+                    )
+                    .overlay(Circle().stroke(AppColors.cartoonInk, lineWidth: 2.5))
+                    .background(
+                        Circle()
+                            .fill(Color(white: 0.18))
+                            .offset(x: 3, y: 3)
                     )
             }
             .buttonStyle(PlainButtonStyle())
@@ -71,7 +94,7 @@ struct MapControlsView: View {
                     if playerLocationExists {
                         controlIconButton(
                             icon: "location.fill",
-                            color: AppColors.manhuntPrimary
+                            color: primaryColor
                         ) {
                             onCenterOnPlayer()
                         }
@@ -86,6 +109,15 @@ struct MapControlsView: View {
                     ) {
                         showPlayerLabels.toggle()
                     }
+
+                    if onEndGame != nil {
+                        controlIconButton(
+                            icon: "stop.circle.fill",
+                            color: AppColors.error
+                        ) {
+                            showEndGameConfirm = true
+                        }
+                    }
                 }
                 .padding(.top, AppSpacing.xs) // Small gap from main button
                 .transition(.asymmetric(
@@ -93,6 +125,14 @@ struct MapControlsView: View {
                     removal: .move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.8))
                 ))
             }
+        }
+        .alert("End game?", isPresented: $showEndGameConfirm) {
+            Button("Cancel", role: .cancel) { }
+            Button("End Game", role: .destructive) {
+                onEndGame?()
+            }
+        } message: {
+            Text("This ends the current game for everyone.")
         }
     }
     
@@ -104,18 +144,22 @@ struct MapControlsView: View {
             }
         } label: {
             Image(systemName: icon)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(mapType == type ? .white : AppColors.textSecondary)
+                .font(.system(size: 16, weight: .black, design: .rounded))
+                .foregroundColor(mapType == type ? .white : AppColors.cartoonInk.opacity(0.72))
                 .frame(width: 40, height: 40)
-                .background(
-                    Circle()
-                        .fill(mapType == type ? AppColors.manhuntPrimary : AppColors.cardBackground)
-                        .shadow(color: Color.black.opacity(0.2), radius: 3, x: 0, y: 2)
-                )
-                .overlay(
-                    Circle()
-                        .stroke(mapType == type ? AppColors.manhuntPrimary : Color.clear, lineWidth: 1.5)
-                )
+            .background(
+                Circle()
+                    .fill(mapType == type ? primaryColor : AppColors.cartoonCream)
+            )
+            .overlay(
+                Circle()
+                    .stroke(AppColors.cartoonInk, lineWidth: 2)
+            )
+            .background(
+                Circle()
+                    .fill(Color(white: 0.18))
+                    .offset(x: 2.5, y: 2.5)
+            )
             }
         .buttonStyle(PlainButtonStyle())
         .accessibilityLabel(mapTypeLabel(for: type))
@@ -127,6 +171,9 @@ struct MapControlsView: View {
         case .standard: return "Standard map"
         case .satellite: return "Satellite map"
         case .hybrid: return "Hybrid map"
+        case .satelliteFlyover: return "Satellite flyover map"
+        case .hybridFlyover: return "Hybrid flyover map"
+        case .mutedStandard: return "Muted standard map"
         @unknown default: return "Map type"
         }
     }
@@ -141,17 +188,21 @@ struct MapControlsView: View {
             action()
         }) {
             Image(systemName: icon)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(color)
+                .font(.system(size: 16, weight: .black, design: .rounded))
+                .foregroundColor(color == AppColors.textPrimary ? AppColors.cartoonInk : color)
                 .frame(width: 40, height: 40)
                 .background(
                     Circle()
-                        .fill(color.opacity(0.15))
-                        .shadow(color: Color.black.opacity(0.2), radius: 3, x: 0, y: 2)
+                        .fill(AppColors.cartoonCream)
                 )
                 .overlay(
                     Circle()
-                        .stroke(color.opacity(0.3), lineWidth: 1)
+                        .stroke(AppColors.cartoonInk, lineWidth: 2)
+                )
+                .background(
+                    Circle()
+                        .fill(Color(white: 0.18))
+                        .offset(x: 2.5, y: 2.5)
                 )
         }
         .buttonStyle(PlainButtonStyle())
@@ -164,6 +215,7 @@ struct MapControlsView: View {
         case "location.fill": return "Center on player"
         case "person.fill.checkmark": return "Hide player labels"
         case "person.fill.xmark": return "Show player labels"
+        case "stop.circle.fill": return "End game"
         default: return "Map control"
         }
     }

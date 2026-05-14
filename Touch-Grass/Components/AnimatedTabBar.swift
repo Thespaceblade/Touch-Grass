@@ -23,26 +23,17 @@ struct AnimatedTabBar: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Background with blur effect
                 RoundedRectangle(cornerRadius: 18)
-                    .fill(.ultraThinMaterial)
+                    .fill(AppColors.cartoonCream)
                     .overlay(
                         RoundedRectangle(cornerRadius: 18)
-                            .stroke(
-                                LinearGradient(
-                                    colors: [
-                                        AppColors.grassPrimary.opacity(0.3),
-                                        AppColors.grassSecondary.opacity(0.2),
-                                        AppColors.grassLight.opacity(0.1)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1.5
-                            )
+                            .stroke(AppColors.cartoonInk, lineWidth: 2)
                     )
-                    .shadow(color: Color.black.opacity(0.15), radius: 15, x: 0, y: 8)
-                    .shadow(color: AppColors.grassPrimary.opacity(0.2), radius: 25, x: 0, y: 0)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18)
+                            .fill(Color(white: 0.18))
+                            .offset(x: 4, y: 4)
+                    )
                 
                 HStack(spacing: 0) {
                     // Game Tab
@@ -201,11 +192,11 @@ struct AnimatedTabBar: View {
                 
                 // Label
                 Text(label)
-                    .font(.system(size: 9, weight: selectedTab == tab ? .bold : .medium))
+                    .font(.system(size: 9, weight: selectedTab == tab ? .black : .bold, design: .rounded))
                     .foregroundColor(
                         selectedTab == tab ?
-                        AppColors.grassPrimary :
-                        AppColors.textSecondary
+                        AppColors.cartoonInk :
+                        AppColors.cartoonInk.opacity(0.58)
                     )
                     .opacity(selectedTab == tab ? 1.0 : 0.6)
             }
@@ -222,24 +213,11 @@ struct AnimatedTabBar: View {
         let indicatorX = selectedTab == .game ? tabWidth / 2 : tabWidth * 1.5
         
         return ZStack {
-            // Back glow layer
+            // Hard offset sticker shadow
             RoundedRectangle(cornerRadius: 18)
-                .fill(
-                    RadialGradient(
-                        colors: [
-                            AppColors.grassPrimary.opacity(0.3 * glowIntensity),
-                            AppColors.grassSecondary.opacity(0.2 * glowIntensity),
-                            Color.clear
-                        ],
-                        center: .center,
-                        startRadius: 10,
-                        endRadius: 40
-                    )
-                )
-                .frame(width: 76, height: 36)
-                .offset(x: indicatorX - geometry.size.width / 2)
-                .blur(radius: 8)
-                .scaleEffect(pulseScale * 0.98)
+                .fill(Color(white: 0.18))
+                .frame(width: 70, height: 32)
+                .offset(x: indicatorX - geometry.size.width / 2 + 3, y: 3)
             
             // Main pill indicator - clean rounded capsule
             RoundedRectangle(cornerRadius: 16)
@@ -285,25 +263,11 @@ struct AnimatedTabBar: View {
                         )
                 )
                 .overlay(
-                    // Subtle border with gradient
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(
-                            LinearGradient(
-                                colors: [
-                                    AppColors.grassLight.opacity(0.8),
-                                    AppColors.grassPrimary.opacity(0.6),
-                                    AppColors.grassSecondary.opacity(0.4)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1.5
-                        )
+                        .stroke(AppColors.cartoonInk, lineWidth: 2)
                         .frame(width: 70, height: 32)
                         .offset(x: indicatorX - geometry.size.width / 2)
                 )
-                .shadow(color: AppColors.grassPrimary.opacity(0.5), radius: 10, x: 0, y: 4)
-                .shadow(color: AppColors.grassSecondary.opacity(0.3), radius: 18, x: 0, y: 0)
                 .scaleEffect(pulseScale)
         }
         .animation(.spring(response: 0.5, dampingFraction: 0.75), value: selectedTab)
@@ -313,4 +277,3 @@ struct AnimatedTabBar: View {
         // Continuous gradient animation is handled by onAppear
     }
 }
-

@@ -14,6 +14,14 @@ final class NotificationService {
     
     private let notificationCenter = UNUserNotificationCenter.current()
     
+    private func print(_ message: String) {
+        if message.hasPrefix("❌") {
+            Swift.print(message)
+        } else {
+            DebugLogger.log(message)
+        }
+    }
+    
     private init() {
         // Configure notification categories and actions
         setupNotificationCategories()
@@ -184,14 +192,18 @@ final class NotificationService {
         
         notificationCenter.add(request) { error in
             if let error = error {
-                print("❌ Error scheduling notification: \(error)")
+                DebugLogger.error("Error scheduling notification: \(error)")
             } else {
-                print("✅ Notification scheduled: \(title)")
+                DebugLogger.log("✅ Notification scheduled: \(title)")
             }
         }
     }
     
     // MARK: - Cleanup
+    
+    func clearBadge() {
+        UNUserNotificationCenter.current().setBadgeCount(0)
+    }
     
     func removeAllPendingNotifications() {
         notificationCenter.removeAllPendingNotificationRequests()

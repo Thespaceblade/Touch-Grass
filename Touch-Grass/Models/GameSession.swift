@@ -34,21 +34,35 @@ struct GameSession: Identifiable {
     var teamBFlagPlaced: Bool = false // Team B flag has been placed
     var teamASafeZone: SafeZone? = nil // Team A safe zone (center + radius)
     var teamBSafeZone: SafeZone? = nil // Team B safe zone (center + radius)
+
+    // Predator compass pulse ability (Manhunt hunters / Zombie Tag zombies).
+    // The latest committed pulse on this session — every client renders the
+    // SAME `distanceMeters` from this value, so the actor's bearing/distance
+    // are authoritative for display once written. `usedAt` is a client-
+    // generated timestamp; rules tie it to the cooldown map entry below.
+    var compassPulse: CompassPulse? = nil
+    // Per-predator cooldown anchor: last `usedAt` keyed by `usedByPlayerId`.
+    // Lives next to `compassPulse` so a transaction can read both atomically
+    // and Firestore rules can compare timestamps without touching `players`.
+    var compassLastUsedAtByPlayerId: [String: Date] = [:]
     
     struct SafeZone: Codable, Equatable {
-        var center: CLLocationCoordinate2D
-        var radius: Double // meters
+        // IMMUTABLE: Once confirmed, these values never change (prevents GPS drift)
+        let center: CLLocationCoordinate2D
+        let radius: Double // meters
+        let confirmedAt: Date // Timestamp when safe zone was confirmed (for tiebreaking)
         
         var centerLatitude: Double { center.latitude }
         var centerLongitude: Double { center.longitude }
         
-        init(center: CLLocationCoordinate2D, radius: Double) {
+        init(center: CLLocationCoordinate2D, radius: Double, confirmedAt: Date = Date()) {
             self.center = center
             self.radius = radius
+            self.confirmedAt = confirmedAt
         }
         
         enum CodingKeys: String, CodingKey {
-            case centerLatitude, centerLongitude, radius
+            case centerLatitude, centerLongitude, radius, confirmedAt
         }
         
         init(from decoder: Decoder) throws {
@@ -57,6 +71,8 @@ struct GameSession: Identifiable {
             let lon = try container.decode(Double.self, forKey: .centerLongitude)
             self.center = CLLocationCoordinate2D(latitude: lat, longitude: lon)
             self.radius = try container.decode(Double.self, forKey: .radius)
+            // confirmedAt is optional for backward compatibility
+            self.confirmedAt = (try? container.decode(Date.self, forKey: .confirmedAt)) ?? Date()
         }
         
         func encode(to encoder: Encoder) throws {
@@ -64,12 +80,14 @@ struct GameSession: Identifiable {
             try container.encode(center.latitude, forKey: .centerLatitude)
             try container.encode(center.longitude, forKey: .centerLongitude)
             try container.encode(radius, forKey: .radius)
+            try container.encode(confirmedAt, forKey: .confirmedAt)
         }
         
         static func == (lhs: SafeZone, rhs: SafeZone) -> Bool {
             return lhs.center.latitude == rhs.center.latitude &&
                    lhs.center.longitude == rhs.center.longitude &&
-                   lhs.radius == rhs.radius
+                   lhs.radius == rhs.radius &&
+                   lhs.confirmedAt == rhs.confirmedAt
         }
     }
     
@@ -81,6 +99,8 @@ struct GameSession: Identifiable {
         case teamABaseLat, teamABaseLon, teamBBaseLat, teamBBaseLon
         case teamAFlagPlaced, teamBFlagPlaced
         case teamASafeZone, teamBSafeZone
+        case flagCarriers
+        case compassPulse, compassLastUsedAtByPlayerId
     }
     
     init(id: String = UUID().uuidString,
@@ -162,6 +182,13 @@ extension GameSession: Codable {
         } else {
             teamBBase = nil
         }
+        
+        teamASafeZone = try container.decodeIfPresent(SafeZone.self, forKey: .teamASafeZone)
+        teamBSafeZone = try container.decodeIfPresent(SafeZone.self, forKey: .teamBSafeZone)
+        flagCarriers = try container.decodeIfPresent([String: String].self, forKey: .flagCarriers) ?? [:]
+
+        compassPulse = try container.decodeIfPresent(CompassPulse.self, forKey: .compassPulse)
+        compassLastUsedAtByPlayerId = try container.decodeIfPresent([String: Date].self, forKey: .compassLastUsedAtByPlayerId) ?? [:]
     }
     
     func encode(to encoder: Encoder) throws {
@@ -185,6 +212,7 @@ extension GameSession: Codable {
         try container.encode(teamBFlagPlaced, forKey: .teamBFlagPlaced)
         try container.encodeIfPresent(teamASafeZone, forKey: .teamASafeZone)
         try container.encodeIfPresent(teamBSafeZone, forKey: .teamBSafeZone)
+        try container.encode(flagCarriers, forKey: .flagCarriers)
         
         // Encode optional coordinates
         if let base = teamABase {
@@ -195,6 +223,11 @@ extension GameSession: Codable {
         if let base = teamBBase {
             try container.encode(base.latitude, forKey: .teamBBaseLat)
             try container.encode(base.longitude, forKey: .teamBBaseLon)
+        }
+
+        try container.encodeIfPresent(compassPulse, forKey: .compassPulse)
+        if !compassLastUsedAtByPlayerId.isEmpty {
+            try container.encode(compassLastUsedAtByPlayerId, forKey: .compassLastUsedAtByPlayerId)
         }
     }
 }
@@ -216,7 +249,14 @@ extension GameSession: Equatable {
               lhs.flags == rhs.flags,
               lhs.teamAScore == rhs.teamAScore,
               lhs.teamBScore == rhs.teamBScore,
-              lhs.scoreLimit == rhs.scoreLimit else {
+              lhs.scoreLimit == rhs.scoreLimit,
+              lhs.teamAFlagPlaced == rhs.teamAFlagPlaced,
+              lhs.teamBFlagPlaced == rhs.teamBFlagPlaced,
+              lhs.teamASafeZone == rhs.teamASafeZone,
+              lhs.teamBSafeZone == rhs.teamBSafeZone,
+              lhs.flagCarriers == rhs.flagCarriers,
+              lhs.compassPulse == rhs.compassPulse,
+              lhs.compassLastUsedAtByPlayerId == rhs.compassLastUsedAtByPlayerId else {
             return false
         }
         

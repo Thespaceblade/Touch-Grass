@@ -10,7 +10,7 @@ import SwiftUI
 struct DecorativeDividerView: View {
     var body: some View {
         HStack(spacing: AppSpacing.md) {
-            // Left decorative line
+            // Left decorative line - exactly as original
             Rectangle()
                 .fill(
                     LinearGradient(
@@ -26,7 +26,7 @@ struct DecorativeDividerView: View {
                 )
                 .frame(height: 2)
             
-            // Center decorative element with glow
+            // Center decorative element with glow - exactly as original
             ZStack {
                 Circle()
                     .fill(
@@ -59,7 +59,7 @@ struct DecorativeDividerView: View {
                     .shadow(color: AppColors.grassPrimary.opacity(0.6), radius: 4, x: 0, y: 0)
             }
             
-            // Right decorative line
+            // Right decorative line - exactly as original
             Rectangle()
                 .fill(
                     LinearGradient(
@@ -75,7 +75,8 @@ struct DecorativeDividerView: View {
                 )
                 .frame(height: 2)
         }
-        .allowsHitTesting(false) // TOUCH FIX: Decorative divider shouldn't block touches
+        .drawingGroup() // Cache the entire decorative element as bitmap for performance
+        .allowsHitTesting(false)
     }
 }
 

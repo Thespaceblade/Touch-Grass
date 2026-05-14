@@ -30,66 +30,40 @@ struct EmptyStateView: View {
     
     var body: some View {
         VStack(spacing: AppSpacing.lg) {
-            // Icon
-            Image(systemName: icon)
-                .font(.system(size: 64))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [
-                            AppColors.manhuntPrimary,
-                            AppColors.manhuntSecondary
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .symbolEffect(.pulse, options: .repeating.speed(0.5))
+            CartoonMedallion(background: AppColors.grassPrimary, size: 72, borderWidth: 2.5) {
+                Image(systemName: icon)
+                    .font(.system(size: 32, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+            }
+            .symbolEffect(.pulse, options: .repeating.speed(0.5))
             
-            // Title
             Text(title)
-                .font(AppTypography.headlineLarge())
-                .foregroundColor(AppColors.textPrimary)
+                .font(.system(size: 25, weight: .black, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk)
                 .multilineTextAlignment(.center)
             
-            // Message
             Text(message)
-                .font(AppTypography.bodyMedium())
-                .foregroundColor(AppColors.textSecondary)
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, AppSpacing.lg)
+                .fixedSize(horizontal: false, vertical: true)
             
-            // Action Button
             if let actionTitle = actionTitle, let action = action {
                 Button(action: action) {
                     HStack(spacing: AppSpacing.sm) {
                         Image(systemName: "plus.circle.fill")
-                            .font(.title3)
+                            .font(.system(size: 19, weight: .black, design: .rounded))
                         Text(actionTitle)
-                            .font(AppTypography.labelLarge())
-                            .fontWeight(.semibold)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, AppSpacing.lg)
-                    .padding(.vertical, AppSpacing.md)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        AppColors.manhuntPrimary,
-                                        AppColors.manhuntSecondary
-                                    ],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                    )
                 }
-                .buttonStyle(PlainButtonStyle())
+                .buttonStyle(CartoonButtonStyle(accent: AppColors.grassPrimary))
             }
         }
         .padding(AppSpacing.xl)
         .frame(maxWidth: 500)
+        .cartoonCard(cornerRadius: 20, shadowOffset: 5, borderWidth: 2.5)
     }
 }
 
@@ -124,6 +98,14 @@ extension EmptyStateView {
         )
     }
 }
+
+
+
+
+
+
+
+
 
 
 

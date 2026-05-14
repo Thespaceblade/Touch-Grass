@@ -2,12 +2,16 @@ import Foundation
 import CoreLocation
 import Combine
 import CoreMotion
+import UIKit
 
 @MainActor
 final class LocationService: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     @Published var coordinate: CLLocationCoordinate2D?
     @Published var accuracy: CLLocationAccuracy?
+    /// Last GPS fix accepted into `coordinate` / `accuracy` (same `CLLocation`
+    /// instance from Core Location, preserving `timestamp` for freshness checks).
+    var lastKnownLocation: CLLocation?
     @Published var authorization: CLAuthorizationStatus = .notDetermined
     @Published var isMoving: Bool = false // Track motion state
 
@@ -23,6 +27,14 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
     private let motionAccelerationThreshold: Double = 0.15 // m/s² - user acceleration threshold (gravity-filtered)
     private let motionDetectionInterval: TimeInterval = 0.5 // Check motion every 0.5s
     private let motionStopDelay: TimeInterval = 3.0 // Stop GPS 3s after motion stops (to avoid constant toggling)
+
+    var hasRequiredGamePermission: Bool {
+        authorization == .authorizedAlways
+    }
+
+    var isReadyForGameplay: Bool {
+        hasRequiredGamePermission
+    }
 
     override init() {
         super.init()
@@ -175,11 +187,17 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
             start()
 
         case .denied, .restricted:
-            break
+            openAppSettings()
             
         @unknown default:
             break
         }
+    }
+
+    func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString),
+              UIApplication.shared.canOpenURL(url) else { return }
+        UIApplication.shared.open(url)
     }
 
     func start() {
@@ -212,18 +230,29 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
     }
     
     func getCurrentLocation() -> CLLocation? {
-        guard let coord = coordinate else { return nil }
-        return CLLocation(latitude: coord.latitude, longitude: coord.longitude)
+        lastKnownLocation
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let newStatus = manager.authorizationStatus
         let oldStatus = authorization
+
+        #if DEBUG
+        if ScreenshotScenario.isActive {
+            // UI tests / marketing captures seed Always + a coordinate, but the
+            // Simulator's real auth callback would overwrite that and show the
+            // location permission card in lobby screenshots.
+            authorization = .authorizedAlways
+            return
+        }
+        #endif
+
         authorization = newStatus
 
         if newStatus == .denied || newStatus == .restricted {
             coordinate = nil
             accuracy = nil
+            lastKnownLocation = nil
             stopMotionDetection()
         } else if newStatus == .authorizedWhenInUse || newStatus == .authorizedAlways {
             // Start location updates if:
@@ -253,6 +282,7 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
 
         coordinate = loc.coordinate
         accuracy = loc.horizontalAccuracy
+        lastKnownLocation = loc
     }
 
     func locationManager(_ manager: CLLocationManager,

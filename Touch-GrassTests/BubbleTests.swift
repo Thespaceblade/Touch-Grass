@@ -170,7 +170,7 @@ final class BubbleTests: XCTestCase {
         )
         
         let currentRadius = bubble.currentRadius(at: Date())
-        XCTAssertEqual(currentRadius, 0.0, accuracy: 0.1, "Zero radius bubble should stay zero")
+        XCTAssertEqual(currentRadius, 100.0, accuracy: 0.1, "Invalid radius bubbles should fall back to the safe default")
     }
     
     func testVeryLargeRadiusBubble() {
@@ -201,6 +201,79 @@ final class BubbleTests: XCTestCase {
         let futureTime = Date().addingTimeInterval(3600.0) // 1 hour later
         let currentRadius = bubble.currentRadius(at: futureTime)
         XCTAssertEqual(currentRadius, 500.0, accuracy: 0.1, "Infinite duration bubble should not shrink")
+    }
+    
+    func testZoneScheduleDecodesWithBackwardCompatibleDefaults() throws {
+        let json = """
+        {
+          "centerLatitude": 37.7749,
+          "centerLongitude": -122.4194,
+          "startRadius": 500,
+          "startTime": 1000,
+          "shrinkInterval": 180,
+          "duration": 1800,
+          "shrinkHistory": [],
+          "showTimer": true,
+          "enableShrinking": true,
+          "boundaryCenterLatitude": 37.7749,
+          "boundaryCenterLongitude": -122.4194,
+          "boundaryRadius": 500
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        
+        let bubble = try decoder.decode(Bubble.self, from: Data(json.utf8))
+        
+        XCTAssertFalse(bubble.zoneScheduleEnabled)
+        XCTAssertTrue(bubble.zoneSchedule.isEmpty)
+        XCTAssertNil(bubble.zoneScheduleGeneratedAt)
+    }
+    
+    func testZoneScheduleEncodesAndParticipatesInEquality() throws {
+        let start = Date(timeIntervalSince1970: 1000)
+        let entry = ZoneScheduleEntry(
+            phaseIndex: 1,
+            areaPercent: 0.85,
+            center: CLLocationCoordinate2D(latitude: 37.775, longitude: -122.419),
+            radiusMeters: 450,
+            pullAngle: 90,
+            pullStrength: 0.1,
+            revealOffset: 90,
+            closingStartOffset: 150,
+            closingEndOffset: 180,
+            timingAnchor: start
+        )
+        
+        var bubble = Bubble(
+            centerLatitude: 37.7749,
+            centerLongitude: -122.4194,
+            startRadius: 500,
+            startTime: start,
+            shrinkInterval: 180,
+            duration: 1800,
+            zoneSchedule: [entry],
+            zoneScheduleGeneratedAt: start,
+            zoneScheduleEnabled: true
+        )
+        var matchingBubble = bubble
+        XCTAssertEqual(bubble, matchingBubble)
+        
+        matchingBubble.zoneScheduleEnabled = false
+        XCTAssertNotEqual(bubble, matchingBubble)
+        
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        
+        let decoded = try decoder.decode(Bubble.self, from: encoder.encode(bubble))
+        XCTAssertEqual(decoded.zoneSchedule, [entry])
+        XCTAssertEqual(decoded.zoneScheduleGeneratedAt, start)
+        XCTAssertTrue(decoded.zoneScheduleEnabled)
+        
+        bubble.zoneSchedule = []
+        XCTAssertNotEqual(bubble, decoded)
     }
 }
 #endif

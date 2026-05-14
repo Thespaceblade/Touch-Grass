@@ -1,0 +1,11 @@
+.DS_Store
+build/
+DerivedData/
+
+docs/
+DesignSystem/
+
+.cursor/
+.screenshot-results/
+firebase-debug.log
+firestore-debug.log

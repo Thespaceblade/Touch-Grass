@@ -22,16 +22,11 @@ struct ManhuntGameEndView: View {
     
     var body: some View {
         ZStack {
-            // Background gradient (Manhunt theme)
-            LinearGradient(
-                colors: [
-                    AppColors.hunterPrimary.opacity(0.2),
-                    AppColors.backgroundPrimary
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+            ThemeBackgroundView(
+                primaryColor: AppColors.hunterPrimary,
+                secondaryColor: AppColors.hunterSecondary,
+                lightColor: AppColors.manhuntLight
             )
-            .ignoresSafeArea()
             
             // Celebration confetti (if won)
             if showCelebration && (gameStats.winner == .hunters || gameStats.winner == .hiders) {
@@ -60,6 +55,7 @@ struct ManhuntGameEndView: View {
                 }
                 .padding(.horizontal, AppSpacing.md)
             }
+            .safeAreaPadding(.bottom, AppSpacing.lg)
         }
         .onAppear {
             // Record game statistics
@@ -156,22 +152,20 @@ struct ManhuntGameEndView: View {
             
             // Winner text
             Text(winnerText)
-                .font(AppTypography.displayMedium())
+                .font(.system(size: 34, weight: .black, design: .rounded))
                 .foregroundStyle(winnerGradient)
                 .multilineTextAlignment(.center)
                 .scaleEffect(showCelebration ? 1.05 : 1.0)
             
             // Subtitle
             Text(winnerSubtitle)
-                .font(AppTypography.bodyMedium())
-                .foregroundColor(AppColors.textSecondary)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                 .multilineTextAlignment(.center)
         }
         .padding(AppSpacing.xl)
         .frame(maxWidth: .infinity)
-        .background(.ultraThinMaterial)
-        .cornerRadius(20)
-        .shadow(color: showCelebration ? winnerGlowColor.opacity(0.3) : Color.clear, radius: 20, x: 0, y: 10)
+        .cartoonCard(cornerRadius: 20, shadowOffset: 5, borderWidth: 2.5)
     }
     
     private var winningTeamProfiles: some View {
@@ -438,8 +432,7 @@ struct ManhuntGameEndView: View {
             }
         }
         .padding(AppSpacing.md)
-        .background(.ultraThinMaterial)
-        .cornerRadius(16)
+        .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2.5)
     }
     
     private var rankingsSection: some View {
@@ -466,6 +459,8 @@ struct ManhuntGameEndView: View {
                             .foregroundColor(AppColors.hunterPrimary)
                         Text(player.displayName)
                             .font(AppTypography.bodyMedium())
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                         if player.id == currentPlayer?.id {
                             Text("(You)")
                                 .font(AppTypography.caption())
@@ -489,6 +484,8 @@ struct ManhuntGameEndView: View {
                             .foregroundColor(AppColors.hiderPrimary)
                         Text(player.displayName)
                             .font(AppTypography.bodyMedium())
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                         if player.id == currentPlayer?.id {
                             Text("(You)")
                                 .font(AppTypography.caption())
@@ -513,6 +510,8 @@ struct ManhuntGameEndView: View {
                         Text(player.displayName)
                             .font(AppTypography.bodyMedium())
                             .foregroundColor(AppColors.textSecondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                         if player.id == currentPlayer?.id {
                             Text("(You)")
                                 .font(AppTypography.caption())
@@ -523,8 +522,7 @@ struct ManhuntGameEndView: View {
             }
         }
         .padding(AppSpacing.md)
-        .background(.ultraThinMaterial)
-        .cornerRadius(16)
+        .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2.5)
     }
     
     @State private var showShareSheet = false
@@ -544,7 +542,7 @@ struct ManhuntGameEndView: View {
                         .fontWeight(.semibold)
                 }
             }
-            .buttonStyle(PrimaryButtonStyle())
+            .buttonStyle(CartoonButtonStyle(accent: AppColors.hunterPrimary))
             .accessibilityLabel("Play again")
             .accessibilityHint("Starts a new game with the same settings")
             
@@ -561,7 +559,7 @@ struct ManhuntGameEndView: View {
                         .fontWeight(.semibold)
                 }
             }
-            .buttonStyle(SecondaryButtonStyle())
+            .buttonStyle(CartoonSecondaryButtonStyle())
             .accessibilityLabel("Share results")
             .accessibilityHint("Share your game results")
             
@@ -578,7 +576,7 @@ struct ManhuntGameEndView: View {
                         .fontWeight(.semibold)
                 }
             }
-            .buttonStyle(SecondaryButtonStyle())
+            .buttonStyle(CartoonSecondaryButtonStyle())
             .accessibilityLabel("Back to lobby")
             .accessibilityHint("Returns to the game lobby")
         }
@@ -610,11 +608,11 @@ struct ManhuntGameEndView: View {
     private var winnerText: String {
         switch gameStats.winner {
         case .hunters:
-            return "🏆 Hunters Win!"
+            return "Hunters Win!"
         case .hiders:
-            return "🏆 Hiders Win!"
+            return "Hiders Win!"
         case .timeUp:
-            return "⏰ Time's Up!"
+            return "Time's Up!"
         case .none:
             return "Game Over"
         default:

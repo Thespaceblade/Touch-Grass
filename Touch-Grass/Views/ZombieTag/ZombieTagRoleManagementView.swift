@@ -25,98 +25,70 @@ struct ZombieTagRoleManagementView: View {
     var body: some View {
         NavigationView {
             ZStack {
-                // Background
-                LinearGradient(
-                    colors: [
-                        AppColors.zombiePrimary.opacity(0.1),
-                        AppColors.backgroundPrimary
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
+                ThemeBackgroundView(
+                    primaryColor: AppColors.zombiePrimary,
+                    secondaryColor: AppColors.zombieSecondary,
+                    lightColor: AppColors.zombieLight
                 )
-                .ignoresSafeArea()
                 
                 ScrollView {
                     VStack(spacing: AppSpacing.lg) {
-                        // Header Info
-                        VStack(spacing: AppSpacing.sm) {
-                            Text("Manage Zombies")
-                                .font(AppTypography.displaySmall())
-                                .foregroundColor(AppColors.textPrimary)
-                            
-                            Text("Current: \(currentZombies.count) zombie\(currentZombies.count == 1 ? "" : "s")")
-                                .font(AppTypography.bodyMedium())
-                                .foregroundColor(AppColors.textSecondary)
-                            
-                            Text("Target: \(session.hunterCount) zombie\(session.hunterCount == 1 ? "" : "s")")
-                                .font(AppTypography.bodySmall())
-                                .foregroundColor(AppColors.textTertiary)
-                        }
+                        CartoonConfigurationHero(
+                            iconName: "figure.walk.motion",
+                            title: "Manage Zombies",
+                            subtitle: "Tap players to switch Zombie and Human roles.",
+                            badge: "Target: \(session.hunterCount) zombie\(session.hunterCount == 1 ? "" : "s")",
+                            accent: AppColors.zombiePrimary
+                        )
                         .padding(.top, AppSpacing.md)
+                        
+                        roleMatchupCard
                         
                         // Zombies Section
                         if !currentZombies.isEmpty {
                             VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                                HStack {
-                                    Image(systemName: "figure.walk.motion")
-                                        .foregroundColor(AppColors.zombiePrimary)
-                                    Text("Zombies")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.semibold)
-                                    Spacer()
-                                    Text("\(currentZombies.count)")
-                                        .font(AppTypography.labelMedium())
-                                        .foregroundColor(AppColors.zombiePrimary)
-                                }
+                                roleSectionHeader(
+                                    title: "Zombies",
+                                    count: currentZombies.count,
+                                    iconName: "figure.walk.motion",
+                                    accent: AppColors.zombiePrimary
+                                )
                                 
                                 ForEach(currentZombies) { player in
                                     playerRow(player: player, isZombie: true)
                                 }
                             }
                             .padding(AppSpacing.md)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(.ultraThinMaterial)
-                                    .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
-                            )
+                            .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2.5)
                         }
                         
                         // Humans Section
                         if !currentHumans.isEmpty {
                             VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                                HStack {
-                                    Image(systemName: "figure.run")
-                                        .foregroundColor(AppColors.humanPrimary)
-                                    Text("Humans")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.semibold)
-                                    Spacer()
-                                    Text("\(currentHumans.count)")
-                                        .font(AppTypography.labelMedium())
-                                        .foregroundColor(AppColors.humanPrimary)
-                                }
+                                roleSectionHeader(
+                                    title: "Humans",
+                                    count: currentHumans.count,
+                                    iconName: "figure.run",
+                                    accent: AppColors.humanPrimary
+                                )
                                 
                                 ForEach(currentHumans) { player in
                                     playerRow(player: player, isZombie: false)
                                 }
                             }
                             .padding(AppSpacing.md)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(.ultraThinMaterial)
-                                    .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
-                            )
+                            .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2.5)
                         }
                         
                         // Info Text
                         VStack(alignment: .leading, spacing: AppSpacing.xs) {
                             HStack(spacing: AppSpacing.xs) {
                                 Image(systemName: "info.circle.fill")
-                                    .foregroundColor(AppColors.textSecondary)
+                                    .foregroundColor(AppColors.zombiePrimary)
                                     .font(.caption)
                                 Text("Tap a player to toggle their role")
-                                    .font(AppTypography.caption())
-                                    .foregroundColor(AppColors.textSecondary)
+                                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                                    .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                             }
                             
                             if currentZombies.count != session.hunterCount {
@@ -125,30 +97,114 @@ struct ZombieTagRoleManagementView: View {
                                         .foregroundColor(AppColors.warning)
                                         .font(.caption)
                                     Text("Current zombie count (\(currentZombies.count)) doesn't match target (\(session.hunterCount))")
-                                        .font(AppTypography.caption())
-                                        .foregroundColor(AppColors.warning)
+                                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                                        .foregroundColor(AppColors.cartoonInk.opacity(0.72))
                                 }
                             }
                         }
                         .padding(AppSpacing.md)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(AppColors.backgroundSecondary)
-                        )
+                        .cartoonCard(cornerRadius: 14, shadowOffset: 3, borderWidth: 2)
                         
                         Spacer()
                             .frame(height: AppSpacing.lg)
                     }
                     .padding(.horizontal, AppSpacing.md)
                 }
+                .safeAreaPadding(.bottom, AppSpacing.lg)
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                        .foregroundColor(AppColors.zombiePrimary)
+                    Button(action: { dismiss() }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                            Text("Done")
+                        }
+                    }
+                    .buttonStyle(CartoonSecondaryButtonStyle(cornerRadius: 12))
                 }
             }
+        }
+    }
+    
+    private var roleMatchupCard: some View {
+        HStack(spacing: AppSpacing.md) {
+            roleCountTile(
+                title: "Zombies",
+                count: currentZombies.count,
+                iconName: "figure.walk.motion",
+                accent: AppColors.zombiePrimary
+            )
+            
+            Text("VS")
+                .font(.system(size: 14, weight: .black, design: .rounded))
+                .tracking(0.8)
+                .foregroundColor(AppColors.cartoonInk)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(AppColors.cartoonSun)
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 2))
+            
+            roleCountTile(
+                title: "Humans",
+                count: currentHumans.count,
+                iconName: "figure.run",
+                accent: AppColors.humanPrimary
+            )
+        }
+        .padding(AppSpacing.sm)
+        .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2.5)
+    }
+    
+    private func roleCountTile(title: String, count: Int, iconName: String, accent: Color) -> some View {
+        VStack(spacing: AppSpacing.xs) {
+            CartoonMedallion(background: accent, size: 34) {
+                Image(systemName: iconName)
+                    .font(.system(size: 15, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+            }
+            
+            Text("\(count)")
+                .font(.system(size: 28, weight: .black, design: .rounded))
+                .foregroundColor(accent)
+                .lineLimit(1)
+            
+            Text(title)
+                .font(.system(size: 11, weight: .black, design: .rounded))
+                .tracking(0.7)
+                .textCase(.uppercase)
+                .foregroundColor(AppColors.cartoonInk.opacity(0.72))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, AppSpacing.sm)
+        .background(accent.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(AppColors.cartoonInk.opacity(0.7), lineWidth: 1.5)
+        )
+    }
+    
+    private func roleSectionHeader(title: String, count: Int, iconName: String, accent: Color) -> some View {
+        HStack(spacing: AppSpacing.sm) {
+            CartoonMedallion(background: accent, size: 32) {
+                Image(systemName: iconName)
+                    .font(.system(size: 14, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+            }
+            
+            Text(title)
+                .font(.system(size: 17, weight: .black, design: .rounded))
+                .tracking(0.4)
+                .textCase(.uppercase)
+                .foregroundColor(AppColors.cartoonInk)
+            
+            Spacer()
+            
+            CartoonPill(text: "\(count)", color: accent)
         }
     }
     
@@ -157,54 +213,38 @@ struct ZombieTagRoleManagementView: View {
             onSetZombie(player.id)
         }) {
             HStack(spacing: AppSpacing.sm) {
-                // Role indicator
-                Circle()
-                    .fill(isZombie ? AppColors.zombiePrimary : AppColors.humanPrimary)
-                    .frame(width: 16, height: 16)
+                CartoonMedallion(background: isZombie ? AppColors.zombiePrimary : AppColors.humanPrimary, size: 32) {
+                    Image(systemName: isZombie ? "figure.walk.motion" : "figure.run")
+                        .font(.system(size: 13, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
+                }
                 
                 // Player name
                 Text(player.displayName)
-                    .font(AppTypography.bodyMedium())
-                    .foregroundColor(AppColors.textPrimary)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 
                 Spacer()
                 
                 // Current role badge
-                Text(isZombie ? "Zombie" : "Human")
-                    .font(AppTypography.caption())
-                    .fontWeight(.medium)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule()
-                            .fill(isZombie ? AppColors.zombiePrimary : AppColors.humanPrimary)
-                    )
+                CartoonPill(text: isZombie ? "Zombie" : "Human", color: isZombie ? AppColors.zombiePrimary : AppColors.humanPrimary)
                 
                 // You badge
                 if player.id == currentPlayer?.id {
-                    Text("You")
-                        .font(AppTypography.caption())
-                        .fontWeight(.medium)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule()
-                                .fill(AppColors.zombiePrimary)
-                        )
+                    CartoonPill(text: "You", color: AppColors.cartoonSun, textColor: AppColors.cartoonInk)
                 }
                 
                 // Toggle icon
-                Image(systemName: "arrow.left.arrow.right")
-                    .font(.caption)
-                    .foregroundColor(AppColors.textSecondary)
+                CartoonMedallion(background: AppColors.cartoonSun, size: 30) {
+                    Image(systemName: "arrow.left.arrow.right")
+                        .font(.system(size: 12, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk)
+                }
             }
             .padding(AppSpacing.sm)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(AppColors.backgroundSecondary)
-            )
+            .cartoonCard(cornerRadius: 12, shadowOffset: 3, borderWidth: 1.75)
         }
         .buttonStyle(PlainButtonStyle())
     }

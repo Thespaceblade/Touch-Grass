@@ -13,36 +13,44 @@ struct ProfilePicturePicker: View {
     @Binding var selectedImage: UIImage?
     @Environment(\.dismiss) var dismiss
     
-    @State private var showImageSourcePicker = false
     @State private var showCamera = false
     @State private var showPhotoLibrary = false
     @State private var photoPickerItem: PhotosPickerItem?
-    @State private var croppedImage: UIImage?
-    @State private var showCropView = false
+    @State private var editingImage: UIImage?
+    @State private var cropScale: CGFloat = 1
+    @State private var lastCropScale: CGFloat = 1
+    @State private var cropOffset: CGSize = .zero
+    @State private var lastCropOffset: CGSize = .zero
+    
+    private let previewSize: CGFloat = 260
+    private let outputSize: CGFloat = 600
+    
+    private var previewImage: UIImage? {
+        editingImage ?? selectedImage
+    }
+    
+    private var hasSelectedImage: Bool {
+        previewImage != nil
+    }
     
     var body: some View {
         NavigationView {
             ZStack {
-                AppColors.backgroundPrimary
+                AppColors.cartoonCream
                     .ignoresSafeArea()
                 
                 VStack(spacing: AppSpacing.xl) {
+                    Spacer()
+                    
                     // Preview
-                    if let image = croppedImage ?? selectedImage {
-                        Image(uiImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 200, height: 200)
-                            .clipShape(Circle())
-                            .overlay(
-                                Circle()
-                                    .stroke(AppColors.manhuntPrimary, lineWidth: 4)
-                            )
-                            .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
+                    if let image = previewImage {
+                        cropPreview(image)
                     } else {
-                        Image(systemName: "person.circle.fill")
-                            .font(.system(size: 100))
-                            .foregroundColor(AppColors.manhuntPrimary)
+                        CartoonMedallion(background: AppColors.grassPrimary, size: 180, borderWidth: 4) {
+                            Image(systemName: "person.fill")
+                                .font(.system(size: 82, weight: .black, design: .rounded))
+                                .foregroundColor(.white)
+                        }
                     }
                     
                     // Source Selection
@@ -56,33 +64,21 @@ struct ProfilePicturePicker: View {
                         }) {
                             HStack(spacing: AppSpacing.sm) {
                                 Image(systemName: "camera.fill")
-                                    .font(.title3)
+                                    .font(.system(size: 18, weight: .black, design: .rounded))
                                 Text("Take Photo")
-                                    .font(AppTypography.labelLarge())
-                                    .fontWeight(.semibold)
                             }
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(AppColors.manhuntPrimary)
-                            .cornerRadius(12)
                         }
+                        .buttonStyle(CartoonButtonStyle(accent: AppColors.grassPrimary))
                         .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
                         
                         PhotosPicker(selection: $photoPickerItem, matching: .images) {
                             HStack(spacing: AppSpacing.sm) {
                                 Image(systemName: "photo.on.rectangle")
-                                    .font(.title3)
+                                    .font(.system(size: 18, weight: .black, design: .rounded))
                                 Text("Choose from Library")
-                                    .font(AppTypography.labelLarge())
-                                    .fontWeight(.semibold)
                             }
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(AppColors.manhuntSecondary)
-                            .cornerRadius(12)
                         }
+                        .buttonStyle(CartoonButtonStyle(accent: AppColors.grassSecondary))
                     }
                     .padding(.horizontal, AppSpacing.lg)
                     
@@ -93,29 +89,14 @@ struct ProfilePicturePicker: View {
                         Button("Cancel") {
                             dismiss()
                         }
-                        .font(AppTypography.labelLarge())
-                        .foregroundColor(AppColors.textSecondary)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(AppColors.cardBackground)
-                        )
+                        .buttonStyle(CartoonButtonStyle(accent: AppColors.error, textColor: .white))
                         
-                        Button("Use Photo") {
-                            selectedImage = croppedImage ?? selectedImage
+                        Button("Use") {
+                            selectedImage = croppedProfileImage() ?? previewImage
                             dismiss()
                         }
-                        .font(AppTypography.labelLarge())
-                        .fontWeight(.semibold)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(AppColors.manhuntPrimary)
-                        )
-                        .disabled(croppedImage == nil && selectedImage == nil)
+                        .buttonStyle(CartoonButtonStyle(accent: AppColors.grassPrimary, textColor: .white, isDisabled: !hasSelectedImage))
+                        .disabled(!hasSelectedImage)
                     }
                     .padding(.horizontal, AppSpacing.lg)
                     .padding(.bottom, AppSpacing.md)
@@ -126,39 +107,129 @@ struct ProfilePicturePicker: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .sheet(isPresented: $showCamera) {
-            ImagePicker(sourceType: .camera, selectedImage: $selectedImage)
+            ImagePicker(sourceType: .camera, selectedImage: $editingImage)
         }
         .sheet(isPresented: $showPhotoLibrary) {
-            ImagePicker(sourceType: .photoLibrary, selectedImage: $selectedImage)
+            ImagePicker(sourceType: .photoLibrary, selectedImage: $editingImage)
         }
         .onChange(of: photoPickerItem) { _, newItem in
             Task {
                 if let data = try? await newItem?.loadTransferable(type: Data.self),
                    let image = UIImage(data: data) {
-                    selectedImage = image
-                    // Auto-crop to square
-                    croppedImage = cropToSquare(image)
+                    editingImage = image
+                    resetCrop()
                 }
             }
         }
-        .onChange(of: selectedImage) { _, newImage in
-            if let image = newImage {
-                croppedImage = cropToSquare(image)
+        .onChange(of: editingImage) { _, newImage in
+            if newImage != nil {
+                resetCrop()
             }
+        }
+        .onAppear {
+            editingImage = selectedImage
         }
     }
     
-    private func cropToSquare(_ image: UIImage) -> UIImage {
-        let size = min(image.size.width, image.size.height)
-        let x = (image.size.width - size) / 2
-        let y = (image.size.height - size) / 2
-        let rect = CGRect(x: x, y: y, width: size, height: size)
+    private func cropPreview(_ image: UIImage) -> some View {
+        let dragGesture = DragGesture()
+            .onChanged { value in
+                cropOffset = clampedOffset(
+                    CGSize(
+                        width: lastCropOffset.width + value.translation.width,
+                        height: lastCropOffset.height + value.translation.height
+                    ),
+                    scale: cropScale,
+                    imageSize: image.size
+                )
+            }
+            .onEnded { _ in
+                cropOffset = clampedOffset(cropOffset, scale: cropScale, imageSize: image.size)
+                lastCropOffset = cropOffset
+            }
         
-        guard let cgImage = image.cgImage?.cropping(to: rect) else {
-            return image
+        let zoomGesture = MagnificationGesture()
+            .onChanged { value in
+                cropScale = min(max(lastCropScale * value, 1), 4)
+                cropOffset = clampedOffset(cropOffset, scale: cropScale, imageSize: image.size)
+            }
+            .onEnded { _ in
+                cropScale = min(max(cropScale, 1), 4)
+                cropOffset = clampedOffset(cropOffset, scale: cropScale, imageSize: image.size)
+                lastCropScale = cropScale
+                lastCropOffset = cropOffset
+            }
+        
+        return VStack(spacing: AppSpacing.sm) {
+            ZStack {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: previewSize, height: previewSize)
+                    .scaleEffect(cropScale)
+                    .offset(cropOffset)
+            }
+            .frame(width: previewSize, height: previewSize)
+            .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .stroke(AppColors.cartoonInk, lineWidth: 4)
+            )
+            .background(
+                Circle()
+                    .fill(Color(white: 0.18))
+                    .offset(x: 5, y: 5)
+            )
+            .contentShape(Circle())
+            .gesture(dragGesture)
+            .simultaneousGesture(zoomGesture)
+            
+            Text("Pinch to zoom. Drag to reposition.")
+                .font(.system(size: 13, weight: .black, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk.opacity(0.55))
         }
+    }
+    
+    private func resetCrop() {
+        cropScale = 1
+        lastCropScale = 1
+        cropOffset = .zero
+        lastCropOffset = .zero
+    }
+    
+    private func clampedOffset(_ offset: CGSize, scale: CGFloat, imageSize: CGSize) -> CGSize {
+        let baseScale = max(previewSize / imageSize.width, previewSize / imageSize.height)
+        let displayedWidth = imageSize.width * baseScale * scale
+        let displayedHeight = imageSize.height * baseScale * scale
+        let maxXOffset = max((displayedWidth - previewSize) / 2, 0)
+        let maxYOffset = max((displayedHeight - previewSize) / 2, 0)
         
-        return UIImage(cgImage: cgImage, scale: image.scale, orientation: image.imageOrientation)
+        return CGSize(
+            width: min(max(offset.width, -maxXOffset), maxXOffset),
+            height: min(max(offset.height, -maxYOffset), maxYOffset)
+        )
+    }
+    
+    private func croppedProfileImage() -> UIImage? {
+        guard let image = previewImage?.normalizedImage() else { return nil }
+        
+        let renderSize = CGSize(width: outputSize, height: outputSize)
+        let renderer = UIGraphicsImageRenderer(size: renderSize)
+        return renderer.image { _ in
+            let baseScale = max(renderSize.width / image.size.width, renderSize.height / image.size.height)
+            let finalScale = baseScale * cropScale
+            let scaledSize = CGSize(
+                width: image.size.width * finalScale,
+                height: image.size.height * finalScale
+            )
+            let offsetScale = renderSize.width / previewSize
+            let origin = CGPoint(
+                x: (renderSize.width - scaledSize.width) / 2 + cropOffset.width * offsetScale,
+                y: (renderSize.height - scaledSize.height) / 2 + cropOffset.height * offsetScale
+            )
+            
+            image.draw(in: CGRect(origin: origin, size: scaledSize))
+        }
     }
 }
 
@@ -173,7 +244,7 @@ struct ImagePicker: UIViewControllerRepresentable {
         let picker = UIImagePickerController()
         picker.sourceType = sourceType
         picker.delegate = context.coordinator
-        picker.allowsEditing = true
+        picker.allowsEditing = false
         return picker
     }
     
@@ -205,4 +276,13 @@ struct ImagePicker: UIViewControllerRepresentable {
     }
 }
 
+private extension UIImage {
+    func normalizedImage() -> UIImage {
+        guard imageOrientation != .up else { return self }
+        
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
+}
 

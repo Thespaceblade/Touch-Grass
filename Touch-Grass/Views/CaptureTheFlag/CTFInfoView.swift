@@ -2,152 +2,130 @@
 //  CTFInfoView.swift
 //  Touch-Grass
 //
-//  Created by Jason Charwin on 12/26/25.
-//
 
 import SwiftUI
 
 struct CTFInfoView: View {
-    @Environment(\.dismiss) var dismiss
-    
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
-        NavigationView {
-            ZStack {
-                // CTF-themed background
-                LinearGradient(
-                    colors: [
-                        AppColors.ctfPrimary.opacity(0.1),
-                        AppColors.backgroundPrimary
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
-                
-                ScrollView {
-                    VStack(spacing: AppSpacing.lg) {
-                        // Header
-                        VStack(spacing: AppSpacing.sm) {
-                            Image("CTF")
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 64, height: 64)
-                            
-                            Text("Capture The Flag")
-                                .font(AppTypography.displaySmall())
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [AppColors.ctfPrimary, AppColors.ctfSecondary],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                        }
-                        .padding(.top, AppSpacing.xl)
-                        
-                        // Rules Section
-                        VStack(alignment: .leading, spacing: AppSpacing.md) {
-                            Text("How to Play")
-                                .font(AppTypography.headlineMedium())
-                                .foregroundColor(AppColors.textPrimary)
-                            
-                            ruleCard(
-                                icon: "person.2.fill",
-                                title: "Teams",
-                                description: "Players are split into two teams: Team A (Blue) and Team B (Red). The field is divided by a halfway line with each team's side tinted in their color."
-                            )
-                            
-                            ruleCard(
-                                icon: "flag.fill",
-                                title: "Flag Players",
-                                description: "Each team designates one player as their flag. These flag players choose their starting position before the game begins. The flag player is marked on the map with a flag icon in their team's color."
-                            )
-                            
-                            ruleCard(
-                                icon: "mappin.circle.fill",
-                                title: "Flag Placement",
-                                description: "Before the game starts, flag players move to their desired location and tap 'Place Flag Here' to set their starting position. All players wait for both flags to be placed, then a countdown begins!"
-                            )
-                            
-                            ruleCard(
-                                icon: "hand.raised.fill",
-                                title: "Capture",
-                                description: "Get close to the enemy flag player (when they're at their base) to capture them. The flag player will be marked as captured and you'll carry them with you."
-                            )
-                            
-                            ruleCard(
-                                icon: "arrow.uturn.backward",
-                                title: "Return",
-                                description: "If your team's flag player is captured, get close to them to return them to their base. They'll be freed and can be captured again."
-                            )
-                            
-                            ruleCard(
-                                icon: "target",
-                                title: "Score",
-                                description: "Bring both flags (yours and the enemy's) to your team's safe zone to win!"
-                            )
-                            
-                            ruleCard(
-                                icon: "xmark.circle.fill",
-                                title: "Tagging",
-                                description: "If you're tagged by an enemy player while carrying a flag, you drop the flag player at your location and are temporarily out. The flag player can then be returned by their team or recaptured by the enemy."
-                            )
-                            
-                            ruleCard(
-                                icon: "eye.fill",
-                                title: "Map Features",
-                                description: "The map shows a halfway line dividing the field, team-tinted sides (blue and red), and flag players with colored flag icons. Team bases are marked on the map."
-                            )
-                        }
-                        .padding(.horizontal, AppSpacing.md)
-                        
-                        Spacer()
-                            .frame(height: AppSpacing.xl)
-                    }
-                }
-            }
-            .navigationTitle("Game Rules")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                    .foregroundColor(AppColors.ctfPrimary)
-                }
-            }
-        }
-    }
-    
-    private func ruleCard(icon: String, title: String, description: String) -> some View {
-        HStack(alignment: .top, spacing: AppSpacing.md) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundColor(AppColors.ctfPrimary)
-                .frame(width: 32)
-            
-            VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                Text(title)
-                    .font(AppTypography.labelLarge())
-                    .fontWeight(.semibold)
-                    .foregroundColor(AppColors.textPrimary)
-                
-                Text(description)
-                    .font(AppTypography.bodyMedium())
-                    .foregroundColor(AppColors.textSecondary)
-            }
-            
-            Spacer()
-        }
-        .padding(AppSpacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(AppColors.ctfPrimary.opacity(0.2), lineWidth: 1)
-                )
+        GameGuidePage(
+            navigationTitle: "CTF Guide",
+            logoName: "CTF",
+            title: "Capture The Flag",
+            tagline: "Capture, Return, Score",
+            accent: AppColors.ctfPrimary,
+            secondary: AppColors.ctfSecondary,
+            sections: sections,
+            onDone: { dismiss() }
         )
     }
-}
 
+    private var sections: [GuideSection] {
+        [
+            GuideSection(
+                title: "The Game",
+                icon: "questionmark.circle.fill",
+                cards: [
+                    GuideCard(
+                        icon: "flag.fill",
+                        title: "Two teams, two flags",
+                        body: "Team A and Team B each protect a flag player. Capture the enemy flag, return your own if it gets taken, and bring both flags to your safe zone to win.",
+                        bullets: [
+                            "Team A is blue. Team B is red.",
+                            "Flag players are real players carrying the team flag.",
+                            "There is no timer and no shrinking zone."
+                        ]
+                    )
+                ]
+            ),
+            GuideSection(
+                title: "Setup",
+                icon: "slider.horizontal.3",
+                cards: [
+                    GuideCard(icon: "person.2.fill", title: "Build Teams", body: "The host balances Team A and Team B. Each team needs a leader and a flag player.", badge: "Step 1"),
+                    GuideCard(icon: "mappin.circle.fill", title: "Place Flags", body: "Flag players move to their starting spots and place their flags from their own phones.", badge: "Step 2"),
+                    GuideCard(icon: "shield.fill", title: "Set Safe Zones", body: "Team leaders place safe zones around their flags. These are the scoring areas.", badge: "Step 3"),
+                    GuideCard(icon: "play.circle.fill", title: "Start the Match", body: "Once both flags and safe zones are ready, the match starts and both teams move.", badge: "Step 4")
+                ]
+            ),
+            GuideSection(
+                title: "Roles",
+                icon: "person.2.fill",
+                cards: [
+                    GuideCard(
+                        icon: "star.fill",
+                        title: "Team Leader",
+                        body: "Place your team safe zone during setup and help organize attacks and returns during the game.",
+                        accent: AppColors.cartoonSun,
+                        bullets: [
+                            "Each team needs one leader.",
+                            "Leaders place the team safe zone.",
+                            "Leaders still play like everyone else after setup."
+                        ]
+                    ),
+                    GuideCard(
+                        icon: "flag.fill",
+                        title: "Flag Player",
+                        body: "You are the physical flag. Choose your start point, watch the map, and stay ready to move if captured or returned.",
+                        accent: AppColors.ctfTeamA,
+                        bullets: [
+                            "Your phone marks the flag on the map.",
+                            "Enemy players can capture you when close.",
+                            "Teammates can return you if you are captured."
+                        ]
+                    ),
+                    GuideCard(
+                        icon: "figure.run",
+                        title: "Runner",
+                        body: "Attack the enemy flag, defend your own flag, and help bring both flags into your safe zone.",
+                        accent: AppColors.ctfTeamB,
+                        bullets: [
+                            "Capture the enemy flag player.",
+                            "Return your flag if the enemy takes it.",
+                            "Coordinate with teammates before rushing in."
+                        ]
+                    )
+                ]
+            ),
+            GuideSection(
+                title: "Mechanics",
+                icon: "gearshape.fill",
+                cards: [
+                    GuideCard(icon: "hand.raised.fill", title: "Capture", body: "Get close to the enemy flag player to capture them. A captured flag moves with the capturing side."),
+                    GuideCard(icon: "arrow.uturn.backward", title: "Return", body: "If your flag is captured, get close to return it. Returned flags can be captured again."),
+                    GuideCard(icon: "shield.fill", title: "Safe Zones", body: "Safe zones are circular scoring areas. Bring both flags to your team safe zone to end the match."),
+                    GuideCard(icon: "map.fill", title: "Map Features", body: "The map shows team sides, flag players, safe zones, and player locations so teams can coordinate in real time.")
+                ]
+            ),
+            GuideSection(
+                title: "Tips",
+                icon: "lightbulb.fill",
+                cards: [
+                    GuideCard(
+                        icon: "flag.fill",
+                        title: "For Attackers",
+                        body: "Do not chase the flag alone every time. Send pressure, create openings, and know where your safe zone is before you capture.",
+                        accent: AppColors.ctfPrimary,
+                        bullets: [
+                            "Attack with at least one teammate nearby.",
+                            "Plan the route back before grabbing the flag.",
+                            "Use map movement to fake pressure."
+                        ]
+                    ),
+                    GuideCard(
+                        icon: "shield.fill",
+                        title: "For Defenders",
+                        body: "Protect your flag without standing still forever. Good defense watches routes and responds before the capture happens.",
+                        accent: AppColors.ctfTeamB,
+                        bullets: [
+                            "Keep eyes on your flag player.",
+                            "Cut off returns to the enemy safe zone.",
+                            "Call for help when both flags start moving."
+                        ]
+                    )
+                ]
+            )
+        ]
+    }
+}

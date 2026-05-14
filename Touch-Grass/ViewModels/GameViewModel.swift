@@ -20,20 +20,21 @@ final class GameViewModel: ObservableObject {
     @Published var playerName: String = "Player"
     @Published var showGameOverAlert = false
     @Published var gameOverMessage = ""
-    @Published var gameOverAlertAction: AlertAction? = nil
     @Published var selectedGameType: GameType = .manhunt // Track selected game type
     @Published var isBeginningGame: Bool = false // Prevent multiple simultaneous beginGame calls
     
-    // Error alert action type
-    enum AlertAction {
-        case openSettings
-        case openTeamManagement
-        case openSessionSetup
-        case dismiss
-    }
+    // CRITICAL: Use @Published for selectedGame to ensure reliable updates in release builds
+    // @State can be optimized away in release, but @Published is always tracked
+    @Published var selectedGame: GameType? = nil
+    
+    // Loading state for smooth transitions
+    @Published var isServicesInitializing: Bool = false
+    @Published var isCreatingSession: Bool = false
+    @Published var isJoiningGame: Bool = false
     
     private var cancellables = Set<AnyCancellable>()
     private var createSessionCancellable: AnyCancellable?
+    private var joinGameCancellable: AnyCancellable?
     
     // Public accessors that ensure services are initialized when accessed
     var locationService: LocationService {
@@ -49,11 +50,19 @@ final class GameViewModel: ObservableObject {
         if let service = _gameService {
             return service
         }
-        // Initialize location service first if not already done
+        // CRITICAL: Initialize location service first if not already done
+        // This must happen synchronously to avoid race conditions
         let location = locationService
+        
+        // Create GameService - this is lightweight and non-blocking
+        // GameService.init only sets up callbacks, doesn't do heavy work
         let service = GameService(locationService: location)
         _gameService = service
+        
+        // Setup subscriptions - Combine subscriptions are non-blocking
+        // This is safe to do synchronously as it just sets up publishers
         setupSubscriptions(location: location, game: service)
+        
         return service
     }
     
@@ -66,11 +75,53 @@ final class GameViewModel: ObservableObject {
     
     /// Ensures services are initialized (called when game is selected)
     /// This is safe to call multiple times - it only initializes once
-    func ensureServicesInitialized() {
-        // Access services to trigger lazy initialization if needed
-        // The computed properties handle the initialization logic
+    /// Sets isServicesInitializing flag to allow smooth loading UI
+    func ensureServicesInitialized() async {
+        #if DEBUG
+        print("🔍 DEBUG: ensureServicesInitialized() called")
+        print("🔍 DEBUG: _locationService exists: \(_locationService != nil)")
+        print("🔍 DEBUG: _gameService exists: \(_gameService != nil)")
+        #endif
+        
+        // If services already exist, no initialization needed
+        if _locationService != nil && _gameService != nil {
+            return
+        }
+        
+        // Set loading flag
+        isServicesInitializing = true
+        
+        // Initialize services asynchronously to avoid blocking UI
+        // Note: Service initialization is still synchronous, but we wrap it in Task
+        // to allow the loading UI to appear first
+        await Task { @MainActor in
+            // Access services to trigger lazy initialization
+            // The computed properties handle the initialization logic
+            _ = locationService
+            _ = gameService
+            
+            // Clear loading flag immediately after initialization (no artificial delay)
+            isServicesInitializing = false
+        }.value
+    }
+    
+    /// Synchronous version for internal use (when services must be ready immediately)
+    /// Only use this when you know services are already initialized
+    private func ensureServicesInitializedSync() {
         _ = locationService
         _ = gameService
+    }
+    
+    func requestBluetoothPermissionIfNeeded() {
+        ensureServicesInitializedSync()
+        guard selectedGameType != .captureTheFlag else { return }
+        gameService.requestBluetoothPermissionIfNeeded()
+    }
+    
+    func requestRequiredPreGamePermissions() {
+        ensureServicesInitializedSync()
+        locationService.requestPermission()
+        requestBluetoothPermissionIfNeeded()
     }
     
     private func setupSubscriptions(location: LocationService, game: GameService) {
@@ -129,48 +180,97 @@ final class GameViewModel: ObservableObject {
     }
     
     func createSession() {
-        // Ensure services are initialized
-        ensureServicesInitialized()
+        guard locationService.isReadyForGameplay else {
+            requestRequiredPreGamePermissions()
+            gameOverMessage = "Finish the two-step location setup before creating a game."
+            showGameOverAlert = true
+            return
+        }
+        requestBluetoothPermissionIfNeeded()
+
+        // Set loading state
+        isCreatingSession = true
         
-        // Use profile name if available, otherwise fall back to playerName
-        let profileName = ProfileService.shared.displayName
-        let nameToUse = profileName.isEmpty ? playerName : profileName
+        // Ensure services are initialized (sync version for immediate use)
+        ensureServicesInitializedSync()
         
         let location = locationService
         let game = gameService
-        
-        // Cancel any pending createSession subscription
-        createSessionCancellable?.cancel()
-        
-        // If we already have a coordinate, create session immediately
-        if let coordinate = location.coordinate {
-            game.createSession(hostName: nameToUse, hostLocation: coordinate, gameType: selectedGameType)
-            return
-        }
-        
-        // Otherwise, request permission (this will start location updates when granted)
-        location.requestPermission()
-        
-        // Observe coordinate updates and create session when location becomes available
-        // Use a separate cancellable so we can cancel it if createSession is called again
-        createSessionCancellable = location.$coordinate
-            .compactMap { $0 }
-            .first() // Only take the first non-nil coordinate
-            .sink { [weak self] coordinate in
+
+        Task { @MainActor in
+            let playerId: String
+            do {
+                playerId = try await AuthService.shared.ensureSignedIn()
+            } catch {
+                self.isCreatingSession = false
+                self.gameOverMessage = "Cannot create game: Sign-in failed. Please check your connection and try again."
+                self.showGameOverAlert = true
+                return
+            }
+
+            // CRITICAL: Always clear any existing session first to ensure fresh lobby
+            // This guarantees a new join code and clean state every time
+            game.clearSession()
+
+            // Use profile name if available, otherwise fall back to playerName
+            let profileName = ProfileService.shared.displayName
+            let nameToUse = profileName.isEmpty ? playerName : profileName
+
+            // Cancel any pending createSession subscription
+            createSessionCancellable?.cancel()
+
+            // Helper to create session and handle completion
+            let createSessionAction: (CLLocationCoordinate2D) -> Void = { [weak self] coordinate in
                 guard let self = self else { return }
-                // Only create session if we don't already have one
-                if game.session == nil {
-                    let profileName = ProfileService.shared.displayName
-                    let nameToUse = profileName.isEmpty ? self.playerName : profileName
-                    game.createSession(hostName: nameToUse, hostLocation: coordinate, gameType: self.selectedGameType)
+                game.createSession(hostName: nameToUse, hostLocation: coordinate, gameType: self.selectedGameType, playerId: playerId)
+
+                // Clear loading state after a brief delay to allow session to be set
+                // Session is set synchronously, so we just need to allow UI to update
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 300_000_000) // 0.3s delay
+                    self.isCreatingSession = false
                 }
             }
+
+            // If we already have a coordinate, create session immediately
+            if let coordinate = location.coordinate {
+                createSessionAction(coordinate)
+                return
+            }
+
+            // Otherwise, request permission (this will start location updates when granted)
+            location.requestPermission()
+            requestBluetoothPermissionIfNeeded()
+
+            // Observe coordinate updates and create session when location becomes available
+            // Use a separate cancellable so we can cancel it if createSession is called again
+            createSessionCancellable = location.$coordinate
+                .compactMap { $0 }
+                .first() // Only take the first non-nil coordinate
+                .sink { coordinate in
+                    createSessionAction(coordinate)
+                }
+
+            // Safety: Set a timeout to clear loading state if location never arrives
+            // This handles cases where permission is denied or location service fails
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 second timeout
+                // If still loading after timeout, clear it (createSessionAction will have set it to false if successful)
+                if isCreatingSession {
+                    isCreatingSession = false
+                    if location.hasRequiredGamePermission && location.coordinate == nil {
+                        gameOverMessage = "Location is allowed, but GPS has not found you yet. Move somewhere with a clearer signal and try again."
+                        showGameOverAlert = true
+                    }
+                }
+            }
+        }
     }
     
     // Configure game settings (bubble) but keep in lobby
-    func configureGame(bubbleStartRadius: Double, duration: Double? = nil, hunterCount: Int = 1, center: CLLocationCoordinate2D? = nil, scoreLimit: Int? = nil, teamABase: CLLocationCoordinate2D? = nil, teamBBase: CLLocationCoordinate2D? = nil) {
-        // Ensure services are initialized
-        ensureServicesInitialized()
+    func configureGame(bubbleStartRadius: Double, duration: Double? = nil, hunterCount: Int = 1, center: CLLocationCoordinate2D? = nil, scoreLimit: Int? = nil, teamABase: CLLocationCoordinate2D? = nil, teamBBase: CLLocationCoordinate2D? = nil, showTimer: Bool = true, enableShrinking: Bool = true) {
+        // Ensure services are initialized (sync version for immediate use)
+        ensureServicesInitializedSync()
         
         // Use provided center or fall back to user location
         let location = locationService
@@ -212,18 +312,21 @@ final class GameViewModel: ObservableObject {
                 return
             }
             
-            guard duration <= 3600 else {
-                gameOverMessage = "Game duration is too long. Maximum is 3600 seconds (1 hour)."
+            guard duration <= 7200 else {
+                gameOverMessage = "Game duration is too long. Maximum is 7200 seconds (2 hours)."
                 showGameOverAlert = true
                 return
             }
         }
         
-        // Validate hunter count
-        // TEMPORARY: Allow 0 hunters for testing
         let maxPlayers = gameService.session?.players.count ?? 1
-        guard hunterCount >= 0 else {
-            gameOverMessage = "Hunter count must be at least 0 (testing mode)."
+        #if DEBUG
+        let minHunterCount = 0
+        #else
+        let minHunterCount = 1
+        #endif
+        guard hunterCount >= minHunterCount else {
+            gameOverMessage = "Hunter count must be at least \(minHunterCount)."
             showGameOverAlert = true
             return
         }
@@ -237,10 +340,22 @@ final class GameViewModel: ObservableObject {
         // Check if this is CTF (no shrinking, no time limit)
         let isCTF = gameService.session?.gameType == .captureTheFlag
         
+        // Determine shrink interval based on enableShrinking setting
         // For CTF: No shrinking, no time limit. Use a very large duration and no shrink interval.
-        // For other games: Progressive shrinking every 3 minutes, shrinks by 15% of remaining radius
-        let shrinkInterval: Double = isCTF ? Double.infinity : 180 // 3 minutes for non-CTF, infinite for CTF
-        let gameDuration: Double = duration ?? (isCTF ? Double.infinity : 1800) // Use provided duration or default (CTF = infinite)
+        // For other games: 
+        //   - If enableShrinking is true: Progressive shrinking every 3 minutes
+        //   - If enableShrinking is false: No shrinking (use sentinel value)
+        // Use sentinel value instead of infinity for no shrinking (JSON/Firestore cannot encode infinity)
+        let shrinkInterval: Double
+        if isCTF {
+            shrinkInterval = Bubble.infiniteSentinel // CTF never shrinks
+        } else if enableShrinking {
+            shrinkInterval = 180 // 3 minutes for shrinking zones
+        } else {
+            shrinkInterval = Bubble.infiniteSentinel // No shrinking if disabled
+        }
+        
+        let gameDuration: Double = duration ?? (isCTF ? Bubble.infiniteSentinel : 1800) // Use provided duration or default (CTF = sentinel)
         
         // Create bubble with placeholder startTime (will be set when game begins)
         let bubble = Bubble(
@@ -250,7 +365,9 @@ final class GameViewModel: ObservableObject {
             startTime: Date(), // Placeholder - will be reset when game actually begins
             shrinkInterval: shrinkInterval,
             duration: gameDuration,
-            shrinkHistory: []
+            shrinkHistory: [],
+            showTimer: showTimer,
+            enableShrinking: enableShrinking
         )
         
         // Configure game with bubble and hunter count together
@@ -271,8 +388,8 @@ final class GameViewModel: ObservableObject {
         
         isBeginningGame = true
         
-        // Ensure services are initialized
-        ensureServicesInitialized()
+        // Ensure services are initialized (sync version for immediate use)
+        ensureServicesInitializedSync()
         
         guard let session = gameService.session else {
             isBeginningGame = false
@@ -288,30 +405,33 @@ final class GameViewModel: ObservableObject {
             return
         }
         
-        // TEMPORARY: Allow 1 player for testing (normally requires 2)
-        // Edge case: Must have at least 1 player to start (testing mode)
-        guard session.players.count >= 1 else {
+        #if DEBUG
+        let vmMinPlayers = 1
+        let vmMinHunters = 0
+        let vmMinHiders = 0
+        #else
+        let vmMinPlayers = session.gameType.minimumPlayers
+        let vmMinHunters = 1
+        let vmMinHiders = 1
+        #endif
+        guard session.players.count >= vmMinPlayers else {
             isBeginningGame = false
-            gameOverMessage = "Cannot begin game: Need at least 1 player to start. Currently \(session.players.count) player(s)."
+            gameOverMessage = "Cannot begin game: Need at least \(vmMinPlayers) player(s) to start. Currently \(session.players.count)."
             showGameOverAlert = true
             return
         }
         
-        // TEMPORARY: Allow 0 hunters for testing (normally requires at least 1)
-        // Edge case: Must have at least 0 hunters (testing mode - allows solo play)
-        guard session.hunterCount >= 0 else {
+        guard session.hunterCount >= vmMinHunters else {
             isBeginningGame = false
-            gameOverMessage = "Cannot begin game: Invalid hunter count."
+            gameOverMessage = "Cannot begin game: Need at least \(vmMinHunters) hunter(s)."
             showGameOverAlert = true
             return
         }
         
-        // TEMPORARY: Skip hider validation for testing (normally requires at least 1)
-        // Edge case: Must have at least 0 hiders (testing mode)
         let hiderCount = session.players.count - session.hunterCount
-        guard hiderCount >= 0 else {
+        guard hiderCount >= vmMinHiders else {
             isBeginningGame = false
-            gameOverMessage = "Cannot begin game: Invalid player configuration. Currently \(hiderCount) hider(s)."
+            gameOverMessage = "Cannot begin game: Need at least \(vmMinHiders) hider(s). Currently \(hiderCount)."
             showGameOverAlert = true
             return
         }
@@ -417,20 +537,16 @@ final class GameViewModel: ObservableObject {
     // MARK: - Join Game
     
     func joinGame(joinCode: String) {
-        // Ensure services are initialized
-        ensureServicesInitialized()
-        
-        // Request location permission and start location updates if not already running
-        let location = locationService
-        if location.coordinate == nil {
-            location.requestPermission()
-        }
-        
-        guard let coordinate = location.coordinate else {
-            gameOverMessage = "Cannot join game: Location not available. Please ensure GPS is enabled."
+        // Ensure services are initialized (sync version for immediate use)
+        ensureServicesInitializedSync()
+
+        guard locationService.isReadyForGameplay else {
+            requestRequiredPreGamePermissions()
+            gameOverMessage = "Finish the two-step location setup before joining a game."
             showGameOverAlert = true
             return
         }
+        requestBluetoothPermissionIfNeeded()
         
         // Validate join code format (6 digits)
         let cleanedCode = joinCode.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -439,20 +555,75 @@ final class GameViewModel: ObservableObject {
             showGameOverAlert = true
             return
         }
-        
-        Task {
-            let (success, errorMessage) = await gameService.joinGame(
-                joinCode: cleanedCode,
-                playerName: playerName,
-                playerLocation: coordinate,
-                expectedGameType: selectedGameType
-            )
-            
-            if !success {
-                await MainActor.run {
-                    gameOverMessage = errorMessage ?? "Could not join game. Make sure the join code is correct and the game hasn't started yet."
-                    showGameOverAlert = true
+
+        // Set loading state
+        isJoiningGame = true
+
+        // Request location and wait briefly if permission is already granted but GPS is still warming up.
+        let location = locationService
+        let startJoin: (CLLocationCoordinate2D) -> Void = { [weak self] coordinate in
+            guard let self else { return }
+            self.joinGameCancellable?.cancel()
+            self.joinGameCancellable = nil
+
+            Task {
+                let playerId: String
+                do {
+                    playerId = try await AuthService.shared.ensureSignedIn()
+                } catch {
+                    await MainActor.run {
+                        self.isJoiningGame = false
+                        self.gameOverMessage = "Cannot join game: Sign-in failed. Please check your connection and try again."
+                        self.showGameOverAlert = true
+                    }
+                    return
                 }
+
+                let profileName = ProfileService.shared.displayName
+                let nameToUse = profileName.isEmpty ? self.playerName : profileName
+
+                let (success, errorMessage) = await self.gameService.joinGame(
+                    joinCode: cleanedCode,
+                    playerName: nameToUse,
+                    playerLocation: coordinate,
+                    expectedGameType: self.selectedGameType,
+                    playerId: playerId
+                )
+
+                await MainActor.run {
+                    self.isJoiningGame = false
+
+                    if !success {
+                        self.gameOverMessage = errorMessage ?? "Could not join game. Make sure the join code is correct and the game hasn't started yet."
+                        self.showGameOverAlert = true
+                    }
+                }
+            }
+        }
+
+        if let coordinate = location.coordinate {
+            startJoin(coordinate)
+            return
+        }
+
+        location.requestPermission()
+        requestBluetoothPermissionIfNeeded()
+        joinGameCancellable?.cancel()
+        joinGameCancellable = location.$coordinate
+            .compactMap { $0 }
+            .first()
+            .sink { coordinate in
+                startJoin(coordinate)
+            }
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if isJoiningGame && location.coordinate == nil {
+                joinGameCancellable?.cancel()
+                joinGameCancellable = nil
+                isJoiningGame = false
+                gameOverMessage = "Location is allowed, but GPS has not found you yet. Move somewhere with a clearer signal and try again."
+                showGameOverAlert = true
             }
         }
     }

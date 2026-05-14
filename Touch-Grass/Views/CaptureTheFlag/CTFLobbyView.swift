@@ -24,12 +24,16 @@ struct CTFLobbyView: View {
     @State private var showNoProfileNameAlert: Bool = false
     @State private var showExitConfirmation: Bool = false
     @State private var gameCode: String = ""
+    @State private var hasCopiedJoinCode: Bool = false
+    @State private var resetCopiedJoinCodeTask: Task<Void, Never>? = nil
     @State private var bubbleStartRadius: Double = 300
     @State private var teamABase: CLLocationCoordinate2D? = nil
     @State private var teamBBase: CLLocationCoordinate2D? = nil
-    @State private var contentAppeared: Bool = false
     @State private var pulseScale: CGFloat = 1.0
-    @State private var logoGlow: CGFloat = 0.5
+    
+    // OPTIMIZATION: Cache gameService state to reduce re-renders
+    @State private var cachedGameState: GameState = .lobby
+    @State private var cachedSession: GameSession? = nil
     
     // Hardcoded CTF theme properties
     private var primaryColor: Color {
@@ -49,15 +53,90 @@ struct CTFLobbyView: View {
     }
     
     var body: some View {
-        ZStack {
-            // Aesthetic Gradient Background
-            aestheticBackground
-                .ignoresSafeArea()
-            
-            // Lobby Content Panel
-            lobbyContentPanel
+        let _ = {
+            #if DEBUG
+            let timestamp = Date().timeIntervalSince1970
+            print("🔍 DEBUG: [\(String(format: "%.3f", timestamp))] CTFLobbyView body rendering")
+            print("🔍 DEBUG:   - viewModel.selectedGame: \(String(describing: viewModel.selectedGame))")
+            print("🔍 DEBUG:   - viewModel.isServicesInitializing: \(viewModel.isServicesInitializing)")
+            print("🔍 DEBUG:   - cachedSession?.id: \(String(describing: cachedSession?.id))")
+            print("🔍 DEBUG:   - cachedGameState: \(cachedGameState)")
+            #endif
+        }()
+        
+        return Group {
+            // OPTIMIZATION: Use cached session instead of accessing gameService directly
+            if cachedSession != nil {
+                switch cachedGameState {
+                case .flagPlacement:
+                    // Show flag placement view
+                    CTFFlagPlacementView(
+                        gameService: viewModel.gameService,
+                        locationService: viewModel.locationService
+                    )
+                case .active:
+                    // Show active game view
+                    CTFActiveGameView(
+                        gameService: viewModel.gameService,
+                        locationService: viewModel.locationService,
+                        viewModel: viewModel
+                    )
+                case .ended:
+                    // Show game end view - use cached session
+                    if let session = cachedSession,
+                       let gameStats = viewModel.gameService.gameStats {
+                        CTFGameEndView(
+                            session: session,
+                            gameStats: gameStats,
+                            currentPlayer: viewModel.gameService.currentPlayer,
+                            onPlayAgain: {
+                                viewModel.playAgain()
+                            },
+                            onBackToLobby: {
+                                // Return to lobby (playAgain resets to lobby)
+                                viewModel.playAgain()
+                            }
+                        )
+                    } else {
+                        // Fallback if session/stats not available
+                        VStack {
+                            Text("Game Ended")
+                                .font(.title)
+                            Button("Back to Menu") {
+                                onBackToMenu()
+                            }
+                        }
+                    }
+                case .lobby:
+                    // Show lobby content
+                    ZStack {
+                        LandscapeBackground()
+                            .drawingGroup()
+                            .ignoresSafeArea(.all)
+                            .zIndex(0)
+                        AestheticBackground(gradientOffset: 0, pulseScale: 1.0)
+                            .ignoresSafeArea(.all)
+                            .allowsHitTesting(false)
+                            .zIndex(1)
+                        lobbyContentPanel.zIndex(2)
+                    }
+                }
+            } else {
+                // No session - show lobby content
+                ZStack {
+                    LandscapeBackground()
+                        .drawingGroup()
+                        .ignoresSafeArea(.all)
+                        .zIndex(0)
+                    AestheticBackground(gradientOffset: 0, pulseScale: 1.0)
+                        .ignoresSafeArea(.all)
+                        .allowsHitTesting(false)
+                        .zIndex(1)
+                    lobbyContentPanel.zIndex(2)
+                }
+            }
         }
-        .animation(.easeInOut(duration: 0.3), value: viewModel.gameService.session?.id)
+        // OPTIMIZATION: Remove animation modifiers that cause re-renders - transitions handle animations
         #if DEBUG
         .debugButton(showDebugTestPanel: $showDebugTestPanel, viewModel: viewModel)
         .sheet(isPresented: $showDebugTestPanel) {
@@ -75,10 +154,29 @@ struct CTFLobbyView: View {
             showTeamManagement = false
             showGameInfo = false
             
-            // Staggered entrance animation
-            withAnimation(.smoothTransition.delay(0.1)) {
-                contentAppeared = true
+            // OPTIMIZATION: Cache gameService state on appear
+            cachedGameState = viewModel.gameService.gameState
+            cachedSession = viewModel.gameService.session
+            
+            // SAFETY: Check for stale sessions from previous app launches (async for performance)
+            // For CTF, check if session exists but no bases are configured
+            Task { @MainActor in
+                if let session = cachedSession,
+                   session.teamABase == nil,
+                   session.teamBBase == nil,
+                   cachedGameState == .lobby {
+                    // This is a stale session from a previous app launch - clear it
+                    print("🧹 Detected stale CTF session on appear, clearing...")
+                    viewModel.gameService.clearSession()
+                }
             }
+        }
+        // OPTIMIZATION: Update cached state only when it changes
+        .onChange(of: viewModel.gameService.gameState) { oldValue, newValue in
+            cachedGameState = newValue
+        }
+        .onChange(of: viewModel.gameService.session) { oldValue, newValue in
+            cachedSession = newValue
         }
         .onChange(of: viewModel.gameService.session?.gameType) { oldValue, newValue in
             // If game type changes, reset all configuration state
@@ -198,64 +296,21 @@ struct CTFLobbyView: View {
         .alert("Profile Name Required", isPresented: $showNoProfileNameAlert) {
             Button("OK", role: .cancel) { }
         } message: {
-            Text("Please add your name to your profile to start a game. You can update your profile name in the Profile tab.")
+            Text("Please add your name to start a game. You can set your profile name in Settings.")
         }
-        .alert("Exit Lobby", isPresented: $showExitConfirmation) {
-            Button("Yes", role: .destructive) {
-                // CRASH FIX: Wrap state modifications in Task to avoid "Modifying state during view update"
-                Task { @MainActor in
-                    // Reset game state to lobby before going back to prevent showing game over screen
-                    viewModel.gameService.gameState = .lobby
-                    if var session = viewModel.gameService.session {
-                        session.gameState = .lobby
-                        viewModel.gameService.session = session
-                    }
-                    // End the game session and go back to menu
-                    viewModel.gameService.endGame()
-                    onBackToMenu()
-                }
+        .themedExitLobbyConfirmation(
+            isPresented: $showExitConfirmation,
+            primaryColor: primaryColor,
+            secondaryColor: AppColors.ctfTeamBSecondary,
+            iconName: "flag.fill"
+        ) {
+            // CRASH FIX: Wrap state modifications in Task to avoid "Modifying state during view update"
+            Task { @MainActor in
+                // Completely clear and delete the session from Firestore
+                // This ensures the session is deleted immediately
+                viewModel.gameService.clearSession()
+                onBackToMenu()
             }
-            Button("No", role: .cancel) { }
-        } message: {
-            Text("Going back to main menu will close this lobby. Are you sure?")
-        }
-    }
-    
-    // MARK: - Aesthetic Background (Dynamic Theme)
-    
-    private var aestheticBackground: some View {
-        ZStack {
-            // Base gradient (dynamic based on game type)
-            LinearGradient(
-                colors: [
-                    primaryColor.opacity(0.2),
-                    secondaryColor.opacity(0.15),
-                    lightColor.opacity(0.1),
-                    AppColors.backgroundPrimary
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            
-            // Simple animated accent circles (lightweight)
-            GeometryReader { geometry in
-                let size = max(geometry.size.width, geometry.size.height)
-                
-                // Top-left accent
-                Circle()
-                    .fill(primaryColor.opacity(0.15))
-                    .frame(width: size * 0.6, height: size * 0.6)
-                    .offset(x: -size * 0.2, y: -size * 0.2)
-                    .blur(radius: 60)
-                
-                // Bottom-right accent
-                Circle()
-                    .fill(secondaryColor.opacity(0.12))
-                    .frame(width: size * 0.5, height: size * 0.5)
-                    .offset(x: size * 0.3, y: size * 0.4)
-                    .blur(radius: 50)
-            }
-            .allowsHitTesting(false)
         }
     }
     
@@ -267,30 +322,27 @@ struct CTFLobbyView: View {
                 // Back Button
                 HStack {
                     Button(action: {
-                        // Show confirmation if there's an active session
                         if viewModel.gameService.session != nil {
                             showExitConfirmation = true
                         } else {
-                            // No session, just go back
                             onBackToMenu()
                         }
-                    }) {
-                        HStack(spacing: AppSpacing.xs) {
-                            Image(systemName: "chevron.left")
-                                .font(.body)
-                            Text("Back to Games")
-                                .font(AppTypography.bodyMedium())
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-                        }
-                        .foregroundColor(primaryColor)
-                        .padding(.horizontal, AppSpacing.md)
-                        .padding(.vertical, AppSpacing.sm)
-                        .background(
-                            Capsule()
-                                .fill(primaryColor.opacity(0.1))
-                        )
-                    }
+	                    }) {
+	                        HStack(spacing: 4) {
+	                            Image(systemName: "chevron.left")
+	                                .font(.system(size: 15, weight: .bold))
+	                            Text("Back to Games")
+	                                .font(.system(size: 15, weight: .black, design: .rounded))
+	                        }
+	                        .foregroundColor(AppColors.cartoonInk)
+	                        .padding(.horizontal, AppSpacing.md)
+	                        .padding(.vertical, AppSpacing.sm)
+	                        .background(Capsule().fill(AppColors.cartoonCream))
+	                        .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 2))
+	                        .background(Capsule().fill(Color(white: 0.18)).offset(x: 2, y: 2))
+	                    }
+	                    .buttonStyle(PlainButtonStyle())
+
                     Spacer()
                 }
                 .padding(.horizontal, AppSpacing.md)
@@ -300,18 +352,19 @@ struct CTFLobbyView: View {
                         // Centered Header
                 lobbyHeader
                     .padding(.horizontal, AppSpacing.md)
-                    .padding(.top, AppSpacing.lg)
-                    .padding(.bottom, AppSpacing.xs)
+                    .padding(.top, AppSpacing.md)
+                    // More breathing room between tagline and cards
+                    .padding(.bottom, viewModel.gameService.session != nil ? AppSpacing.md : AppSpacing.xs)
                 
                         // Content Cards (only show if session exists)
                 if let session = viewModel.gameService.session {
-                            VStack(spacing: AppSpacing.lg) {
+                            VStack(spacing: AppSpacing.sm) {
                     sessionInfoCard(session: session)
                             .transition(.asymmetric(
                                 insertion: .move(edge: .top).combined(with: .opacity),
                                 removal: .move(edge: .top).combined(with: .opacity)
                             ))
-                
+
                                 if !session.players.isEmpty {
                     playerListCard(session: session)
                                 .transition(.asymmetric(
@@ -322,79 +375,36 @@ struct CTFLobbyView: View {
                             }
                             .padding(.horizontal, AppSpacing.md)
                         }
-                        
+
                         // Centered Controls
                 lobbyControls
                             .padding(.horizontal, AppSpacing.md)
-                            .padding(.top, AppSpacing.lg)
+                            .padding(.top, viewModel.gameService.session != nil ? AppSpacing.sm : AppSpacing.lg)
                     
                     Spacer()
-                    .frame(height: AppSpacing.lg)
+                    .frame(height: AppSpacing.xl)
             }
         }
+        .safeAreaPadding(.bottom, AppSpacing.lg)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: viewModel.gameService.session?.id)
     }
     
     private var lobbyHeader: some View {
-        ZStack {
+        let hasSession = viewModel.gameService.session != nil
+        return ZStack {
             // Game Title - Dynamic based on game type
-        VStack(spacing: AppSpacing.sm) {
-                // Game Logo/Title
-                gameTitleView
+            VStack(spacing: AppSpacing.sm) {
+                // Game Logo/Title — smaller when a session exists to save vertical space
+                gameTitleView(compact: hasSession)
                     .frame(maxWidth: .infinity)
                     .transition(.scale.combined(with: .opacity))
-            
-            // Tagline (dynamic)
-            Text(gameTagline)
-                .font(AppTypography.headlineSmall())
-                .fontWeight(.semibold)
-                .foregroundColor(AppColors.textPrimary)
-                .padding(.horizontal, AppSpacing.lg)
-                .padding(.top, -AppSpacing.sm)
-                .padding(.vertical, AppSpacing.sm)
-                .background(
-                    Capsule()
-                        .fill(primaryColor.opacity(0.1))
-                        .overlay(
-                            Capsule()
-                                .stroke(
-                                    LinearGradient(
-                                        colors: [
-                                            primaryColor.opacity(0.3),
-                                            secondaryColor.opacity(0.3)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                                    ),
-                                    lineWidth: 1
-                                )
-                        )
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            
-                // Decorative line (dynamic theme)
-                HStack {
-                    Rectangle()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.clear,
-                                    primaryColor.opacity(0.6),
-                                    secondaryColor.opacity(0.6),
-                                    Color.clear
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(height: 2)
-                        .padding(.horizontal, AppSpacing.lg)
-                }
-                .padding(.top, AppSpacing.sm)
-                .transition(.opacity)
+
+                // Tagline (cartoon pill)
+                CartoonPill(text: gameTagline, color: primaryColor)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             .multilineTextAlignment(.center)
-            
+
             // Info Button - Overlay in top right
             HStack {
                 Spacer()
@@ -402,15 +412,9 @@ struct CTFLobbyView: View {
                     Button(action: {
                         showGameInfo = true
                     }) {
-                        Image(systemName: "info.circle.fill")
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundColor(primaryColor)
-                            .padding(8)
-                            .background(
-                                Circle()
-                                    .fill(primaryColor.opacity(0.1))
-                            )
+                        CartoonLobbyIconButtonLabel(systemName: "info.circle.fill")
                     }
+                    .buttonStyle(IconButtonStyle(size: 42, color: primaryColor))
                     Spacer()
                 }
             }
@@ -420,51 +424,21 @@ struct CTFLobbyView: View {
     }
     
     // CTF game title view (logo-based) - matches Touch Grass logo size and styling
-    private var gameTitleView: some View {
-        ZStack {
-            // Outer glow effect (more pronounced for title screen)
-            Image("CTF")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: 650, maxHeight: 280)
-                .blur(radius: 20 * logoGlow)
-                .opacity(0.7 * logoGlow)
-                .offset(y: 4)
-            
-            // Middle glow layer
-            Image("CTF")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: 650, maxHeight: 280)
-                .blur(radius: 10 * logoGlow)
-                .opacity(0.5 * logoGlow)
-                .offset(y: 2)
-            
-            // Main logo (with pulsing animation)
-            Image("CTF")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: 650, maxHeight: 280)
-                .scaleEffect(pulseScale)
-                .shadow(color: Color.black.opacity(0.4), radius: 15, x: 0, y: 8)
-                .shadow(color: primaryColor.opacity(0.7 * logoGlow), radius: 25 * logoGlow, x: 0, y: 0)
-                .shadow(color: secondaryColor.opacity(0.5 * logoGlow), radius: 35 * logoGlow, x: 0, y: 0)
-        }
+    private func gameTitleView(compact: Bool = false) -> some View {
+        let maxH: CGFloat = compact ? 100 : 216
+        let maxW: CGFloat = compact ? 360 : 780
+        return Image("CTF")
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(maxWidth: maxW, maxHeight: maxH)
+            .scaleEffect(pulseScale)
+            .shadow(color: Color.black.opacity(0.4), radius: 15, x: 0, y: 8)
         .frame(maxWidth: .infinity)
-        .onAppear {
-            // Animate logo glow
-            withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
-                logoGlow = 1.0
-            }
-            // Subtle pulse animation
-            withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
-                pulseScale = 1.02
-            }
-        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: compact)
     }
     
     private func sessionInfoCard(session: GameSession) -> some View {
-        VStack(spacing: AppSpacing.lg) {
+        VStack(spacing: AppSpacing.sm) {
             // Top Section: Status and Players (Horizontal)
             HStack(spacing: AppSpacing.lg) {
                 // Status Badge
@@ -472,7 +446,7 @@ struct CTFLobbyView: View {
                     Text("Status")
                         .font(AppTypography.caption())
                         .foregroundColor(AppColors.textSecondary)
-                Text(session.gameState.rawValue.capitalized)
+                    Text(session.gameState.rawValue.capitalized)
                         .font(AppTypography.labelMedium())
                         .fontWeight(.semibold)
                         .foregroundColor(.white)
@@ -483,10 +457,10 @@ struct CTFLobbyView: View {
                                 .fill(stateColor(for: session.gameState))
                         )
                 }
-                
+
                 Divider()
-                    .frame(height: 40)
-                
+                    .frame(height: 32)
+
                 // Players Count
                 VStack(spacing: AppSpacing.xs) {
                     Text("Players")
@@ -494,83 +468,49 @@ struct CTFLobbyView: View {
                         .foregroundColor(AppColors.textSecondary)
                     HStack(spacing: 4) {
                         Text("\(session.players.count)")
-                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
                             .foregroundColor(AppColors.textPrimary)
                         Text("/")
-                            .font(.system(size: 18, weight: .regular))
+                            .font(.system(size: 16, weight: .regular))
                             .foregroundColor(AppColors.textSecondary)
                         Text("\(GameService.maxPlayersPerSession)")
-                            .font(.system(size: 20, weight: .medium, design: .rounded))
+                            .font(.system(size: 17, weight: .medium, design: .rounded))
                             .foregroundColor(AppColors.textSecondary)
                     }
                 }
-                
-                    Spacer()
-                }
-                
+
+                Spacer()
+            }
+
             // Join Code Section (only show if host)
-                if let currentPlayer = viewModel.gameService.currentPlayer,
-                   currentPlayer.id == session.hostId {
+            if let currentPlayer = viewModel.gameService.currentPlayer,
+               currentPlayer.id == session.hostId {
                 VStack(spacing: AppSpacing.sm) {
-                        HStack {
-                            Image(systemName: "number")
-                                .foregroundColor(primaryColor)
+                    HStack {
+                        Image(systemName: "number")
+                            .foregroundColor(primaryColor)
                             .font(.caption)
-                            Text("Join Code")
+                        Text("Join Code")
                             .font(AppTypography.caption())
-                                .foregroundColor(AppColors.textSecondary)
+                            .foregroundColor(AppColors.textSecondary)
                         Spacer()
                     }
-                    
-                    HStack(spacing: AppSpacing.md) {
-                        // Join code - clean format with separator
-                        Text(formatJoinCode(session.joinCode))
-                            .font(.system(size: 28, weight: .bold, design: .monospaced))
-                                .foregroundColor(primaryColor)
-                            .tracking(2)
-                            .padding(.horizontal, AppSpacing.md)
-                            .padding(.vertical, AppSpacing.sm)
-                            .frame(maxWidth: .infinity)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(primaryColor.opacity(0.1))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .stroke(primaryColor.opacity(0.2), lineWidth: 1)
-                                    )
-                            )
-                        
-                        // Action buttons
-                        HStack(spacing: AppSpacing.xs) {
-                            // Copy button
+
+                    HStack(spacing: AppSpacing.sm) {
+                        CartoonJoinCodeBadge(code: formatJoinCode(session.joinCode), accent: primaryColor)
+
+                        HStack(spacing: AppSpacing.sm) {
                             Button(action: {
-                                UIPasteboard.general.string = session.joinCode
-                                HapticFeedbackManager.shared.selection()
+                                copyJoinCode(session.joinCode)
                             }) {
-                                Image(systemName: "doc.on.doc.fill")
-                                    .foregroundColor(.white)
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .frame(width: 40, height: 40)
-                                    .background(
-                                        Circle()
-                                            .fill(primaryColor)
-                                            .shadow(color: primaryColor.opacity(0.3), radius: 4, x: 0, y: 2)
-                                    )
+                                CartoonLobbyIconButtonLabel(systemName: hasCopiedJoinCode ? "checkmark" : "doc.on.doc.fill")
                             }
-                            .buttonStyle(ScaleButtonStyle())
-                            
-                            // Share button
+                            .buttonStyle(IconButtonStyle(size: 42, color: hasCopiedJoinCode ? AppColors.success : primaryColor))
+
                             ShareLink(item: shareText(for: session)) {
-                                Image(systemName: "square.and.arrow.up.fill")
-                                    .foregroundColor(.white)
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .frame(width: 40, height: 40)
-                        .background(
-                                        Circle()
-                                            .fill(secondaryColor)
-                                            .shadow(color: secondaryColor.opacity(0.3), radius: 4, x: 0, y: 2)
-                                    )
+                                CartoonLobbyIconButtonLabel(systemName: "square.and.arrow.up.fill")
                             }
+                            .buttonStyle(IconButtonStyle(size: 42, color: secondaryColor))
                         }
                     }
                 }
@@ -605,12 +545,11 @@ struct CTFLobbyView: View {
                 )
             }
         }
-        .padding(AppSpacing.lg)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(.ultraThinMaterial)
-                .shadow(color: Color.black.opacity(0.1), radius: 12, x: 0, y: 4)
-        )
+        .padding(AppSpacing.md)
+        .background(AppColors.cartoonCream)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppColors.cartoonInk, lineWidth: 2))
+        .shadow(color: AppColors.cartoonInk, radius: 0, x: 4, y: 4)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.gameService.session?.gameState)
     }
     
@@ -634,126 +573,46 @@ struct CTFLobbyView: View {
     }
     
     private func playerListCard(session: GameSession) -> some View {
-        VStack(alignment: .leading, spacing: AppSpacing.md) {
+        VStack(alignment: .leading, spacing: AppSpacing.sm) {
             // Header
             HStack(spacing: AppSpacing.sm) {
                 Image(systemName: "person.2.fill")
                     .foregroundColor(primaryColor)
                     .font(.title3)
-                Text("Players")
+                Text("Players (\(session.players.count))")
                     .font(AppTypography.labelLarge())
                     .fontWeight(.semibold)
-                
+
                 Spacer()
-                
+
                 // Info icon
-                Button(action: {
-                    showPlayerListInfo = true
-                }) {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(primaryColor)
-                }
-            }
-            
+	                Button(action: {
+	                    showPlayerListInfo = true
+	                }) {
+	                    CartoonLobbyIconButtonLabel(systemName: "info.circle.fill")
+	                }
+	                .buttonStyle(IconButtonStyle(size: 30, color: primaryColor))
+	            }
+
             Divider()
-            
-            // Team distribution summary
-            let teamAPlayers = session.players.filter { $0.role == .teamA && $0.isAlive }
-            let teamBPlayers = session.players.filter { $0.role == .teamB && $0.isAlive }
-            let eliminated = session.players.filter { !$0.isAlive }
-            
-            if !session.players.isEmpty {
-                HStack(spacing: AppSpacing.md) {
-                    // Team A count
-                    HStack(spacing: 4) {
-                        Image(systemName: "flag.fill")
-                            .font(.caption)
-                            .foregroundColor(AppColors.ctfTeamA)
-                        Text("A")
-                            .font(AppTypography.labelSmall())
-                            .fontWeight(.bold)
-                            .foregroundColor(AppColors.ctfTeamA)
-                        Text("\(teamAPlayers.count)")
-                            .font(AppTypography.labelSmall())
-                            .fontWeight(.bold)
-                            .foregroundColor(AppColors.ctfTeamA)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule()
-                            .fill(AppColors.ctfTeamA.opacity(0.15))
-                    )
-                    
-                    // Team B count
-                    HStack(spacing: 4) {
-                        Image(systemName: "flag.fill")
-                            .font(.caption)
-                            .foregroundColor(AppColors.ctfTeamB)
-                        Text("B")
-                            .font(AppTypography.labelSmall())
-                            .fontWeight(.bold)
-                            .foregroundColor(AppColors.ctfTeamB)
-                        Text("\(teamBPlayers.count)")
-                            .font(AppTypography.labelSmall())
-                            .fontWeight(.bold)
-                            .foregroundColor(AppColors.ctfTeamB)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule()
-                            .fill(AppColors.ctfTeamB.opacity(0.15))
-                    )
-                    
-                    // Eliminated count
-                    if !eliminated.isEmpty {
-                        HStack(spacing: 4) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.caption)
-                                .foregroundColor(AppColors.error)
-                            Text("\(eliminated.count)")
-                                .font(AppTypography.labelSmall())
-                                .fontWeight(.bold)
-                                .foregroundColor(AppColors.error)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(AppColors.error.opacity(0.15))
-                        )
-                    }
-                    
-                    Spacer()
-                }
-                .padding(.bottom, AppSpacing.xs)
-            }
-            
-            Divider()
-                .padding(.vertical, AppSpacing.xs)
-            
+
             // Player List
-            VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            VStack(alignment: .leading, spacing: 6) {
             ForEach(session.players) { player in
                     let isHost = viewModel.gameService.currentPlayer?.id == session.hostId
                     let isSelf = player.id == viewModel.gameService.currentPlayer?.id
                     let canManageFlag = isHost || isSelf // Host or self can set flag
                     let canManageLeader = isHost // Only host can set team leader
-                    
+
                 HStack(spacing: AppSpacing.sm) {
                         // Flag button (if can manage)
                         if canManageFlag && (player.role == .teamA || player.role == .teamB) {
-                            Button(action: {
-                                viewModel.gameService.setFlag(playerId: player.id, isFlag: !player.isFlag)
-                            }) {
-                                Image(systemName: player.isFlag ? "flag.fill" : "flag")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(player.isFlag ? teamColor(for: player.role) : AppColors.textSecondary)
-                                    .frame(width: 28, height: 28)
-                            }
-                            .buttonStyle(PlainButtonStyle())
+	                            Button(action: {
+	                                viewModel.gameService.setFlag(playerId: player.id, isFlag: !player.isFlag)
+	                            }) {
+	                                CartoonLobbyIconButtonLabel(systemName: player.isFlag ? "flag.fill" : "flag")
+	                            }
+	                            .buttonStyle(IconButtonStyle(size: 30, color: player.isFlag ? teamColor(for: player.role) : AppColors.cartoonInk.opacity(0.5)))
                         } else if player.isFlag {
                             // Show flag icon if this player is the flag (read-only)
                             Image(systemName: "flag.fill")
@@ -770,15 +629,12 @@ struct CTFLobbyView: View {
                         
                         // Team leader button (if host)
                         if canManageLeader && (player.role == .teamA || player.role == .teamB) {
-                            Button(action: {
-                                viewModel.gameService.setTeamLeader(playerId: player.id, isTeamLeader: !player.isTeamLeader)
-                            }) {
-                                Image(systemName: player.isTeamLeader ? "star.fill" : "star")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(player.isTeamLeader ? AppColors.ctfPrimary : AppColors.textSecondary)
-                                    .frame(width: 28, height: 28)
-                            }
-                            .buttonStyle(PlainButtonStyle())
+	                            Button(action: {
+	                                viewModel.gameService.setTeamLeader(playerId: player.id, isTeamLeader: !player.isTeamLeader)
+	                            }) {
+	                                CartoonLobbyIconButtonLabel(systemName: player.isTeamLeader ? "star.fill" : "star")
+	                            }
+	                            .buttonStyle(IconButtonStyle(size: 30, color: player.isTeamLeader ? AppColors.ctfPrimary : AppColors.cartoonInk.opacity(0.5)))
                         } else if player.isTeamLeader {
                             // Show star icon if this player is the team leader (read-only)
                             Image(systemName: "star.fill")
@@ -861,44 +717,37 @@ struct CTFLobbyView: View {
                         
                         // Team switch button (if host or self, and player is on a team)
                         if (isHost || isSelf) && (player.role == .teamA || player.role == .teamB) {
-                            Button(action: {
-                                let newTeam: Flag.Team = player.role == .teamA ? .teamB : .teamA
-                                viewModel.gameService.setTeam(playerId: player.id, team: newTeam)
-                            }) {
-                                Image(systemName: "arrow.left.arrow.right")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(primaryColor)
-                                    .frame(width: 28, height: 28)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        }
+	                            Button(action: {
+	                                let newTeam: Flag.Team = player.role == .teamA ? .teamB : .teamA
+	                                viewModel.gameService.setTeam(playerId: player.id, team: newTeam)
+	                            }) {
+	                                CartoonLobbyIconButtonLabel(systemName: "arrow.left.arrow.right")
+	                            }
+	                            .buttonStyle(IconButtonStyle(size: 30, color: primaryColor))
+	                        }
                         
                         // Leader badge (replaces team badge when player is team leader)
                         if player.isTeamLeader {
                             Text("LEADER")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: 9, weight: .black, design: .rounded))
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 2)
-                                .background(
-                                    Capsule()
-                                        .fill(AppColors.ctfPrimary)
-                                )
+                                .background(AppColors.ctfPrimary)
+                                .clipShape(Capsule())
+                                .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 1.5))
                         }
                     
                         // You badge
                     if player.id == viewModel.gameService.currentPlayer?.id {
                             Text("You")
-                            .font(AppTypography.caption())
-                                .fontWeight(.bold)
+                            .font(.system(size: 11, weight: .black, design: .rounded))
                             .foregroundColor(.white)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 3)
-                            .background(
-                                Capsule()
-                                        .fill(primaryColor)
-                                        .shadow(color: primaryColor.opacity(0.5), radius: 2, x: 0, y: 1)
-                            )
+                            .background(primaryColor)
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 1.5))
                     }
                     
                         // Eliminated indicator
@@ -908,30 +757,33 @@ struct CTFLobbyView: View {
                                 .font(.system(size: 18, weight: .semibold))
                         }
                     }
-                    .padding(.horizontal, AppSpacing.sm)
-                    .padding(.vertical, AppSpacing.xs)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
                     .background(
                         RoundedRectangle(cornerRadius: 10)
-                            .fill(player.id == viewModel.gameService.currentPlayer?.id ? primaryColor.opacity(0.1) : AppColors.backgroundSecondary)
+                            .fill(player.id == viewModel.gameService.currentPlayer?.id ? AppColors.cartoonSun2 : AppColors.cartoonCream2)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 10)
-                                    .stroke(player.isFlag ? teamColor(for: player.role).opacity(0.5) : Color.clear, lineWidth: 2)
+                                    .stroke(player.isFlag ? teamColor(for: player.role) : AppColors.cartoonInk.opacity(0.25), lineWidth: 2)
                             )
                     )
                 }
             }
         }
         .padding(AppSpacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(.ultraThinMaterial)
-                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
-        )
+        .background(AppColors.cartoonCream)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppColors.cartoonInk, lineWidth: 2))
+        .shadow(color: AppColors.cartoonInk, radius: 0, x: 4, y: 4)
         .animation(.spring(response: 0.4, dampingFraction: 0.7), value: session.players.count)
     }
     
     private var lobbyControls: some View {
         VStack(spacing: AppSpacing.md) {
+            let locationReady = viewModel.locationService.isReadyForGameplay
+
+            LocationPermissionCard(locationService: viewModel.locationService, accent: primaryColor)
+
             if viewModel.gameService.session == nil {
                 // Join Game Input Box (animated)
                 if showJoinGameInput {
@@ -945,109 +797,47 @@ struct CTFLobbyView: View {
                 // Create Game and Join Game Cards (beautified like game cards)
                 VStack(spacing: AppSpacing.md) {
                     // Create Game Card
-                Button(action: {
-                    HapticFeedbackManager.shared.selection()
-                    // Check if profile has a name
-                    if ProfileService.shared.displayName.isEmpty {
-                        showNoProfileNameAlert = true
-                    } else {
-                        viewModel.selectedGameType = .captureTheFlag
-                        viewModel.createSession()
-                    }
-                }) {
-                        HStack(spacing: AppSpacing.md) {
-                        Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 28, weight: .semibold))
-                                .foregroundColor(primaryColor)
-                                .frame(width: 44, height: 44)
-                                .background(
-                                    Circle()
-                                        .fill(primaryColor.opacity(0.15))
-                                )
-                            
-                            VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                                Text("Create Game")
-                                    .font(AppTypography.headlineSmall())
-                                    .fontWeight(.bold)
-                                    .foregroundColor(AppColors.textPrimary)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.8)
-                                
-                                Text("Start a new Capture The Flag session")
-                                    .font(AppTypography.bodySmall())
-                                    .foregroundColor(AppColors.textSecondary)
-                                    .lineLimit(2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            
-                            Spacer(minLength: AppSpacing.xs)
-                            
-                            Image(systemName: "chevron.right")
-                                .font(.body)
-                                .foregroundColor(primaryColor)
+                    Button(action: {
+                        HapticFeedbackManager.shared.selection()
+                        if ProfileService.shared.displayName.isEmpty {
+                            showNoProfileNameAlert = true
+                        } else {
+                            viewModel.selectedGameType = .captureTheFlag
+                            viewModel.createSession()
                         }
-                        .padding(AppSpacing.md)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(.ultraThinMaterial)
-                                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
+                    }) {
+                        CartoonLobbyActionCard(
+                            iconName: "plus.circle.fill",
+                            title: "Create Game",
+                            subtitle: "Start a new Capture The Flag session",
+                            accent: primaryColor
                         )
                     }
-                    .buttonStyle(ScaleButtonStyle())
-                    .disabled(showJoinGameInput)
-                    .opacity(showJoinGameInput ? 0.6 : 1.0)
+                    .buttonStyle(CartoonCardButtonStyle())
+                    .disabled(showJoinGameInput || !locationReady)
+                    .opacity((showJoinGameInput || !locationReady) ? 0.6 : 1.0)
                     .accessibilityLabel("Create game")
                     .accessibilityHint("Creates a new Capture The Flag game session")
-                    
+
                     // Join Game Card
                     Button(action: {
                         HapticFeedbackManager.shared.selection()
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
                             showJoinGameInput.toggle()
-                            if !showJoinGameInput {
-                                gameCode = ""
-                            }
+                            if !showJoinGameInput { gameCode = "" }
                         }
                     }) {
-                        HStack(spacing: AppSpacing.md) {
-                            Image(systemName: showJoinGameInput ? "xmark.circle.fill" : "person.2.circle.fill")
-                                .font(.system(size: 28, weight: .semibold))
-                                .foregroundColor(secondaryColor)
-                                .frame(width: 44, height: 44)
-                                .background(
-                                    Circle()
-                                        .fill(secondaryColor.opacity(0.15))
-                                )
-                            
-                            VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                                Text(showJoinGameInput ? "Cancel" : "Join Game")
-                                    .font(AppTypography.headlineSmall())
-                                    .fontWeight(.bold)
-                                    .foregroundColor(AppColors.textPrimary)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.8)
-                                
-                                Text(showJoinGameInput ? "Close join code input" : "Enter a game code to join")
-                                    .font(AppTypography.bodySmall())
-                                    .foregroundColor(AppColors.textSecondary)
-                                    .lineLimit(2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            
-                            Spacer(minLength: AppSpacing.xs)
-                            
-                            Image(systemName: showJoinGameInput ? "xmark" : "chevron.right")
-                                .font(.body)
-                                .foregroundColor(secondaryColor)
-                        }
-                    .padding(AppSpacing.md)
-                    .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(.ultraThinMaterial)
-                                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
+                        CartoonLobbyActionCard(
+                            iconName: showJoinGameInput ? "xmark.circle.fill" : "person.2.circle.fill",
+                            title: showJoinGameInput ? "Cancel" : "Join Game",
+                            subtitle: showJoinGameInput ? "Close join code input" : "Enter a game code to join",
+                            accent: secondaryColor,
+                            trailingIconName: showJoinGameInput ? "xmark" : "chevron.right"
                         )
                     }
-                    .buttonStyle(ScaleButtonStyle())
+                    .buttonStyle(CartoonCardButtonStyle())
+                    .disabled(!locationReady)
+                    .opacity(locationReady ? 1.0 : 0.6)
                 }
                 .transition(.asymmetric(
                     insertion: .move(edge: .bottom).combined(with: .opacity),
@@ -1056,105 +846,57 @@ struct CTFLobbyView: View {
             } else if viewModel.gameService.session?.gameState == .lobby {
                 VStack(spacing: AppSpacing.md) {
                     // Configure Game Button (if bubble not configured) OR Checkmark (if configured)
-                    if viewModel.gameService.session?.bubble == nil {
+                    // Only show configure button to host
+                    if let currentPlayer = viewModel.gameService.currentPlayer,
+                       let session = viewModel.gameService.session,
+                       currentPlayer.id == session.hostId,
+                       session.bubble == nil {
                         Button(action: { showBubbleSettings = true }) {
                             HStack(spacing: AppSpacing.sm) {
                                 Image(systemName: "gearshape.fill")
                                     .font(.title3)
-                                    .symbolEffect(.bounce, value: showBubbleSettings)
                                 Text("Configure Game")
-                                    .font(AppTypography.labelLarge())
-                                    .fontWeight(.semibold)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.8)
                             }
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, AppSpacing.md)
-                            .padding(.vertical, AppSpacing.md)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [
-                                                primaryColor,
-                                                secondaryColor
-                                            ],
-                                            startPoint: .leading,
-                                            endPoint: .trailing
-                                        )
-                                    )
-                                    .shadow(color: primaryColor.opacity(0.4), radius: 12, x: 0, y: 6)
-                            )
                         }
-                        .disabled(viewModel.locationService.coordinate == nil)
-                        .opacity(viewModel.locationService.coordinate == nil ? 0.6 : 1.0)
-                        .buttonStyle(ScaleButtonStyle())
+                        .disabled(!locationReady)
+                        .buttonStyle(CartoonButtonStyle(accent: AppColors.warning, isDisabled: !locationReady))
                         .transition(.asymmetric(
                             insertion: .move(edge: .bottom).combined(with: .opacity),
                             removal: .move(edge: .bottom).combined(with: .opacity)
                         ))
                     } else {
                         // Game configured - show checkmark button that can be tapped to reconfigure (host only)
-                        if let currentPlayer = viewModel.gameService.currentPlayer,
-                           let session = viewModel.gameService.session,
-                           currentPlayer.id == session.hostId {
-                            Button(action: { showBubbleSettings = true }) {
-                                HStack(spacing: AppSpacing.sm) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.title3)
-                                        .foregroundColor(AppColors.success)
-                                    Text("Game Configured")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(AppColors.textPrimary)
-                                    Spacer()
-                                    Image(systemName: "gearshape")
-                                        .font(.body)
-                                        .foregroundColor(AppColors.textSecondary)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.horizontal, AppSpacing.md)
-                                .padding(.vertical, AppSpacing.md)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .fill(AppColors.success.opacity(0.1))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 16)
-                                                .stroke(AppColors.success.opacity(0.3), lineWidth: 2)
-                                        )
-                                )
-                            }
-                            .buttonStyle(ScaleButtonStyle())
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .bottom).combined(with: .opacity),
-                                removal: .move(edge: .bottom).combined(with: .opacity)
-                            ))
-                        } else {
-                            // Non-host sees read-only "Game Configured" indicator
-                            HStack(spacing: AppSpacing.sm) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(.title3)
-                                    .foregroundColor(AppColors.success)
-                                Text("Game Configured")
-                                    .font(AppTypography.labelLarge())
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(AppColors.textPrimary)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, AppSpacing.md)
-                            .padding(.vertical, AppSpacing.md)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(AppColors.success.opacity(0.1))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 16)
-                                            .stroke(AppColors.success.opacity(0.3), lineWidth: 2)
-                                    )
-                            )
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .bottom).combined(with: .opacity),
-                                removal: .move(edge: .bottom).combined(with: .opacity)
+	                        if let currentPlayer = viewModel.gameService.currentPlayer,
+	                           let session = viewModel.gameService.session,
+	                           currentPlayer.id == session.hostId {
+	                            Button(action: { showBubbleSettings = true }) {
+	                                CartoonLobbyActionCard(
+	                                    iconName: "checkmark.circle.fill",
+	                                    title: "Game Configured",
+	                                    subtitle: "Tap to edit the play zone",
+	                                    accent: AppColors.success,
+	                                    trailingIconName: "gearshape.fill"
+	                                )
+	                            }
+	                            .buttonStyle(CartoonCardButtonStyle())
+	                            .transition(.asymmetric(
+	                                insertion: .move(edge: .bottom).combined(with: .opacity),
+	                                removal: .move(edge: .bottom).combined(with: .opacity)
+	                            ))
+	                        } else {
+	                            // Non-host sees read-only "Game Configured" indicator
+	                            CartoonLobbyActionCard(
+	                                iconName: "checkmark.circle.fill",
+	                                title: "Game Configured",
+	                                subtitle: "Waiting for the host to start",
+	                                accent: AppColors.success,
+	                                trailingIconName: "checkmark"
+	                            )
+	                            .transition(.asymmetric(
+	                                insertion: .move(edge: .bottom).combined(with: .opacity),
+	                                removal: .move(edge: .bottom).combined(with: .opacity)
                             ))
                         }
                         
@@ -1162,33 +904,19 @@ struct CTFLobbyView: View {
                         if let currentPlayer = viewModel.gameService.currentPlayer,
                            let session = viewModel.gameService.session,
                            currentPlayer.id == session.hostId {
-                            VStack(spacing: AppSpacing.md) {
-                                // Manage Teams Button
-                                Button(action: { showTeamManagement = true }) {
-                                    HStack(spacing: AppSpacing.sm) {
-                                        Image(systemName: "person.2.badge.gearshape.fill")
-                                            .font(.title3)
-                                        Text("Manage Teams")
-                                            .font(AppTypography.labelLarge())
-                                            .fontWeight(.semibold)
-                                            .lineLimit(1)
-                                            .minimumScaleFactor(0.8)
-                                    }
-                                    .foregroundColor(primaryColor)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.horizontal, AppSpacing.md)
-                                    .padding(.vertical, AppSpacing.sm)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .fill(primaryColor.opacity(0.1))
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 12)
-                                                    .stroke(primaryColor.opacity(0.3), lineWidth: 1)
-                                            )
-                                    )
-                                }
-                                .buttonStyle(ScaleButtonStyle())
-                            }
+	                            VStack(spacing: AppSpacing.md) {
+	                                // Manage Teams Button
+	                                Button(action: { showTeamManagement = true }) {
+	                                    CartoonLobbyActionCard(
+	                                        iconName: "person.2.badge.gearshape.fill",
+	                                        title: "Manage Teams",
+	                                        subtitle: "Assign teams, flags, and leaders",
+	                                        accent: primaryColor,
+	                                        trailingIconName: "slider.horizontal.3"
+	                                    )
+	                                }
+	                                .buttonStyle(CartoonCardButtonStyle())
+	                            }
                             .transition(.asymmetric(
                                 insertion: .move(edge: .bottom).combined(with: .opacity),
                                 removal: .move(edge: .bottom).combined(with: .opacity)
@@ -1199,8 +927,22 @@ struct CTFLobbyView: View {
                         if let session = viewModel.gameService.session {
                             let currentPlayer = viewModel.gameService.currentPlayer
                             let isHost = currentPlayer?.id == session.hostId
+                            let playerCount = session.players.count
+                            let minimumPlayers = session.gameType.minimumPlayers
+                            let hasMinimumPlayers = playerCount >= minimumPlayers
+
+                            let teamAPlayers = session.players.filter { $0.role == .teamA }
+                            let teamBPlayers = session.players.filter { $0.role == .teamB }
+                            let teamAHasLeader = teamAPlayers.contains { $0.isTeamLeader }
+                            let teamAHasFlag = teamAPlayers.contains { $0.isFlag }
+                            let teamBHasLeader = teamBPlayers.contains { $0.isTeamLeader }
+                            let teamBHasFlag = teamBPlayers.contains { $0.isFlag }
+                            let hasCTFRequirements = teamAHasLeader && teamAHasFlag && teamBHasLeader && teamBHasFlag
+
+                            let isEnabled = locationReady && (isHost == true) && hasMinimumPlayers && hasCTFRequirements && !viewModel.isBeginningGame
+
                             Button(action: {
-                                if isHost == true {
+                                if isEnabled {
                                     HapticFeedbackManager.shared.selection()
                                     print("🎮 CTFLobbyView: Begin game button pressed")
                                     withAnimation(.smoothTransition) {
@@ -1209,40 +951,21 @@ struct CTFLobbyView: View {
                                 }
                             }) {
                                 HStack(spacing: AppSpacing.sm) {
-                                    Image(systemName: "play.circle.fill")
-                                        .font(.title3)
-                                        .symbolEffect(.bounce, value: viewModel.gameService.gameState)
-                                    Text("Begin Game")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.semibold)
+                                    if viewModel.isBeginningGame {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                            .scaleEffect(0.9)
+                                    } else {
+                                        Image(systemName: "play.circle.fill")
+                                            .font(.title3)
+                                    }
+                                    Text(viewModel.isBeginningGame ? "Starting..." : "Begin Game")
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.8)
                                 }
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.horizontal, AppSpacing.md)
-                                .padding(.vertical, AppSpacing.md)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .fill(
-                                            LinearGradient(
-                                                colors: (isHost == true) ? [
-                                                    primaryColor,
-                                                    secondaryColor
-                                                ] : [
-                                                    AppColors.textSecondary.opacity(0.5),
-                                                    AppColors.textSecondary.opacity(0.3)
-                                                ],
-                                                startPoint: .leading,
-                                                endPoint: .trailing
-                                            )
-                                        )
-                                        .shadow(color: (isHost == true) ? primaryColor.opacity(0.4) : Color.clear, radius: 12, x: 0, y: 6)
-                                )
                             }
-                            .buttonStyle(ScaleButtonStyle())
-                            .disabled(isHost != true || viewModel.isBeginningGame)
-                            .opacity((isHost == true && !viewModel.isBeginningGame) ? 1.0 : 0.6)
+                            .buttonStyle(CartoonButtonStyle(accent: primaryColor, isDisabled: !isEnabled))
+                            .disabled(!isEnabled)
                             .transition(.asymmetric(
                                 insertion: .move(edge: .bottom).combined(with: .opacity),
                                 removal: .move(edge: .bottom).combined(with: .opacity)
@@ -1250,21 +973,6 @@ struct CTFLobbyView: View {
                         }
                     }
                 }
-            }
-            
-            // Location Permission Button
-            if viewModel.locationService.authorization != .authorizedAlways {
-                Button(action: { viewModel.locationService.requestPermission() }) {
-                    HStack(spacing: AppSpacing.xs) {
-                        Image(systemName: "location.fill")
-                            .symbolEffect(.pulse, options: .repeating)
-                        Text("Enable Location")
-                    }
-                    .font(AppTypography.bodyMedium())
-                    .foregroundColor(AppColors.textSecondary)
-                    .padding(.vertical, AppSpacing.sm)
-                }
-                .transition(.opacity)
             }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.gameService.session?.id)
@@ -1275,13 +983,14 @@ struct CTFLobbyView: View {
     private var joinGameInputBox: some View {
         VStack(spacing: AppSpacing.md) {
             HStack(spacing: AppSpacing.sm) {
-                Image(systemName: "number.square.fill")
-                    .foregroundColor(primaryColor)
-                    .font(.title2)
+                CartoonMedallion(background: primaryColor, size: 36) {
+                    Image(systemName: "number")
+                        .font(.system(size: 17, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
+                }
                 Text("Enter Game Code")
-                    .font(AppTypography.labelLarge())
-                    .fontWeight(.semibold)
-                    .foregroundColor(AppColors.textPrimary)
+                    .font(.system(size: 17, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
@@ -1289,7 +998,7 @@ struct CTFLobbyView: View {
             HStack(spacing: AppSpacing.sm) {
                 TextField("000000", text: $gameCode)
                     .font(.system(size: 28, weight: .bold, design: .monospaced))
-                    .foregroundColor(AppColors.textPrimary)
+                    .foregroundColor(AppColors.cartoonInk)
                     .multilineTextAlignment(.center)
                     .keyboardType(.numberPad)
                     .autocorrectionDisabled()
@@ -1298,12 +1007,12 @@ struct CTFLobbyView: View {
                     .frame(maxWidth: .infinity)
                     .background(
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(AppColors.backgroundSecondary)
+                            .fill(AppColors.cartoonCream2)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
                             .stroke(
-                                gameCode.isEmpty ? AppColors.textSecondary.opacity(0.3) : primaryColor,
+                                gameCode.isEmpty ? AppColors.cartoonInk.opacity(0.35) : primaryColor,
                                 lineWidth: 2
                             )
                     )
@@ -1318,6 +1027,11 @@ struct CTFLobbyView: View {
                     }
                 
                 Button(action: {
+                    guard viewModel.locationService.isReadyForGameplay else {
+                        viewModel.locationService.requestPermission()
+                        return
+                    }
+
                     guard gameCode.count == 6 else {
                         return
                     }
@@ -1334,16 +1048,16 @@ struct CTFLobbyView: View {
                     }
                 }) {
                     Image(systemName: "arrow.right.circle.fill")
-                        .font(.title2)
-                        .foregroundColor(gameCode.isEmpty ? AppColors.textSecondary : primaryColor)
-                        .frame(width: 44, height: 44)
+                        .font(.system(size: 20, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
                 }
-                .disabled(gameCode.isEmpty)
+                .buttonStyle(IconButtonStyle(size: 44, color: (gameCode.count == 6 && viewModel.locationService.isReadyForGameplay) ? primaryColor : AppColors.cartoonInk.opacity(0.45)))
+                .disabled(gameCode.count != 6 || !viewModel.locationService.isReadyForGameplay)
             }
             
             Text("Enter the game code shared by the host")
-                .font(AppTypography.caption())
-                .foregroundColor(AppColors.textSecondary)
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1351,11 +1065,10 @@ struct CTFLobbyView: View {
         .padding(.horizontal, AppSpacing.md)
         .padding(.vertical, AppSpacing.lg)
         .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(.ultraThinMaterial)
-                .shadow(color: Color.black.opacity(0.2), radius: 15, x: 0, y: 5)
-        )
+        .background(AppColors.cartoonCream)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppColors.cartoonInk, lineWidth: 2))
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(white: 0.18)).offset(x: 4, y: 4))
     }
     
     // MARK: - Button Style
@@ -1388,17 +1101,36 @@ struct CTFLobbyView: View {
     }
     
     // MARK: - Share Helper
+
+    private func copyJoinCode(_ joinCode: String) {
+        UIPasteboard.general.string = joinCode
+        HapticFeedbackManager.shared.selection()
+
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+            hasCopiedJoinCode = true
+        }
+
+        resetCopiedJoinCodeTask?.cancel()
+        resetCopiedJoinCodeTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                hasCopiedJoinCode = false
+            }
+        }
+    }
     
     private func shareText(for session: GameSession) -> String {
-        let bubbleInfo = session.bubble != nil ? "Game is configured and ready!" : "Waiting for host to configure game."
+        let bubbleInfo = session.bubble != nil ? "The game is configured and ready." : "The host is still setting up the game."
         return """
-        🎮 Join my Touch Grass game!
+        Join my Touch Grass \(session.gameType.rawValue) game.
         
         Game Code: \(session.joinCode)
         
         \(bubbleInfo)
         
-        Open Touch Grass and enter the code to join!
+        Open Touch Grass, choose \(session.gameType.rawValue), and enter this code to join.
         """
     }
     

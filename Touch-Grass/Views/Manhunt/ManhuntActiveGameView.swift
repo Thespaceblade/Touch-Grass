@@ -24,19 +24,43 @@ struct ManhuntActiveGameView: View {
     @State private var timerPulseScale: CGFloat = 1.0
     @State private var lastHapticThreshold: Int = -1
     @State private var lastBubbleRadius: Double?
-    @State private var zoneShrinkMessage: String?
-    @State private var zoneShrinkMessageTimer: Timer?
     @State private var currentTime: Date = Date()
+    @State private var lastPhaseNumber: Int = -1
+    @State private var lastWarningState: Bool = false
+    @State private var lastClosingState: Bool = false
+    
+    // Fortnite-style zone notification state
+    @State private var showZoneNotification: Bool = false
+    @State private var zoneNotificationTitle: String = ""
+    @State private var zoneNotificationCountdown: TimeInterval = 0
+    @State private var zoneNotificationIcon: String = ""
+    @State private var zoneNotificationColor: Color = .orange
+    @State private var zoneNotificationTimer: Timer?
     @State private var timer: Timer?
     @State private var errorMessage: String? = nil
     @State private var showErrorAlert: Bool = false
+    @State private var showHonorConfirm: Bool = false
     @StateObject private var obfuscationService = LocationObfuscationService()
+    @State private var showEliminationScreen: Bool = false
+    @State private var wasAlive: Bool = true
     
     var body: some View {
         let bubbleCenter = gameService.session?.bubble?.center
         let bubbleRadius = currentBubbleRadius
         
         ZStack {
+            // Elimination Screen (full screen overlay when player is eliminated)
+            if showEliminationScreen, let currentPlayer = gameService.currentPlayer, !currentPlayer.isAlive {
+                ManhuntEliminationView(
+                    onSpectate: {
+                        showEliminationScreen = false
+                    },
+                    eliminationReason: gameService.lastEliminationMessage
+                )
+                .transition(.opacity)
+                .zIndex(1000) // Ensure it's on top
+            }
+            
             // Debug: Ensure view is rendering
             Color.clear
                 .onAppear {
@@ -45,6 +69,16 @@ struct ManhuntActiveGameView: View {
                     print("   session exists: \(gameService.session != nil)")
                     print("   bubble exists: \(gameService.session?.bubble != nil)")
                     print("   location exists: \(locationService.coordinate != nil)")
+                    // Initialize wasAlive state
+                    wasAlive = gameService.currentPlayer?.isAlive ?? true
+                    
+                }
+                .onChange(of: gameService.currentPlayer?.isAlive) { oldValue, newValue in
+                    // Show elimination screen when player becomes eliminated
+                    if wasAlive && newValue == false {
+                        showEliminationScreen = true
+                    }
+                    wasAlive = newValue ?? true
                 }
             // Proximity warning overlay (screen flash when hunter very close)
             if gameService.proximityWarningLevel == .danger && gameService.shouldFlashScreen {
@@ -83,102 +117,86 @@ struct ManhuntActiveGameView: View {
                 teamASafeZone: nil,
                 teamBSafeZone: nil,
                 isPingActive: obfuscationService.isPingActive,
+                bubbleEpoch: obfuscationService.bubbleEpoch,
                 zoneRadius: bubbleRadius,
+                obfuscationService: obfuscationService,
                 mapType: $mapType,
                 showPlayerLabels: $showPlayerLabels,
                 zoomToBubbleTrigger: $zoomToBubbleTrigger,
-                centerOnPlayerTrigger: $centerOnPlayerTrigger
+                centerOnPlayerTrigger: $centerOnPlayerTrigger,
+                bubble: gameService.session?.bubble // Pass bubble for new zone system (must be last)
             )
             .ignoresSafeArea()
+            .onAppear { refreshObfuscationSnapshots() }
+            .onChange(of: obfuscationService.bubbleEpoch) { _, _ in refreshObfuscationSnapshots() }
+            .onChange(of: gameService.currentPlayer?.id) { _, _ in refreshObfuscationSnapshots() }
+            .onChange(of: gameService.currentPlayer?.role) { _, _ in refreshObfuscationSnapshots() }
+            .onChange(of: rosterObfuscationSignature) { _, _ in refreshObfuscationSnapshots() }
             
             // Game HUD Overlay - Using absolute positioning for fixed elements
             GeometryReader { geometry in
+                let topSecondRow = ActiveGameTopChromeMetrics.stripHeight(for: geometry.safeAreaInsets.top) + AppSpacing.sm
                 ZStack(alignment: .topLeading) {
-                    // Top HUD - Timer and Status (FIXED position, top-left, constrained width)
-                    topHUD
+                    VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                        ActiveGameStatusStrip(safeAreaTop: geometry.safeAreaInsets.top)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        HStack(alignment: .top, spacing: AppSpacing.sm) {
+                            topHUD
+                                .frame(maxWidth: geometry.size.width * 0.65, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            Spacer(minLength: 8)
+
+                            MapControlsView(
+                                mapType: $mapType,
+                                showPlayerLabels: $showPlayerLabels,
+                                onZoomToBubble: { zoomToBubbleTrigger = true },
+                                onCenterOnPlayer: { centerOnPlayerTrigger = true },
+                                bubbleExists: gameService.session?.bubble != nil,
+                                playerLocationExists: locationService.coordinate != nil,
+                                gameType: gameService.session?.gameType,
+                                onEndGame: { gameService.endGame() }
+                            )
+                        }
                         .padding(.leading, AppSpacing.md)
-                        .padding(.top, AppSpacing.md)
-                        .frame(maxWidth: geometry.size.width * 0.65) // Constrain to ~65% of screen width
-                        .fixedSize(horizontal: false, vertical: true)
-                
-                // Compass (middle-right) - only show when zone is small enough (later in game)
-                if shouldShowCompass {
+                        .padding(.trailing, AppSpacing.sm)
+                    }
+
+                // Compass region (middle-right). For predators (hunters)
+                // the new pulse ability is always available when alive in
+                // an active game; for prey (hiders) the passive nearest-
+                // threat compass stays zone-gated as before.
+                if shouldShowCompassOverlay {
                     HStack {
                         Spacer()
-                        compassView
+                        compassOverlayContent
                             .padding(.trailing, AppSpacing.md + 60) // Space for map icon
-                            .padding(.top, AppSpacing.md)
+                            .padding(.top, topSecondRow)
                     }
                 }
                 
-                // Map Controls (FIXED position, top-right corner, closer to edge)
-                HStack {
-                    Spacer()
-                    VStack(alignment: .trailing) {
-                        MapControlsView(
-                            mapType: $mapType,
-                            showPlayerLabels: $showPlayerLabels,
-                            onZoomToBubble: { zoomToBubbleTrigger = true },
-                            onCenterOnPlayer: { centerOnPlayerTrigger = true },
-                            bubbleExists: gameService.session?.bubble != nil,
-                            playerLocationExists: locationService.coordinate != nil
-                        )
-                    }
-                    .padding(.trailing, AppSpacing.sm) // Closer to right edge
-                    .padding(.top, AppSpacing.md)
-                }
-                
-                // Bottom Section - Stacked to prevent overlap
+                // Bottom Section - Only functional buttons (tag, end game)
                 VStack {
                     Spacer()
                     
-                    VStack(spacing: AppSpacing.sm) {
-                        // Bottom Panel - Zone info, Players (closer to bottom)
-                        HStack(alignment: .bottom, spacing: AppSpacing.sm) {
-                            // Zone Info (left side)
-                            if let bubble = gameService.session?.bubble {
-                                compactZoneInfoCard(bubble: bubble)
-                            }
-                            
-                            Spacer()
-                            
-                            // Players Count (right side)
-                            if let session = gameService.session {
-                                compactPlayersCard(session: session)
-                            }
-                        }
+                    bottomFunctionalButtons
                         .padding(.horizontal, AppSpacing.md)
-                        
-                        // Bottom Stats Panel (warnings, out of bounds, etc.) - BELOW zone info
-                        bottomStatsPanel
-                            .padding(.horizontal, AppSpacing.md)
-                    }
-                    .padding(.bottom, AppSpacing.md)
+                        .padding(.bottom, AppSpacing.md)
                 }
                 }
             }
             
-            // Toast Notifications
+            // Announcement Feed (bottom-leading)
             VStack {
-                if let eliminationMessage = gameService.lastEliminationMessage {
-                    toastView(message: eliminationMessage, type: .elimination)
-                        .transition(.move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.9)))
-                }
-                
-                if let catchMessage = gameService.lastCatchMessage {
-                    toastView(message: catchMessage, type: .playerCaught)
-                        .transition(.move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.9)))
-                }
-                
-                // Zone shrink notification
-                if let shrinkMessage = zoneShrinkMessage {
-                    toastView(message: shrinkMessage, type: .zoneShrink)
-                        .transition(.move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.9)))
+                Spacer()
+                HStack {
+                    GameAnnouncementOverlay(manager: gameService.announcementManager)
+                        .padding(.leading, AppSpacing.md)
+                        .padding(.bottom, AppSpacing.lg + 60)
+                    Spacer()
                 }
             }
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: gameService.lastEliminationMessage)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: gameService.lastCatchMessage)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: zoneShrinkMessage)
             
             // Network Error Banner
             if let networkError = gameService.networkError {
@@ -189,8 +207,21 @@ struct ManhuntActiveGameView: View {
                         .padding(.bottom, AppSpacing.lg)
                 }
             }
+            
+            // Tag rejection toast (e.g. wrong role, not close enough)
+            if let rejection = gameService.tagRequestRejectedMessage {
+                VStack {
+                    Spacer()
+                    tagRejectionBanner(message: rejection)
+                        .padding(.horizontal, AppSpacing.md)
+                        .padding(.bottom, AppSpacing.xl + 60)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                .animation(.spring(response: 0.35, dampingFraction: 0.85), value: gameService.tagRequestRejectedMessage)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .activeGameStatusBarHidden()
         // Note: allowsHitTesting removed - buttons need to be interactive!
         .alert("Error", isPresented: $showErrorAlert) {
             Button("OK") {
@@ -202,45 +233,81 @@ struct ManhuntActiveGameView: View {
             }
         }
         .onChange(of: currentBubbleRadius) { oldValue, newValue in
+            // Only detect zone shrink if shrinking is enabled
+            guard let bubble = gameService.session?.bubble, bubble.enableShrinking else {
+                lastBubbleRadius = newValue
+                return
+            }
+            
             // Detect zone shrink
             if let old = oldValue, let new = newValue, new < old && old > 0 {
                 let shrinkAmount = old - new
-                if shrinkAmount > 5 { // Only show if significant shrink (>5m)
+                if shrinkAmount > 5 {
                     let newRadius = Int(new)
-                    zoneShrinkMessage = "Zone shrinking! New radius: \(newRadius)m"
+                    gameService.announcementManager.post("Zone shrinking! New radius: \(newRadius)m", type: .zoneShrink)
                     HapticFeedbackManager.shared.selection()
-                    
-                    // Auto-dismiss after 3 seconds
-                    zoneShrinkMessageTimer?.invalidate()
-                    zoneShrinkMessageTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
-                        withAnimation {
-                            zoneShrinkMessage = nil
-                        }
-                    }
                 }
             }
             lastBubbleRadius = newValue
         }
+        .onChange(of: gameService.session?.bubble?.warningStartTime) { oldValue, newValue in
+            // Only show warning if shrinking is enabled
+            guard let bubble = gameService.session?.bubble, bubble.enableShrinking else { return }
+            
+            // Phase 5: Detect warning phase start
+            if newValue != nil && oldValue == nil {
+                gameService.announcementManager.post("Zone closes soon.", type: .warning)
+                HapticFeedbackManager.shared.warning()
+            }
+        }
+        .onChange(of: gameService.session?.bubble?.isClosing) { oldValue, newValue in
+            // Only show closing message if shrinking is enabled
+            guard let bubble = gameService.session?.bubble, bubble.enableShrinking else { return }
+            
+            // Phase 5: Detect closing phase start
+            if newValue == true && oldValue == false {
+                gameService.announcementManager.post("Zone closing.", type: .warning)
+                HapticFeedbackManager.shared.zoneShrink()
+            }
+        }
         .onAppear {
             lastBubbleRadius = currentBubbleRadius
+            startTimer()
+            startZoneNotificationTimer()
+        }
+        .onDisappear {
+            stopTimer()
+            stopZoneNotificationTimer()
+        }
+        .onChange(of: gameService.session?.bubble?.usesNewZoneSystem) { oldValue, newValue in
+            if newValue == true, let bubble = gameService.session?.bubble, bubble.enableShrinking {
+                startZoneNotificationTimer()
+            } else {
+                stopZoneNotificationTimer()
+            }
+        }
+        .onChange(of: gameService.session?.bubble?.enableShrinking) { oldValue, newValue in
+            // Stop zone notifications if shrinking is disabled
+            if newValue == false {
+                stopZoneNotificationTimer()
+                showZoneNotification = false
+            } else if newValue == true, let bubble = gameService.session?.bubble, bubble.usesNewZoneSystem {
+                // Start notifications if shrinking is enabled and zone system is active
+                startZoneNotificationTimer()
+            }
         }
         #if DEBUG
         .overlay(alignment: .topTrailing) {
-            if viewModel != nil {
+            if viewModel != nil, !ScreenshotScenario.isActive {
                 Button(action: {
                     HapticFeedbackManager.shared.selection()
                     showDebugTestPanel = true
                 }) {
                     Image(systemName: "testtube.2")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 16, weight: .black, design: .rounded))
                         .foregroundColor(.white)
-                        .frame(width: 32, height: 32)
-                        .background(
-                            Circle()
-                                .fill(AppColors.grassPrimary)
-                                .shadow(color: Color.black.opacity(0.25), radius: 3, x: 0, y: 2)
-                        )
                 }
+                .buttonStyle(IconButtonStyle(size: 34, color: AppColors.grassPrimary))
                 .padding(.top, 8)
                 .padding(.trailing, 12)
             }
@@ -253,56 +320,83 @@ struct ManhuntActiveGameView: View {
         #endif
     }
     
+    // MARK: - Obfuscation snapshots
+    //
+    // The obfuscation service owns opponent location snapshots. We need to
+    // refresh them on first load (so the map never falls back to live
+    // coordinates) and on every epoch change. We also refresh when the
+    // player roster or viewer identity changes so joiners are snapshotted
+    // on first sight.
+    private func refreshObfuscationSnapshots() {
+        guard let session = gameService.session,
+              let viewer = gameService.currentPlayer else { return }
+        obfuscationService.refreshSnapshots(
+            players: session.players,
+            viewerId: viewer.id,
+            viewerRole: viewer.role,
+            gameType: session.gameType
+        )
+    }
+    
+    /// Stable signature over the roster that flips when a player's id,
+    /// role, alive state, or flag flag changes. This catches in-place
+    /// session mutations (e.g. a hider being eliminated, a role swap on
+    /// game restart) that don't change the ordered id list and therefore
+    /// wouldn't fire `.onChange(of: players.map { $0.id })`.
+    private var rosterObfuscationSignature: [String] {
+        gameService.session?.players.map { "\($0.id)|\($0.role.rawValue)|\($0.isAlive ? 1 : 0)|\($0.isFlag ? 1 : 0)" }
+            ?? []
+    }
+    
     // MARK: - Top HUD
     
     private var topHUD: some View {
-        HStack(spacing: AppSpacing.sm) {
-            // Timer Display
-            timerDisplay
-            
-            // Role Badge (Manhunt: HUNTER or HIDER)
-            if let currentPlayer = gameService.currentPlayer, currentPlayer.isAlive {
-                let roleText = currentPlayer.role == .hunter ? "HUNTER" : "HIDER"
-                let roleColor = currentPlayer.role == .hunter ? AppColors.hunterPrimary : AppColors.hiderPrimary
-                let roleGradient = AppColors.roleGradient(for: currentPlayer.role)
+        VStack(alignment: .leading, spacing: 6) {
+            // Top row: Zone timer and Role badge
+            HStack(spacing: AppSpacing.sm) {
+                // Combined Zone Notification & Timer Display
+                combinedZoneTimerCard
+                    .layoutPriority(1)
                 
-                Text(roleText)
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(roleGradient)
-                            .shadow(color: roleColor.opacity(0.5), radius: 4, x: 0, y: 2)
-                    )
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.white.opacity(0.3), lineWidth: 1)
-                    )
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            } else {
-                // Fallback for eliminated players
-                Text("ELIMINATED")
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(AppColors.error)
-                    )
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+                // Role Badge (Manhunt: HUNTER or HIDER)
+                if let currentPlayer = gameService.currentPlayer, currentPlayer.isAlive {
+                    let roleText = currentPlayer.role == .hunter ? "HUNTER" : "HIDER"
+                    let roleColor = currentPlayer.role == .hunter ? AppColors.hunterPrimary : AppColors.hiderPrimary
+                    
+                    CartoonPill(text: roleText, color: roleColor)
+                        .layoutPriority(2)
+                } else {
+                    // Fallback for eliminated players
+                    CartoonPill(text: "ELIMINATED", color: AppColors.error)
+                        .layoutPriority(2)
+                }
+            }
+            
+            // Second row: Zone, safe-area, and player status in one compact line
+            HStack(spacing: AppSpacing.sm) {
+                // Zone Info (compact version)
+                if let bubble = gameService.session?.bubble {
+                    compactZoneInfoRow(bubble: bubble)
+                }
+                
+                if let bubble = gameService.session?.bubble, bubble.usesNewZoneSystem {
+                    if let distanceToSafe = distanceToSafeArea {
+                        let runtimeState = ZoneService.deriveRuntimeZoneState(for: bubble, now: currentTime)
+                        compactSafeAreaRow(distance: distanceToSafe, isClosing: runtimeState.phaseState == .closing)
+                    }
+                } else if gameService.isOutOfBounds || gameService.currentPlayer?.isAlive == false {
+                    compactOutOfBoundsRow()
+                }
+                
+                // Player Count (compact version)
+                if let session = gameService.session {
+                    compactPlayersRow(session: session)
+                }
             }
         }
         .padding(.horizontal, AppSpacing.md)
-        .padding(.vertical, AppSpacing.sm)
-        .background(.ultraThinMaterial)
-        .cornerRadius(12)
+        .padding(.vertical, 6)
+        .cartoonCard(cornerRadius: 14, shadowOffset: 4, borderWidth: 2)
         .onChange(of: currentBubbleRadius) { oldValue, newValue in
             // Trigger pulse animation when zone shrinks
             if let old = oldValue, let new = newValue, new < old {
@@ -315,182 +409,6 @@ struct ManhuntActiveGameView: View {
         }
     }
     
-    private var timerDisplay: some View {
-        Group {
-            if let bubble = gameService.session?.bubble {
-                let elapsed = currentTime.timeIntervalSince(bubble.startTime)
-                let remaining = max(0, bubble.duration - elapsed)
-                let progress = bubble.duration > 0 ? elapsed / bubble.duration : 0
-                
-                // Start timer when this view appears
-                let _ = {
-                    if timer == nil {
-                        startTimer()
-                    }
-                }()
-                
-                // Milestone markers (75%, 50%, 25%, 10%)
-                let milestones: [Double] = [0.75, 0.5, 0.25, 0.1]
-                let _ = milestones.last { progress >= $0 } ?? 0
-                
-                HStack(spacing: AppSpacing.sm) {
-                    // Circular progress indicator
-                    ZStack {
-                        // Background circle
-                        Circle()
-                            .stroke(AppColors.textSecondary.opacity(0.2), lineWidth: 4)
-                            .frame(width: 50, height: 50)
-                        
-                        // Progress circle
-                        Circle()
-                            .trim(from: 0, to: progress)
-                            .stroke(
-                                remaining < 60 ?
-                                LinearGradient(
-                                    colors: [
-                                        AppColors.hunterPrimary,
-                                        AppColors.hunterSecondary
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ) :
-                                LinearGradient(
-                                    colors: [
-                                        AppColors.textPrimary.opacity(0.6),
-                                        AppColors.textPrimary.opacity(0.4)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                style: StrokeStyle(lineWidth: 4, lineCap: .round)
-                            )
-                            .frame(width: 50, height: 50)
-                            .rotationEffect(.degrees(-90))
-                            .animation(.linear(duration: 1), value: progress)
-                        
-                        // Milestone indicator dots
-                        ForEach(milestones, id: \.self) { milestone in
-                            if progress >= milestone {
-                                Circle()
-                                    .fill(remaining < 60 ? AppColors.hunterPrimary : AppColors.textPrimary)
-                                    .frame(width: 6, height: 6)
-                                    .offset(
-                                        x: cos((milestone * 360 - 90) * .pi / 180) * 25,
-                                        y: sin((milestone * 360 - 90) * .pi / 180) * 25
-                                    )
-                            }
-                        }
-                        
-                        // Time text
-                        VStack(spacing: 0) {
-                            if remaining > 0 {
-                                Text(timeString(from: remaining))
-                                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                                    .foregroundStyle(
-                                        remaining < 60 ?
-                                        LinearGradient(
-                                            colors: [
-                                                AppColors.hunterPrimary,
-                                                AppColors.hunterSecondary
-                                            ],
-                                            startPoint: .leading,
-                                            endPoint: .trailing
-                                        ) :
-                                        LinearGradient(
-                                            colors: [Color.primary],
-                                            startPoint: .leading,
-                                            endPoint: .trailing
-                                        )
-                                    )
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.6)
-                                    .scaleEffect(timerPulseScale)
-                            } else {
-                                Text("UP")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(AppColors.hunterPrimary)
-                            }
-                        }
-                    }
-                    .frame(width: 50, height: 50)
-                    .onChange(of: remaining) { oldValue, newValue in
-                        let remainingInt = Int(newValue)
-                        // Haptic feedback at thresholds
-                        if remainingInt != lastHapticThreshold {
-                            if remainingInt == 60 || remainingInt == 30 || remainingInt == 10 {
-                                HapticFeedbackManager.shared.selection()
-                            }
-                            lastHapticThreshold = remainingInt
-                        }
-                        
-                        if newValue < 60 && newValue > 0 {
-                            withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
-                                timerPulseScale = 1.1
-                            }
-                        } else {
-                            withAnimation {
-                                timerPulseScale = 1.0
-                            }
-                        }
-                    }
-                    
-                    // Text display
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Time Remaining")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        
-                        if remaining > 0 {
-                            Text(timeString(from: remaining))
-                                .font(.title3)
-                                .fontWeight(.bold)
-                                .foregroundStyle(
-                                    remaining < 60 ?
-                                    LinearGradient(
-                                        colors: [
-                                            AppColors.hunterPrimary,
-                                            AppColors.hunterSecondary
-                                        ],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    ) :
-                                    LinearGradient(
-                                        colors: [Color.primary],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
-                        } else {
-                            Text("TIME UP")
-                                .font(.title3)
-                                .fontWeight(.bold)
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [
-                                            AppColors.hunterPrimary,
-                                            AppColors.hunterSecondary
-                                        ],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
-                                .symbolEffect(.pulse, options: .repeating)
-                        }
-                    }
-                }
-            }
-        }
-        .onAppear {
-            startTimer()
-        }
-        .onDisappear {
-            stopTimer()
-        }
-    }
     
     // MARK: - Timer Management
     
@@ -510,227 +428,15 @@ struct ManhuntActiveGameView: View {
         timer = nil
     }
     
-    // MARK: - Compact Zone Info Card
-    
     @State private var zoneShrinkPulse: Bool = false
     
-    private func compactZoneInfoCard(bubble: Bubble) -> some View {
-        let distance = gameService.distanceToEdge ?? 0
-        let isAlive = gameService.currentPlayer?.isAlive == true
-        let currentRadius = currentBubbleRadius ?? 0
-        let shrinkProgress = 1.0 - (currentRadius / bubble.startRadius)
-        
-        // Calculate time until next shrink (assuming shrinks every 3 minutes)
-        let elapsed = currentTime.timeIntervalSince(bubble.startTime)
-        let shrinkInterval: Double = 180 // 3 minutes
-        let timeUntilNextShrink = shrinkInterval - (elapsed.truncatingRemainder(dividingBy: shrinkInterval))
-        let nextShrinkProgress = 1.0 - (timeUntilNextShrink / shrinkInterval)
-        
-        return HStack(spacing: AppSpacing.sm) {
-            // Bubble Radius with shrink indicator
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 4) {
-                    Image(systemName: "circle.fill")
-                        .font(.system(size: 8))
-                        .foregroundColor(bubbleColor)
-                        .symbolEffect(.pulse, isActive: zoneShrinkPulse)
-                    Text("\(Int(currentRadius))m")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(AppColors.textPrimary)
-                    
-                    // Time until next shrink
-                    if timeUntilNextShrink < 60 && timeUntilNextShrink > 0 {
-                        Text("• \(Int(timeUntilNextShrink))s")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(AppColors.hunterPrimary)
-                    }
-                }
-                
-                // Overall shrink progress bar
-                GeometryReader { geometry in
-                    let progressColors = [AppColors.hunterPrimary, AppColors.hunterSecondary]
-                    
-                    return ZStack(alignment: .leading) {
-                        // Background
-                        Rectangle()
-                            .fill(AppColors.textSecondary.opacity(0.2))
-                            .frame(height: 3)
-                        
-                        // Overall progress
-                        Rectangle()
-                            .fill(
-                                LinearGradient(
-                                    colors: progressColors,
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                            .frame(width: geometry.size.width * shrinkProgress, height: 3)
-                        
-                        // Next shrink indicator (pulsing dot)
-                        if timeUntilNextShrink < 60 {
-                            Circle()
-                                .fill(AppColors.hunterPrimary)
-                                .frame(width: 6, height: 6)
-                                .offset(x: geometry.size.width * nextShrinkProgress - 3)
-                                .shadow(color: AppColors.hunterPrimary.opacity(0.8), radius: 4)
-                                .symbolEffect(.pulse, options: .repeating)
-                        }
-                    }
-                }
-                .frame(height: 3)
-            }
-            
-            // Divider
-            if isAlive {
-                Rectangle()
-                    .fill(AppColors.textSecondary.opacity(0.3))
-                    .frame(width: 1, height: 16)
-            }
-            
-            // Distance to Edge (only if alive)
-            if isAlive {
-                let distanceFromEdge = abs(distance) // Always show positive distance from edge
-                let isOutside = distance > 0
-                HStack(spacing: 4) {
-                    Image(systemName: isOutside ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                        .font(.system(size: 8))
-                        .foregroundColor(isOutside ? AppColors.error : AppColors.success)
-                    Text("\(Int(distanceFromEdge))m")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(isOutside ? AppColors.error : AppColors.success)
-                }
-            }
-        }
-        .padding(.horizontal, AppSpacing.sm)
-        .padding(.vertical, AppSpacing.xs)
-        .background(
-            Capsule()
-                .fill(.ultraThinMaterial)
-                .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
-        )
-        .onChange(of: currentBubbleRadius) { oldValue, newValue in
-            // Trigger pulse animation when zone shrinks
-            if let old = oldValue, let new = newValue, new < old {
-                zoneShrinkPulse = true
-                HapticFeedbackManager.shared.selection()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    zoneShrinkPulse = false
-                }
-            }
-        }
-    }
     
-    // MARK: - Compact Players Card
     
-    private func compactPlayersCard(session: GameSession) -> some View {
-        let alivePlayers = session.players.filter { $0.isAlive }
-        let hunters = alivePlayers.filter { $0.role == .hunter }
-        let hiders = alivePlayers.filter { $0.role == .hider }
-        let eliminated = session.players.filter { !$0.isAlive }
-        
-        return HStack(spacing: AppSpacing.xs) {
-            // Total count
-            HStack(spacing: 4) {
-                Image(systemName: "person.2.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(AppColors.textPrimary)
-                Text("\(alivePlayers.count)/\(session.players.count)")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(AppColors.textPrimary)
-            }
-            
-            // Role breakdown: Show hunters and hiders
-            if !hunters.isEmpty && !hiders.isEmpty {
-                HStack(spacing: 6) {
-                    // Hunters
-                    HStack(spacing: 2) {
-                        Circle()
-                            .fill(AppColors.hunterPrimary)
-                            .frame(width: 6, height: 6)
-                        Text("\(hunters.count)")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(AppColors.hunterPrimary)
-                    }
-                    
-                    // Hiders
-                    HStack(spacing: 2) {
-                        Circle()
-                            .fill(AppColors.hiderPrimary)
-                            .frame(width: 6, height: 6)
-                        Text("\(hiders.count)")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(AppColors.hiderPrimary)
-                    }
-                }
-            }
-            
-            // Eliminated count (if any)
-            if !eliminated.isEmpty {
-                HStack(spacing: 2) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(AppColors.error.opacity(0.7))
-                    Text("\(eliminated.count)")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(AppColors.error.opacity(0.7))
-                }
-            }
-        }
-        .padding(.horizontal, AppSpacing.sm)
-        .padding(.vertical, AppSpacing.xs)
-        .background(
-            Capsule()
-                .fill(.ultraThinMaterial)
-                .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
-        )
-    }
-    
-    // MARK: - Bottom Stats Panel
-    
-    private var bottomStatsPanel: some View {
-        VStack(spacing: 12) {
-            // Tag Button (for hunters when BLE connection established with a hider)
-            if let currentPlayer = gameService.currentPlayer,
-               currentPlayer.role == .hunter,
-               currentPlayer.isAlive,
-               let taggablePlayerId = gameService.canTagPlayerId,
-               let taggablePlayer = gameService.session?.players.first(where: { $0.id == taggablePlayerId }),
-               taggablePlayer.role == .hider,
-               taggablePlayer.isAlive {
-                tagButton(player: taggablePlayer)
-            }
-            
-            // Tag Request Alert (for hiders)
-            if let tagRequest = gameService.pendingTagRequest {
-                tagRequestAlert(request: tagRequest)
-            }
-            
-            // Distance Indicators
-            distanceIndicators
-            
-            // Out of Bounds Indicator
-            if gameService.isOutOfBounds || gameService.currentPlayer?.isAlive == false {
-                outOfBoundsCard
-            }
-            
-            // Warning Banner
-            if gameService.warningLevel != .none {
-                warningBanner
-            }
-            
-            // End Game Button
-            endGameButton
-        }
-    }
     
     // MARK: - Tag Button
     
     private func tagButton(player: Player) -> some View {
         let buttonText = "Tag \(player.displayName)"
-        let buttonColors = [AppColors.hunterPrimary, AppColors.hunterSecondary]
-        let shadowColor = AppColors.hunterPrimary
-        
         return Button(action: {
             // Verify conditions before tagging
             guard let currentPlayer = gameService.currentPlayer else {
@@ -775,23 +481,9 @@ struct ManhuntActiveGameView: View {
                 Image(systemName: "hand.tap.fill")
                     .font(.title3)
                 Text(buttonText)
-                    .font(AppTypography.labelLarge())
-                    .fontWeight(.bold)
             }
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .padding()
-            .background(
-                LinearGradient(
-                    colors: buttonColors,
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
-            .cornerRadius(16)
-            .shadow(color: shadowColor.opacity(0.4), radius: 12, x: 0, y: 6)
         }
-        .buttonStyle(ScaleButtonStyle())
+        .buttonStyle(CartoonButtonStyle(accent: AppColors.hunterPrimary))
     }
     
     // MARK: - Tag Request Alert
@@ -802,8 +494,8 @@ struct ManhuntActiveGameView: View {
         
         return VStack(spacing: AppSpacing.sm) {
             Text(alertText)
-                .font(AppTypography.labelLarge())
-                .fontWeight(.semibold)
+                .font(.system(size: 17, weight: .black, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk)
                 .multilineTextAlignment(.center)
             
             HStack(spacing: AppSpacing.md) {
@@ -811,78 +503,36 @@ struct ManhuntActiveGameView: View {
                     gameService.rejectTag()
                 }) {
                     Text("Reject")
-                        .font(AppTypography.labelMedium())
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.red)
-                        .cornerRadius(12)
                 }
+                .buttonStyle(CartoonButtonStyle(accent: AppColors.error, cornerRadius: 14))
                 
                 Button(action: {
                     gameService.confirmTag(playerId: request.fromPlayerId)
                 }) {
                     Text("Confirm")
-                        .font(AppTypography.labelMedium())
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(alertColor)
-                        .cornerRadius(12)
                 }
+                .buttonStyle(CartoonButtonStyle(accent: alertColor, cornerRadius: 14))
             }
         }
         .padding()
-        .background(.ultraThinMaterial)
-        .cornerRadius(16)
-        .shadow(color: Color.black.opacity(0.3), radius: 20, x: 0, y: 10)
+        .cartoonCard(cornerRadius: 18)
     }
     
-    // MARK: - Distance Indicators
-    
-    private var distanceIndicators: some View {
-        return Group {
-            if let currentPlayer = gameService.currentPlayer, currentPlayer.isAlive {
-                // Manhunt: Hiders see nearest hunter, Hunters see nearest hider
-                if currentPlayer.role == .hider, let distance = gameService.nearestHunterDistance {
-                    distanceIndicator(
-                        label: "Nearest Hunter",
-                        distance: distance,
-                        isDanger: distance < 20
-                    )
-                } else if currentPlayer.role == .hunter, let distance = gameService.nearestHiderDistance {
-                    distanceIndicator(
-                        label: "Nearest Hider",
-                        distance: distance,
-                        isDanger: false
-                    )
-                }
-            }
-        }
-    }
     
     private func distanceIndicator(label: String, distance: Double, isDanger: Bool) -> some View {
         HStack {
             Image(systemName: isDanger ? "exclamationmark.triangle.fill" : "location.fill")
                 .foregroundColor(proximityColor(for: distance))
             Text(label)
-                .font(AppTypography.bodySmall())
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk)
             Spacer()
             Text("\(Int(distance))m")
-                .font(AppTypography.labelMedium())
-                .fontWeight(.bold)
+                .font(.system(size: 14, weight: .black, design: .rounded))
                 .foregroundColor(proximityColor(for: distance))
         }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(proximityColor(for: distance).opacity(0.1))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(proximityColor(for: distance), lineWidth: 2)
-                )
-        )
+        .cartoonCard(cornerRadius: 14, shadowOffset: 4, borderWidth: 2)
     }
     
     private func proximityColor(for distance: Double) -> Color {
@@ -897,95 +547,91 @@ struct ManhuntActiveGameView: View {
         }
     }
     
-    private func playersStatusCard(session: GameSession) -> some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            HStack {
-                Image(systemName: "person.2.fill")
-                Text("Players")
-                    .font(AppTypography.labelMedium())
-                Spacer()
-                Text("\(session.players.filter { $0.isAlive }.count)/\(session.players.count)")
-                    .font(AppTypography.labelLarge())
-                    .fontWeight(.bold)
+    // MARK: - Phase 5: New Zone System Feedback
+    
+    // Phase 5: Combined Zone Status and Safe Area Indicator
+    private func combinedZoneIndicator(bubble: Bubble) -> some View {
+        let runtimeState = ZoneService.deriveRuntimeZoneState(for: bubble, now: currentTime)
+        let phaseName: String = {
+            if runtimeState.phaseState == .rotation {
+                return "Rotation"
+            } else if runtimeState.phaseState == .closing {
+                return "Closing"
+            } else if runtimeState.phaseState == .openingGrace {
+                return "Opening"
+            } else {
+                return "Active"
+            }
+        }()
+        
+        let distanceToSafe = distanceToSafeArea
+        let distanceFromEdge = distanceToSafe.map { abs($0) } ?? nil
+        let isInside = distanceToSafe.map { $0 < 0 } ?? false
+        let primaryColor = runtimeState.phaseState == .closing ? AppColors.error : AppColors.hunterPrimary
+        let safeAreaColor = isInside ? AppColors.success : (distanceFromEdge.map { $0 < 50 ? AppColors.error : primaryColor } ?? primaryColor)
+        
+        return HStack(spacing: 12) {
+            // Phase indicator
+            HStack(spacing: 6) {
+                Image(systemName: runtimeState.phaseState == .closing ? "arrow.triangle.2.circlepath" : "circle.fill")
+                    .font(.system(size: 14, weight: .black, design: .rounded))
+                    .foregroundColor(primaryColor)
+                Text(phaseName)
+                    .font(.system(size: 14, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
             }
             
-            // Show eliminated count if any
-            if session.players.contains(where: { !$0.isAlive }) {
-                HStack {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(AppColors.error)
-                        .font(.caption)
-                    Text("\(session.players.filter { !$0.isAlive }.count) eliminated")
-                        .font(AppTypography.caption())
-                        .foregroundColor(AppColors.textSecondary)
-                }
-            }
+            // Divider
+            Rectangle()
+                .fill(AppColors.cartoonInk.opacity(0.22))
+                .frame(width: 2)
             
-            // Show caught count if any (for hunters)
-            if let currentPlayer = gameService.currentPlayer,
-               currentPlayer.role == .hunter,
-               !gameService.caughtPlayers.isEmpty {
-                HStack {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(AppColors.success)
-                        .font(.caption)
-                    Text("\(gameService.caughtPlayers.count) caught")
-                        .font(AppTypography.caption())
-                        .foregroundColor(AppColors.textSecondary)
+            // Safe Area distance
+            HStack(spacing: 6) {
+                Image(systemName: isInside ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(.system(size: 14, weight: .black, design: .rounded))
+                    .foregroundColor(safeAreaColor)
+                if let distance = distanceFromEdge {
+                    Text(isInside ? "Inside" : "\(Int(distance))m")
+                        .font(.system(size: 14, weight: .black, design: .rounded))
+                        .foregroundColor(safeAreaColor)
+                } else {
+                    Text("—")
+                        .font(.system(size: 14, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk.opacity(0.55))
                 }
             }
         }
         .padding()
-        .frame(maxWidth: .infinity)
-        .background(.ultraThinMaterial)
-        .cornerRadius(12)
+        .cartoonCard(cornerRadius: 14, shadowOffset: 4, borderWidth: 2)
     }
     
-    private var warningBanner: some View {
-        HStack {
-            Image(systemName: warningIcon)
-                .foregroundColor(warningColor)
-            Text(warningText)
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundColor(warningColor)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
-        }
-        .padding()
-        .frame(maxWidth: .infinity)
-        .background(warningColor.opacity(0.2))
-        .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(warningColor, lineWidth: 2)
-        )
-    }
+    
+    
     
     private var outOfBoundsCard: some View {
         HStack {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundColor(.white)
             Text(gameService.currentPlayer?.isAlive == false ? "ELIMINATED" : "OUT OF BOUNDS")
-                .font(AppTypography.labelLarge())
-                .fontWeight(.bold)
+                .font(.system(size: 16, weight: .black, design: .rounded))
+                .tracking(0.5)
                 .foregroundColor(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
         .padding()
         .frame(maxWidth: .infinity)
-        .background(
-            LinearGradient(
-                colors: [AppColors.error, AppColors.error.opacity(0.8)],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        )
-        .cornerRadius(12)
+        .background(AppColors.error)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.white.opacity(0.3), lineWidth: 2)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(AppColors.cartoonInk, lineWidth: 2)
+        )
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(white: 0.18))
+                .offset(x: 4, y: 4)
         )
     }
     
@@ -1024,14 +670,8 @@ struct ManhuntActiveGameView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
-            .font(.headline)
-            .foregroundColor(.white)
-            .padding(.horizontal, AppSpacing.md)
-            .padding(.vertical, AppSpacing.md)
-            .frame(maxWidth: .infinity)
-            .background(Color.red)
-            .cornerRadius(12)
         }
+        .buttonStyle(CartoonButtonStyle(accent: AppColors.error))
     }
     
     // MARK: - Computed Properties
@@ -1041,7 +681,40 @@ struct ManhuntActiveGameView: View {
     }
     
     private var currentBubbleRadius: Double? {
-        gameService.session?.bubble?.currentRadius(at: currentTime)
+        guard let bubble = gameService.session?.bubble else { return nil }
+        if bubble.usesNewZoneSystem {
+            return ZoneService.deriveRuntimeZoneState(for: bubble, now: currentTime).currentActiveZone.radiusMeters
+        } else {
+            return bubble.currentRadius(at: currentTime)
+        }
+    }
+    
+    // Phase 5: Distance to Safe Area (for new zone system)
+    private var distanceToSafeArea: Double? {
+        guard let bubble = gameService.session?.bubble,
+              bubble.usesNewZoneSystem,
+              let playerCoord = locationService.coordinate else {
+            return nil
+        }
+        
+        let runtimeState = ZoneService.deriveRuntimeZoneState(for: bubble, now: currentTime)
+        return runtimeState.distanceToEdge(from: playerCoord)
+    }
+    
+    // Phase 5: Boundary Speed (for new zone system)
+    private var boundarySpeed: Double? {
+        guard let bubble = gameService.session?.bubble,
+              bubble.usesNewZoneSystem,
+              bubble.isClosing || bubble.isContinuousMode else {
+            return nil
+        }
+        
+        // Get speed from current phase or bubble
+        if let lastPhase = bubble.phaseHistory.last,
+           lastPhase.phaseNumber == bubble.currentPhaseNumber {
+            return lastPhase.closingSpeed
+        }
+        return bubble.closingSpeed > 0 ? bubble.closingSpeed : nil
     }
     
     private var warningIcon: String {
@@ -1064,142 +737,296 @@ struct ManhuntActiveGameView: View {
     
     private var warningText: String {
         switch gameService.warningLevel {
-        case .danger: return "⚠️ DANGER - Near Edge!"
-        case .warning: return "⚠️ Warning - Getting Close"
-        case .safe: return "✓ Safe Distance"
+        case .danger: return "DANGER - Near Edge!"
+        case .warning: return "Warning - Getting Close"
+        case .safe: return "Safe Distance"
         case .none: return ""
         }
     }
     
-    // MARK: - Toast Notifications
-    
-    enum ToastType {
-        case elimination
-        case playerCaught
-        case zoneShrink
-        
-        var color: Color {
-            switch self {
-            case .elimination: return AppColors.error
-            case .playerCaught: return AppColors.success
-            case .zoneShrink: return AppColors.hunterPrimary
-            }
-        }
-        
-        var icon: String {
-            switch self {
-            case .elimination: return "xmark.circle.fill"
-            case .playerCaught: return "checkmark.circle.fill"
-            case .zoneShrink: return "circle.grid.cross.fill"
-            }
-        }
-    }
-    
-    private func toastView(message: String, type: ToastType) -> some View {
-        let hunterGradient = LinearGradient(
-            colors: [
-                AppColors.hunterPrimary,
-                AppColors.hunterSecondary
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-        
-        let successGradient = LinearGradient(
-            colors: [
-                AppColors.success,
-                AppColors.success.opacity(0.8)
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-        
-        let zoneShrinkGradient = LinearGradient(
-            colors: [
-                AppColors.hunterPrimary,
-                AppColors.hunterSecondary
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-        
-        let backgroundGradient: LinearGradient = {
-            switch type {
-            case .elimination: return hunterGradient
-            case .playerCaught: return successGradient
-            case .zoneShrink: return zoneShrinkGradient
-            }
-        }()
-        
-        let shadowColor: Color = {
-            switch type {
-            case .elimination: return AppColors.hunterPrimary
-            case .playerCaught: return AppColors.success
-            case .zoneShrink: return AppColors.hunterPrimary
-            }
-        }()
-        
-        return HStack(spacing: AppSpacing.sm) {
-            Image(systemName: type.icon)
-                .foregroundColor(.white)
-                .font(.title3)
-                .symbolEffect(.pulse, options: type == .zoneShrink ? .repeating : .default)
-            Text(message)
-                .font(AppTypography.labelMedium())
-                .fontWeight(.semibold)
-                .foregroundColor(.white)
-        }
-        .padding(.horizontal, AppSpacing.md)
-        .padding(.vertical, AppSpacing.sm)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(backgroundGradient)
-                .shadow(color: shadowColor.opacity(0.5), radius: 12, x: 0, y: 6)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-        )
-        .padding(.horizontal, AppSpacing.md)
-        .padding(.top, AppSpacing.lg)
-        .transition(.move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.9)))
-    }
-    
     // MARK: - Compass
-    
-    private var shouldShowCompass: Bool {
-        // Show compass when zone is small enough (less than 30% of start radius)
-        // This makes it appear "later in the game" as requested
+
+    /// True if the compass region should render anything — either the
+    /// hunter's pulse ability or the hider's zone-gated passive compass.
+    private var shouldShowCompassOverlay: Bool {
+        gameService.canShowCompassAbility || shouldShowPreyPassiveCompass
+    }
+
+    /// Hider-only passive nearest-hunter compass. Zone-gated to "later in
+    /// the game" so it doesn't dominate the early UI.
+    private var shouldShowPreyPassiveCompass: Bool {
+        guard let player = gameService.currentPlayer, player.isAlive,
+              player.role == .hider else {
+            return false
+        }
         guard let bubble = gameService.session?.bubble,
               let currentRadius = currentBubbleRadius else { return false }
-        
         let shrinkRatio = currentRadius / bubble.startRadius
-        return shrinkRatio < 0.3 // Show when zone is less than 30% of original size
+        return shrinkRatio < 0.3
+    }
+
+    @ViewBuilder
+    private var compassOverlayContent: some View {
+        if gameService.canShowCompassAbility, let skin = PulseSkin(gameType: .manhunt) {
+            let pulseCommit = gameService.compassPulseLastResult.flatMap { result -> CompassPulseCommit? in
+                if case .success(let commit) = result { return commit }
+                return nil
+            }
+            PredatorPulseControl(
+                skin: skin,
+                cooldownRemaining: gameService.compassCooldownRemaining(),
+                cooldownTotal: gameService.compassCooldownTotal(),
+                inFlight: gameService.compassPulseInFlight,
+                hasEligiblePrey: gameService.compassHasEligiblePrey,
+                lastResult: gameService.compassPulseLastResult,
+                resultBearing: pulseCommit.flatMap { gameService.compassBearing(for: $0) },
+                onTap: { Task { await gameService.requestCompassPulse() } }
+            )
+        } else if shouldShowPreyPassiveCompass,
+                  let direction = gameService.nearestHunterDirection,
+                  let distance = gameService.nearestHunterDistance {
+            CompassView(
+                direction: direction,
+                distance: distance,
+                threatType: .hunter,
+                isVisible: true
+            )
+        }
     }
     
-    private var compassView: some View {
-        Group {
-            if let currentPlayer = gameService.currentPlayer, currentPlayer.isAlive {
-                if currentPlayer.role == .hider,
-                   let direction = gameService.nearestHunterDirection,
-                   let distance = gameService.nearestHunterDistance {
-                    CompassView(
-                        direction: direction,
-                        distance: distance,
-                        threatType: .hunter,
-                        isVisible: true
-                    )
-                } else if currentPlayer.role == .hunter,
-                          let direction = gameService.nearestHiderDirection,
-                          let distance = gameService.nearestHiderDistance {
-                    CompassView(
-                        direction: direction,
-                        distance: distance,
-                        threatType: .hider,
-                        isVisible: true
-                    )
+    // MARK: - Compact Top HUD Rows
+    
+    private func compactZoneInfoRow(bubble: Bubble) -> some View {
+        let distance = gameService.distanceToEdge ?? 0
+        let isAlive = gameService.currentPlayer?.isAlive == true
+        
+        if bubble.usesNewZoneSystem {
+            let runtimeState = ZoneService.deriveRuntimeZoneState(for: bubble, now: currentTime)
+            let currentRadius = runtimeState.currentActiveZone.radiusMeters
+            let distanceFromEdge = abs(distance)
+            let isOutside = distance > 0
+            
+            return HStack(spacing: 6) {
+                Image(systemName: runtimeState.phaseState == .closing ? "arrow.triangle.2.circlepath" : "circle.fill")
+                    .font(.system(size: 10, weight: .black, design: .rounded))
+                    .foregroundColor(bubbleColor)
+                Text("\(Int(currentRadius))m")
+                    .font(.system(size: 11, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
+                
+                if isAlive {
+                    Text("•")
+                        .font(.system(size: 10, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk.opacity(0.5))
+                    Image(systemName: isOutside ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                        .font(.system(size: 10, weight: .black, design: .rounded))
+                        .foregroundColor(isOutside ? AppColors.error : AppColors.success)
+                    Text("\(Int(distanceFromEdge))m")
+                        .font(.system(size: 11, weight: .black, design: .rounded))
+                        .foregroundColor(isOutside ? AppColors.error : AppColors.success)
                 }
             }
+        } else {
+            // Legacy system
+            let currentRadius = currentBubbleRadius ?? 0
+            let distanceFromEdge = abs(distance)
+            let isOutside = distance > 0
+            
+            return HStack(spacing: 6) {
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 10, weight: .black, design: .rounded))
+                    .foregroundColor(bubbleColor)
+                Text("\(Int(currentRadius))m")
+                    .font(.system(size: 11, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
+                
+                if isAlive {
+                    Text("•")
+                        .font(.system(size: 10, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk.opacity(0.5))
+                    Image(systemName: isOutside ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                        .font(.system(size: 10, weight: .black, design: .rounded))
+                        .foregroundColor(isOutside ? AppColors.error : AppColors.success)
+                    Text("\(Int(distanceFromEdge))m")
+                        .font(.system(size: 11, weight: .black, design: .rounded))
+                        .foregroundColor(isOutside ? AppColors.error : AppColors.success)
+                }
+            }
+        }
+    }
+    
+    private func compactPlayersRow(session: GameSession) -> some View {
+        let alivePlayers = session.players.filter { $0.isAlive }
+        let hunters = alivePlayers.filter { $0.role == .hunter }
+        let hiders = alivePlayers.filter { $0.role == .hider }
+        
+        return HStack(spacing: 6) {
+            Image(systemName: "person.2.fill")
+                .font(.system(size: 10, weight: .black, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk)
+            Text("\(alivePlayers.count)/\(session.players.count)")
+                .font(.system(size: 11, weight: .black, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk)
+            
+            if !hunters.isEmpty && !hiders.isEmpty {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(AppColors.hunterPrimary)
+                        .frame(width: 4, height: 4)
+                    Text("\(hunters.count)")
+                        .font(.system(size: 10, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.hunterPrimary)
+                    
+                    Circle()
+                        .fill(AppColors.hiderPrimary)
+                        .frame(width: 4, height: 4)
+                    Text("\(hiders.count)")
+                        .font(.system(size: 10, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.hiderPrimary)
+                }
+            }
+        }
+    }
+    
+    private func compactSafeAreaRow(distance: Double, isClosing: Bool) -> some View {
+        let distanceFromEdge = abs(distance)
+        let isInside = distance < 0
+        let primaryColor = isClosing ? AppColors.error : AppColors.hunterPrimary
+        let safeAreaColor = isInside ? AppColors.success : (distanceFromEdge < 50 ? AppColors.error : primaryColor)
+        
+        return HStack(spacing: 6) {
+            Image(systemName: isInside ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .font(.system(size: 10, weight: .black, design: .rounded))
+                .foregroundColor(safeAreaColor)
+            Text(isInside ? "Inside" : "\(Int(distanceFromEdge))m to safe")
+                .font(.system(size: 11, weight: .black, design: .rounded))
+                .foregroundColor(safeAreaColor)
+        }
+    }
+    
+    private func compactOutOfBoundsRow() -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10, weight: .black, design: .rounded))
+                .foregroundColor(AppColors.error)
+            Text(gameService.currentPlayer?.isAlive == false ? "ELIMINATED" : "OUT OF BOUNDS")
+                .font(.system(size: 11, weight: .black, design: .rounded))
+                .foregroundColor(AppColors.error)
+        }
+    }
+    
+    private var bottomFunctionalButtons: some View {
+        VStack(spacing: 12) {
+            // Tag Button (for hunters when BLE connection established with a hider)
+            if let currentPlayer = gameService.currentPlayer,
+               currentPlayer.role == .hunter,
+               currentPlayer.isAlive,
+               let taggablePlayerId = gameService.canTagPlayerId,
+               let taggablePlayer = gameService.session?.players.first(where: { $0.id == taggablePlayerId }),
+               taggablePlayer.role == .hider,
+               taggablePlayer.isAlive {
+                tagButton(player: taggablePlayer)
+            }
+            
+            // Honor self-tag (for alive hiders when BLE isn't an option)
+            if let currentPlayer = gameService.currentPlayer,
+               currentPlayer.role == .hider,
+               currentPlayer.isAlive {
+                honorSelfTagButton
+            }
+            
+            // Tag Request Alert (for hiders)
+            if let tagRequest = gameService.pendingTagRequest {
+                tagRequestAlert(request: tagRequest)
+            }
+        }
+        .alert("Confirm tag", isPresented: $showHonorConfirm) {
+            Button("Cancel", role: .cancel) { }
+            Button("I got tagged", role: .destructive) {
+                gameService.honorReportTagged()
+            }
+        } message: {
+            Text("This will remove you from the game. You can't undo this.")
+        }
+    }
+    
+    private var honorSelfTagButton: some View {
+        Button(action: {
+            HapticFeedbackManager.shared.selection()
+            showHonorConfirm = true
+        }) {
+            HStack(spacing: AppSpacing.sm) {
+                Image(systemName: "hand.raised.fill")
+                    .font(.title3)
+                Text("I got tagged")
+            }
+        }
+        .buttonStyle(CartoonButtonStyle(accent: AppColors.hiderPrimary))
+    }
+    
+    // MARK: - Combined Zone Timer Card
+    
+    private var combinedZoneTimerCard: some View {
+        Group {
+            if gameService.gameState == .active,
+               let bubble = gameService.session?.bubble,
+               bubble.usesNewZoneSystem,
+               bubble.enableShrinking,
+               showZoneNotification {
+                // Show zone notification with countdown timer (time until next stage)
+                HStack(spacing: 12) {
+                    Image(systemName: zoneNotificationIcon)
+                        .font(.system(size: 15, weight: .black, design: .rounded))
+                        .foregroundColor(zoneNotificationColor)
+                    
+                    Text(zoneNotificationTitle)
+                        .font(.system(size: 12, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                    
+                    Text(formatCountdown(zoneNotificationCountdown))
+                        .font(.system(size: 15, weight: .bold, design: .monospaced))
+                        .foregroundColor(zoneNotificationColor)
+                        .lineLimit(1)
+                    
+                    Spacer()
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+            } else if gameService.gameState == .active,
+                      let bubble = gameService.session?.bubble,
+                      bubble.showTimer {
+                // Fallback: Show regular game timer if zone system not active or timer enabled
+                let elapsed = currentTime.timeIntervalSince(bubble.startTime)
+                let remaining = max(0, bubble.duration - elapsed)
+                
+                HStack(spacing: 8) {
+                    Image(systemName: "clock.fill")
+                        .font(.system(size: 14, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk)
+                    
+                    Text(timeString(from: remaining))
+                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                        .foregroundColor(remaining < 60 ? AppColors.hunterPrimary : AppColors.cartoonInk)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+            } else {
+                EmptyView()
+            }
+        }
+    }
+    
+    private func formatCountdown(_ seconds: TimeInterval) -> String {
+        let totalSeconds = Int(seconds)
+        let minutes = totalSeconds / 60
+        let secs = totalSeconds % 60
+        
+        if minutes > 0 {
+            return String(format: "%d:%02d", minutes, secs)
+        } else {
+            return String(format: "%d", secs)
         }
     }
     
@@ -1213,148 +1040,121 @@ struct ManhuntActiveGameView: View {
     
     // MARK: - Network Error Banner
     
+    private func tagRejectionBanner(message: String) -> some View {
+        HStack(spacing: AppSpacing.sm) {
+            Image(systemName: "hand.raised.slash.fill")
+                .font(.system(size: 16, weight: .black, design: .rounded))
+                .foregroundColor(.white)
+                .frame(width: 32, height: 32)
+                .background(AppColors.warning)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(AppColors.cartoonInk, lineWidth: 2))
+            
+            Text(message)
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk)
+                .lineLimit(2)
+            
+            Spacer()
+        }
+        .padding()
+        .cartoonCard(cornerRadius: 14, shadowOffset: 4, borderWidth: 2)
+    }
+    
     private func networkErrorBanner(message: String) -> some View {
         HStack(spacing: AppSpacing.sm) {
             Image(systemName: "wifi.slash")
-                .font(.title3)
-                .foregroundColor(.orange)
+                .font(.system(size: 16, weight: .black, design: .rounded))
+                .foregroundColor(.white)
+                .frame(width: 32, height: 32)
+                .background(AppColors.warning)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(AppColors.cartoonInk, lineWidth: 2))
             
             VStack(alignment: .leading, spacing: 4) {
                 Text("Connection Issue")
-                    .font(AppTypography.labelLarge())
-                    .fontWeight(.bold)
-                    .foregroundColor(.orange)
+                    .font(.system(size: 16, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
                 Text(message)
-                    .font(AppTypography.bodySmall())
-                    .foregroundColor(AppColors.textSecondary)
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk.opacity(0.68))
             }
             
             Spacer()
         }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.orange.opacity(0.15))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.orange, lineWidth: 2)
-                )
-        )
-        .shadow(color: Color.orange.opacity(0.3), radius: 8, x: 0, y: 4)
+        .cartoonCard(cornerRadius: 14, shadowOffset: 4, borderWidth: 2)
     }
     
-    // MARK: - Proximity Warning Banner
     
-    @State private var proximityPulseScale: CGFloat = 1.0
+    // MARK: - Zone Notification Timer
     
-    private func proximityWarningBanner(distance: Double, level: GameService.ProximityWarningLevel) -> some View {
-        let (color, icon, message) = proximityWarningContent(distance: distance, level: level)
+    private func startZoneNotificationTimer() {
+        stopZoneNotificationTimer() // Stop any existing timer
         
-        // Use HunterTag green gradient for danger levels
-        let hunterGradient = LinearGradient(
-            colors: [
-                AppColors.hunterPrimary,
-                AppColors.hunterSecondary
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
+        guard let bubble = gameService.session?.bubble,
+              bubble.usesNewZoneSystem,
+              bubble.enableShrinking else {
+            print("🔵 Zone Notification Timer: Not starting - zone system not enabled or shrinking disabled")
+            showZoneNotification = false
+            return
+        }
         
-        let useGradient = level == .danger || level == .warning
+        print("🔵 Zone Notification Timer: Starting timer. Phase: \(bubble.currentPhaseNumber)")
         
-        return HStack(spacing: AppSpacing.sm) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundColor(.white)
-                .symbolEffect(.pulse, options: .repeating)
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text(message)
-                    .font(AppTypography.labelLarge())
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                Text("\(Int(distance))m away")
-                    .font(AppTypography.bodySmall())
-                    .foregroundColor(.white.opacity(0.9))
-            }
-            
-            Spacer()
-            
-            // Distance indicator bar
-            if level == .danger || level == .warning {
-                GeometryReader { geometry in
-                    let progress = min(1.0, distance / 50.0) // Normalize to 50m max
-                    HStack(spacing: 0) {
-                        Rectangle()
-                            .fill(Color.white.opacity(0.3))
-                            .frame(width: geometry.size.width * progress)
-                        Spacer()
-                    }
-                }
-                .frame(width: 40, height: 4)
-                .background(Color.white.opacity(0.2))
-                .cornerRadius(2)
+        // Update notification every second
+        zoneNotificationTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            Task { @MainActor in
+                self.updateZoneNotification()
             }
         }
-        .padding()
-        .background(
-            ZStack {
-                if useGradient {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(hunterGradient)
-                } else {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(color.opacity(0.2))
-                }
-                
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(
-                        useGradient ?
-                        LinearGradient(
-                            colors: [AppColors.hunterPrimary, AppColors.hunterSecondary],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        ) :
-                        LinearGradient(colors: [color], startPoint: .leading, endPoint: .trailing),
-                        lineWidth: level == .danger ? 3 : 2
-                    )
-            }
-        )
-        .shadow(color: (useGradient ? AppColors.hunterPrimary : color).opacity(0.5), radius: level == .danger ? 12 : 8, x: 0, y: 4)
-        .scaleEffect(proximityPulseScale)
-        .onAppear {
-            if level == .danger {
-                withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
-                    proximityPulseScale = 1.02
-                }
-            }
+        
+        // Add timer to main run loop for better reliability
+        if let timer = zoneNotificationTimer {
+            RunLoop.main.add(timer, forMode: .common)
         }
-        .onChange(of: level) { oldValue, newValue in
-            if newValue == .danger {
-                withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
-                    proximityPulseScale = 1.02
-                }
-            } else {
-                withAnimation {
-                    proximityPulseScale = 1.0
-                }
-            }
-        }
+        
+        // Initial update
+        updateZoneNotification()
     }
     
-    private func proximityWarningContent(distance: Double, level: GameService.ProximityWarningLevel) -> (Color, String, String) {
-        switch level {
-        case .danger:
-            return (.red, "exclamationmark.triangle.fill", "⚠️ HUNTER VERY CLOSE!")
-        case .warning:
-            return (.orange, "exclamationmark.circle.fill", "⚠️ Hunter Nearby")
-        case .caution:
-            return (.yellow, "eye.fill", "👁️ Hunter Detected")
-        case .safe:
-            return (.green, "checkmark.circle.fill", "✓ Safe Distance")
-        case .none:
-            return (.gray, "circle.fill", "")
+    private func stopZoneNotificationTimer() {
+        zoneNotificationTimer?.invalidate()
+        zoneNotificationTimer = nil
+    }
+    
+    private func updateZoneNotification() {
+        guard let bubble = gameService.session?.bubble,
+              bubble.usesNewZoneSystem,
+              bubble.enableShrinking else {
+            print("🔵 Zone Notification: Bubble or zone system not available, or shrinking disabled")
+            showZoneNotification = false
+            return
         }
+        
+        let runtimeState = ZoneService.deriveRuntimeZoneState(for: bubble)
+        let remaining = max(0, runtimeState.timeRemainingInPhase ?? 0)
+        showZoneNotification = runtimeState.scheduleIsEnabled && runtimeState.scheduleIsValid
+        
+        switch runtimeState.phaseState {
+        case .openingGrace:
+            zoneNotificationTitle = "First zone reveals in"
+            zoneNotificationIcon = "circle.dashed"
+            zoneNotificationColor = Color.orange
+        case .rotation:
+            zoneNotificationTitle = "Zone closes in"
+            zoneNotificationIcon = "arrow.triangle.2.circlepath"
+            zoneNotificationColor = AppColors.manhuntPrimary
+        case .closing:
+            zoneNotificationTitle = "Zone closing"
+            zoneNotificationIcon = "arrow.triangle.2.circlepath"
+            zoneNotificationColor = Color.red
+        case .complete:
+            zoneNotificationTitle = "New safe zone active"
+            zoneNotificationIcon = "checkmark.circle.fill"
+            zoneNotificationColor = AppColors.success
+        }
+        zoneNotificationCountdown = remaining
     }
     
     // MARK: - Button Style

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		26C6B0312EFF6F5600DF9D3A /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 26C6B0302EFF6F5600DF9D3A /* FirebaseFirestore */; };
+		26C6B0332EFF6F5600DF9D3A /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 26C6B0322EFF6F5600DF9D3A /* FirebaseAuth */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -69,6 +70,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				26C6B0332EFF6F5600DF9D3A /* FirebaseAuth in Frameworks */,
 				26C6B0312EFF6F5600DF9D3A /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -130,6 +132,7 @@
 			);
 			name = "Touch-Grass";
 			packageProductDependencies = (
+				26C6B0322EFF6F5600DF9D3A /* FirebaseAuth */,
 				26C6B0302EFF6F5600DF9D3A /* FirebaseFirestore */,
 			);
 			productName = "Touch-Grass";
@@ -405,7 +408,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
-				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
@@ -486,6 +489,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = PT6FF3RQ8N;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
@@ -507,6 +511,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = PT6FF3RQ8N;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
@@ -527,6 +532,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = PT6FF3RQ8N;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "Jason-Charwin.Touch-GrassUITests";
@@ -546,6 +552,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = PT6FF3RQ8N;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "Jason-Charwin.Touch-GrassUITests";
@@ -617,6 +624,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 26C6B02D2EFF6F5600DF9D3A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseFirestore;
+		};
+		26C6B0322EFF6F5600DF9D3A /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 26C6B02D2EFF6F5600DF9D3A /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

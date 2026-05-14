@@ -17,6 +17,8 @@ struct CTFFlagPlacementView: View {
     @State private var showCountdown: Bool = false
     @State private var countdownColor: Color = .blue
     @State private var hasStartedCountdown: Bool = false
+    @State private var showGoScreen: Bool = false
+    @State private var lastHapticSecond: Int = -1 // Track last second we triggered haptic to prevent duplicates
     
     // Safe zone placement states
     @State private var showSafeZonePlacement: Bool = false
@@ -28,9 +30,11 @@ struct CTFFlagPlacementView: View {
     
     var body: some View {
         ZStack {
-            // Background
-            AppColors.backgroundPrimary
-                .ignoresSafeArea()
+            ThemeBackgroundView(
+                primaryColor: AppColors.ctfPrimary,
+                secondaryColor: AppColors.ctfSecondary,
+                lightColor: AppColors.ctfLight
+            )
             
             if let session = gameService.session,
                let currentPlayer = gameService.currentPlayer {
@@ -94,18 +98,23 @@ struct CTFFlagPlacementView: View {
             } else {
                 // No session or current player - show error state
                 VStack(spacing: AppSpacing.lg) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 60))
-                        .foregroundColor(AppColors.textSecondary)
+                    CartoonMedallion(background: AppColors.warning, size: 66) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 30, weight: .black, design: .rounded))
+                            .foregroundColor(.white)
+                    }
                     
                     Text("Unable to Load Game")
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundColor(AppColors.textPrimary)
+                        .font(.system(size: 25, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk)
                     
                     Text("Please return to the lobby")
-                        .font(.system(size: 18))
-                        .foregroundColor(AppColors.textSecondary)
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                 }
+                .padding(AppSpacing.xl)
+                .cartoonCard(cornerRadius: 20)
+                .padding(.horizontal, AppSpacing.xl)
             }
         }
     }
@@ -119,37 +128,40 @@ struct CTFFlagPlacementView: View {
         return VStack(spacing: AppSpacing.xl) {
             Spacer()
             
-            // Large flag icon
-            Image(systemName: "flag.fill")
-                .font(.system(size: 120, weight: .bold))
-                .foregroundColor(teamColor)
-                .shadow(color: teamColor.opacity(0.5), radius: 20, x: 0, y: 10)
+            CartoonMedallion(background: teamColor, size: 104, borderWidth: 3) {
+                Image(systemName: "flag.fill")
+                    .font(.system(size: 48, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+            }
             
             // Main message
             VStack(spacing: AppSpacing.md) {
                 Text("Place This Team Flag!")
-                    .font(.system(size: 48, weight: .bold))
-                    .foregroundColor(teamColor)
+                    .font(.system(size: 34, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
                     .multilineTextAlignment(.center)
                 
                 Text(teamName)
-                    .font(.system(size: 32, weight: .semibold))
-                    .foregroundColor(AppColors.textSecondary)
+                    .font(.system(size: 20, weight: .black, design: .rounded))
+                    .foregroundColor(teamColor)
                 
                 Text("Move to your desired location and tap the button below to place your flag")
-                    .font(.system(size: 20))
-                    .foregroundColor(AppColors.textSecondary)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, AppSpacing.xl)
                 
                 // Show location status
                 if locationService.coordinate == nil {
                     Text("Waiting for location...")
-                        .font(.system(size: 16))
-                        .foregroundColor(AppColors.textSecondary.opacity(0.7))
+                        .font(.system(size: 14, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk.opacity(0.6))
                         .padding(.top, AppSpacing.sm)
                 }
             }
+            .padding(AppSpacing.lg)
+            .cartoonCard(cornerRadius: 20)
+            .padding(.horizontal, AppSpacing.lg)
             
             Spacer()
             
@@ -159,22 +171,9 @@ struct CTFFlagPlacementView: View {
                 confirmFlagPlacement()
             }) {
                 Text("Place Flag Here")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, AppSpacing.lg)
-                    .background(
-                        LinearGradient(
-                            colors: [teamColor, teamColor.opacity(0.8)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .cornerRadius(20)
-                    .shadow(color: teamColor.opacity(0.5), radius: 15, x: 0, y: 8)
             }
+            .buttonStyle(CartoonButtonStyle(accent: teamColor, isDisabled: locationService.coordinate == nil))
             .disabled(locationService.coordinate == nil)
-            .opacity(locationService.coordinate == nil ? 0.6 : 1.0)
             .padding(.horizontal, AppSpacing.xl)
             .padding(.bottom, AppSpacing.xl)
         }
@@ -189,29 +188,32 @@ struct CTFFlagPlacementView: View {
         return VStack(spacing: AppSpacing.xl) {
             Spacer()
             
-            // Checkmark icon
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 120, weight: .bold))
-                .foregroundColor(teamColor)
-                .shadow(color: teamColor.opacity(0.5), radius: 20, x: 0, y: 10)
+            CartoonMedallion(background: teamColor, size: 104, borderWidth: 3) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 48, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+            }
             
             // Main message
             VStack(spacing: AppSpacing.md) {
                 Text("Flag Placed!")
-                    .font(.system(size: 48, weight: .bold))
-                    .foregroundColor(teamColor)
+                    .font(.system(size: 34, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
                     .multilineTextAlignment(.center)
                 
                 Text(teamName)
-                    .font(.system(size: 32, weight: .semibold))
-                    .foregroundColor(AppColors.textSecondary)
+                    .font(.system(size: 20, weight: .black, design: .rounded))
+                    .foregroundColor(teamColor)
                 
                 Text("Ready to set up safe zone")
-                    .font(.system(size: 20))
-                    .foregroundColor(AppColors.textSecondary)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, AppSpacing.xl)
             }
+            .padding(AppSpacing.lg)
+            .cartoonCard(cornerRadius: 20)
+            .padding(.horizontal, AppSpacing.lg)
             
             Spacer()
             
@@ -222,20 +224,8 @@ struct CTFFlagPlacementView: View {
                 flagPlacedButNotConfirmed = true
             }) {
                 Text("Flag Placed")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, AppSpacing.lg)
-                    .background(
-                        LinearGradient(
-                            colors: [teamColor, teamColor.opacity(0.8)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .cornerRadius(20)
-                    .shadow(color: teamColor.opacity(0.5), radius: 15, x: 0, y: 8)
             }
+            .buttonStyle(CartoonButtonStyle(accent: teamColor))
             .padding(.horizontal, AppSpacing.xl)
             .padding(.bottom, AppSpacing.xl)
         }
@@ -250,23 +240,28 @@ struct CTFFlagPlacementView: View {
         return VStack(spacing: AppSpacing.xl) {
             Spacer()
             
-            Image(systemName: "hourglass")
-                .font(.system(size: 80, weight: .light))
-                .foregroundColor(teamColor)
-                .symbolEffect(.pulse, isActive: true)
+            CartoonMedallion(background: teamColor, size: 82) {
+                Image(systemName: "hourglass")
+                    .font(.system(size: 34, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+                    .symbolEffect(.pulse, isActive: true)
+            }
             
             Text("Game Starting Soon")
-                .font(.system(size: 36, weight: .bold))
-                .foregroundColor(teamColor)
+                .font(.system(size: 31, weight: .black, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk)
             
             Text("Waiting for countdown to finish...")
-                .font(.system(size: 20))
-                .foregroundColor(AppColors.textSecondary)
+                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, AppSpacing.xl)
             
             Spacer()
         }
+        .padding(AppSpacing.xl)
+        .cartoonCard(cornerRadius: 22)
+        .padding(.horizontal, AppSpacing.xl)
     }
     
     // MARK: - Waiting View
@@ -275,25 +270,28 @@ struct CTFFlagPlacementView: View {
         VStack(spacing: AppSpacing.xl) {
             Spacer()
             
-            // Waiting icon
-            Image(systemName: "hourglass")
-                .font(.system(size: 80, weight: .light))
-                .foregroundColor(AppColors.textSecondary)
-                .symbolEffect(.pulse, isActive: true)
+            CartoonMedallion(background: AppColors.ctfPrimary, size: 82) {
+                Image(systemName: "hourglass")
+                    .font(.system(size: 34, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+                    .symbolEffect(.pulse, isActive: true)
+            }
             
             // Main message
             VStack(spacing: AppSpacing.md) {
                 Text("Waiting for Teams to Place Flags")
-                    .font(.system(size: 36, weight: .bold))
-                    .foregroundColor(AppColors.textPrimary)
+                    .font(.system(size: 31, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
                     .multilineTextAlignment(.center)
                 
                 Text("Flag players are choosing their starting positions")
-                    .font(.system(size: 18))
-                    .foregroundColor(AppColors.textSecondary)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                     .multilineTextAlignment(.center)
             }
             .padding(.horizontal, AppSpacing.xl)
+            .padding(AppSpacing.lg)
+            .cartoonCard(cornerRadius: 20)
             
             Spacer()
             
@@ -321,35 +319,35 @@ struct CTFFlagPlacementView: View {
             // Checkbox
             ZStack {
                 Circle()
-                    .fill(isPlaced ? color : Color.clear)
+                    .fill(isPlaced ? color : AppColors.cartoonCream2)
                     .frame(width: 32, height: 32)
                     .overlay(
                         Circle()
-                            .stroke(color, lineWidth: 3)
+                            .stroke(AppColors.cartoonInk, lineWidth: 2)
+                    )
+                    .background(
+                        Circle()
+                            .fill(Color(white: 0.18))
+                            .offset(x: 2.5, y: 2.5)
                     )
                 
                 if isPlaced {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 20, weight: .bold))
+                        .font(.system(size: 18, weight: .black, design: .rounded))
                         .foregroundColor(.white)
                 }
             }
             
             Text(teamName)
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundColor(isPlaced ? color : AppColors.textSecondary)
+                .font(.system(size: 20, weight: .black, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk)
             
             Spacer()
+
+            CartoonPill(text: isPlaced ? "Ready" : "Waiting", color: isPlaced ? color : AppColors.cartoonInk)
         }
         .padding(AppSpacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(isPlaced ? color.opacity(0.1) : AppColors.backgroundSecondary)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(isPlaced ? color.opacity(0.3) : Color.clear, lineWidth: 2)
-                )
-        )
+        .cartoonCard(cornerRadius: 14, shadowOffset: 4, borderWidth: 2)
         .animation(.spring(response: 0.3), value: isPlaced)
     }
     
@@ -400,30 +398,25 @@ struct CTFFlagPlacementView: View {
                 // Top header
                 VStack(spacing: AppSpacing.sm) {
                     Text("This is the Flag")
-                        .font(.system(size: 36, weight: .bold))
-                        .foregroundColor(teamColor)
+                        .font(.system(size: 31, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk)
                     
                     Text("and the Safe Zone")
-                        .font(.system(size: 28, weight: .semibold))
+                        .font(.system(size: 24, weight: .black, design: .rounded))
                         .foregroundColor(teamColor)
                     
                     Text(teamName)
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundColor(AppColors.textSecondary)
+                        .font(.system(size: 18, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk)
                     
                     Text("Safe zone: ~\(Int(safeZoneRadius))m around flag")
-                        .font(.system(size: 16))
-                        .foregroundColor(AppColors.textSecondary)
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, AppSpacing.xl)
                 }
-                .padding(.top, AppSpacing.xl)
-                .padding(.horizontal, AppSpacing.lg)
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(AppColors.backgroundPrimary.opacity(0.9))
-                        .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
-                )
+                .padding(AppSpacing.lg)
+                .cartoonCard(cornerRadius: 20)
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.top, AppSpacing.md)
                 
@@ -436,29 +429,12 @@ struct CTFFlagPlacementView: View {
                         confirmSafeZonePlacement(aroundFlag: flagLocation)
                     }) {
                         Text("Proceed")
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(
-                                LinearGradient(
-                                    colors: [teamColor, teamColor.opacity(0.8)],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                            .cornerRadius(16)
-                            .shadow(color: teamColor.opacity(0.4), radius: 12, x: 0, y: 6)
                     }
+                    .buttonStyle(CartoonButtonStyle(accent: teamColor, isDisabled: flagLocation == nil))
                     .disabled(flagLocation == nil)
                 }
-                .padding(.horizontal, AppSpacing.xl)
-                .padding(.bottom, AppSpacing.xl)
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(AppColors.backgroundPrimary.opacity(0.9))
-                        .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: -5)
-                )
+                .padding(AppSpacing.lg)
+                .cartoonCard(cornerRadius: 20)
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.bottom, AppSpacing.md)
             }
@@ -512,26 +488,21 @@ struct CTFFlagPlacementView: View {
                 // Top header
                 VStack(spacing: AppSpacing.sm) {
                     Text("Place Safe Zone")
-                        .font(.system(size: 36, weight: .bold))
-                        .foregroundColor(teamColor)
+                        .font(.system(size: 31, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk)
                     
                     Text(teamName)
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundColor(AppColors.textSecondary)
+                        .font(.system(size: 18, weight: .black, design: .rounded))
+                        .foregroundColor(teamColor)
                     
                     Text("Safe zone will be ~\(Int(safeZoneRadius))m around your flag")
-                        .font(.system(size: 16))
-                        .foregroundColor(AppColors.textSecondary)
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, AppSpacing.xl)
                 }
-                .padding(.top, AppSpacing.xl)
-                .padding(.horizontal, AppSpacing.lg)
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(AppColors.backgroundPrimary.opacity(0.9))
-                        .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
-                )
+                .padding(AppSpacing.lg)
+                .cartoonCard(cornerRadius: 20)
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.top, AppSpacing.md)
                 
@@ -540,38 +511,19 @@ struct CTFFlagPlacementView: View {
                 // Bottom button
                 VStack(spacing: AppSpacing.md) {
                     // Radius info
-                    Text("Radius: \(Int(safeZoneRadius))m")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(teamColor)
+                    CartoonPill(text: "Radius \(Int(safeZoneRadius))m", color: teamColor)
                     
                     Button(action: {
                         HapticFeedbackManager.shared.selection()
                         confirmSafeZonePlacement(aroundFlag: flagLocation)
                     }) {
                         Text("Place Safe Zone Around Flag")
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(
-                                LinearGradient(
-                                    colors: [teamColor, teamColor.opacity(0.8)],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                            .cornerRadius(16)
-                            .shadow(color: teamColor.opacity(0.4), radius: 12, x: 0, y: 6)
                     }
+                    .buttonStyle(CartoonButtonStyle(accent: teamColor, isDisabled: flagLocation == nil))
                     .disabled(flagLocation == nil)
                 }
-                .padding(.horizontal, AppSpacing.xl)
-                .padding(.bottom, AppSpacing.xl)
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(AppColors.backgroundPrimary.opacity(0.9))
-                        .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: -5)
-                )
+                .padding(AppSpacing.lg)
+                .cartoonCard(cornerRadius: 20)
                 .padding(.horizontal, AppSpacing.md)
                 .padding(.bottom, AppSpacing.md)
             }
@@ -585,21 +537,24 @@ struct CTFFlagPlacementView: View {
         VStack(spacing: AppSpacing.xl) {
             Spacer()
             
-            // Waiting icon
-            Image(systemName: "hourglass")
-                .font(.system(size: 80))
-                .foregroundColor(AppColors.textSecondary)
-                .symbolEffect(.pulse, isActive: true)
+            CartoonMedallion(background: AppColors.ctfPrimary, size: 82) {
+                Image(systemName: "hourglass")
+                    .font(.system(size: 34, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+                    .symbolEffect(.pulse, isActive: true)
+            }
             
             Text("Waiting for Safe Zones")
-                .font(.system(size: 32, weight: .bold))
-                .foregroundColor(AppColors.textPrimary)
+                .font(.system(size: 31, weight: .black, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk)
             
             Text("Team leaders are placing safe zones...")
-                .font(.system(size: 20))
-                .foregroundColor(AppColors.textSecondary)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, AppSpacing.xl)
+                .padding(AppSpacing.lg)
+                .cartoonCard(cornerRadius: 20)
             
             // Status rows
             VStack(spacing: AppSpacing.md) {
@@ -626,24 +581,85 @@ struct CTFFlagPlacementView: View {
     
     private var countdownView: some View {
         ZStack {
-            // Color wash background - animated
+            if showGoScreen {
+                // GO! Screen
+                goScreen
+                    .transition(.scale.combined(with: .opacity))
+            } else {
+                // Color wash background - animated
+                countdownColor
+                    .ignoresSafeArea()
+                    .opacity(0.4)
+                    .animation(.easeInOut(duration: 0.5), value: countdownColor)
+                
+                VStack(spacing: AppSpacing.xl) {
+                    Spacer()
+                    
+                    Text("Game Starting In")
+                        .font(.system(size: 25, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk)
+                    
+                    // Show countdown in MM:SS format
+                    Text(formatCountdown(countdownSeconds))
+                        .font(.system(size: 78, weight: .black, design: .rounded))
+                        .foregroundColor(countdownColor)
+                        .shadow(color: AppColors.cartoonInk, radius: 0, x: 5, y: 5)
+                        .monospacedDigit()
+                        .padding(.vertical, AppSpacing.sm)
+                    
+                    // Team indicator
+                    if let currentPlayer = gameService.currentPlayer,
+                       let playerTeam = currentPlayer.team {
+                        VStack(spacing: AppSpacing.sm) {
+                            Text("You are on")
+                                .font(.system(size: 14, weight: .black, design: .rounded))
+                                .foregroundColor(AppColors.cartoonInk.opacity(0.68))
+                            
+                            HStack(spacing: AppSpacing.sm) {
+                                Circle()
+                                    .fill(playerTeam == .teamA ? AppColors.ctfTeamA : AppColors.ctfTeamB)
+                                    .frame(width: 20, height: 20)
+                                    .overlay(Circle().stroke(AppColors.cartoonInk, lineWidth: 2))
+                                
+                                Text(playerTeam == .teamA ? "Team A" : "Team B")
+                                    .font(.system(size: 17, weight: .black, design: .rounded))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.horizontal, AppSpacing.lg)
+                            .padding(.vertical, AppSpacing.md)
+                            .background(playerTeam == .teamA ? AppColors.ctfTeamA : AppColors.ctfTeamB)
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 2))
+                        }
+                        .padding(.top, AppSpacing.lg)
+                    }
+                    
+                    Spacer()
+                }
+                .padding(AppSpacing.xl)
+                .cartoonCard(cornerRadius: 22)
+                .padding(.horizontal, AppSpacing.xl)
+            }
+        }
+    }
+    
+    // MARK: - GO! Screen
+    
+    private var goScreen: some View {
+        ZStack {
+            // Full screen colored background (alternate between blue and red)
             countdownColor
                 .ignoresSafeArea()
-                .opacity(0.4)
-                .animation(.easeInOut(duration: 0.5), value: countdownColor)
             
             VStack(spacing: AppSpacing.xl) {
-                Text("Game Starting In")
-                    .font(.system(size: 32, weight: .semibold))
-                    .foregroundColor(countdownColor)
-                    .opacity(0.9)
+                Spacer()
                 
-                // Show countdown in MM:SS format
-                Text(formatCountdown(countdownSeconds))
-                    .font(.system(size: 80, weight: .bold, design: .rounded))
-                        .foregroundColor(countdownColor)
-                        .shadow(color: countdownColor.opacity(0.5), radius: 20, x: 0, y: 10)
-                    .monospacedDigit()
+                Text("GO!")
+                    .font(.system(size: 120, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+                    .shadow(color: AppColors.cartoonInk, radius: 0, x: 6, y: 6)
+                
+                Spacer()
             }
         }
     }
@@ -749,6 +765,16 @@ struct CTFFlagPlacementView: View {
             return
         }
         
+        // HARD LOCK: Verify both safe zones are confirmed before starting countdown
+        // This prevents race conditions where game starts before safe zones are finalized
+        guard let teamASafeZone = session.teamASafeZone,
+              let teamBSafeZone = session.teamBSafeZone,
+              teamASafeZone.confirmedAt.timeIntervalSince1970 > 0,
+              teamBSafeZone.confirmedAt.timeIntervalSince1970 > 0 else {
+            print("⚠️ Cannot start countdown: Safe zones not fully confirmed")
+            return
+        }
+        
         // Prevent multiple countdowns
         guard !hasStartedCountdown else { return }
         
@@ -764,6 +790,10 @@ struct CTFFlagPlacementView: View {
         // Start 1 minute countdown
         var remainingSeconds = 60
         countdownSeconds = remainingSeconds
+        lastHapticSecond = -1 // Reset haptic tracking
+        showGoScreen = false // Reset GO! screen
+        
+        // Haptic when countdown starts
         HapticFeedbackManager.shared.selection()
         
         // Update countdown every second
@@ -771,56 +801,95 @@ struct CTFFlagPlacementView: View {
             remainingSeconds -= 1
             countdownSeconds = remainingSeconds
             
-            // Haptic feedback at key moments
-            if remainingSeconds == 30 || remainingSeconds == 10 || remainingSeconds <= 5 {
-                Task { @MainActor in
-            HapticFeedbackManager.shared.selection()
+            // Alternate colors (only if not showing GO! screen)
+            if remainingSeconds > 0 {
+                withAnimation(.easeInOut(duration: 0.5)) {
+                    countdownColor = remainingSeconds % 2 == 0 ? .blue : .red
                 }
-        }
-        
-            // Alternate colors
-            withAnimation(.easeInOut(duration: 0.5)) {
-                countdownColor = remainingSeconds % 2 == 0 ? .blue : .red
             }
             
-            // When countdown reaches 0, start the game
-            if remainingSeconds <= 0 {
-                timer.invalidate()
-                Task { @MainActor in
-            HapticFeedbackManager.shared.playerCaught()
-        }
-        
-            // Transition to active game
-            Task { @MainActor in
-                guard var session = gameService.session,
-                      session.gameState == .flagPlacement else {
-                    print("⚠️ Cannot start game: Session state changed during countdown")
-                    return
-                }
+            // Only trigger haptic once per second milestone
+            if remainingSeconds != lastHapticSecond {
+                lastHapticSecond = remainingSeconds
                 
-                // Verify both flags and safe zones are placed
-                guard session.teamAFlagPlaced && session.teamBFlagPlaced,
-                      session.teamASafeZone != nil && session.teamBSafeZone != nil else {
-                    print("⚠️ Cannot start game: Flags or safe zones not fully placed")
-                    return
-                }
-                
-                // CRASH FIX: State modifications are already on MainActor via outer Task
-                session.gameState = .active
-                gameService.session = session
-                gameService.gameState = .active
-                
-                // Sync to Firestore
-                Task {
-                    do {
-                        if let session = gameService.session {
-                            try await gameService.firestore.updateSession(session)
-                        }
-                    } catch {
-                        print("❌ Error syncing game start: \(error)")
+                // Double haptic every 30 seconds until 30 seconds left (CTF countdown is 60s, so at 60 and 30)
+                if remainingSeconds > 30 && remainingSeconds % 30 == 0 {
+                    Task { @MainActor in
+                        HapticFeedbackManager.shared.doubleHaptic(style: .heavy)
                     }
+                } else if remainingSeconds == 15 {
+                    // Single haptic at 15 seconds
+                    Task { @MainActor in
+                        HapticFeedbackManager.shared.impact(style: .heavy)
+                    }
+                } else if remainingSeconds >= 1 && remainingSeconds <= 10 {
+                    // From 10 to 1: haptic every second
+                    Task { @MainActor in
+                        if remainingSeconds == 10 || remainingSeconds == 7 || remainingSeconds == 4 || remainingSeconds == 2 || remainingSeconds == 1 {
+                            // Double haptic at key moments (10, 7, 4, 2, 1)
+                            HapticFeedbackManager.shared.doubleHaptic(style: .heavy)
+                        } else {
+                            // Single haptic for other seconds (9, 8, 6, 5, 3)
+                            HapticFeedbackManager.shared.impact(style: .heavy)
+                        }
+                    }
+                } else if remainingSeconds == 0 {
+                    // At 0: Show GO! screen with multiple double haptics
+                    timer.invalidate()
+                    Task { @MainActor in
+                        showGoScreen = true
+                        // Multiple double haptics for GO!
+                        HapticFeedbackManager.shared.doubleHaptic(style: .heavy)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            HapticFeedbackManager.shared.doubleHaptic(style: .heavy)
+                        }
+                        
+                        // Continue with game start after GO! screen
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                            Task { @MainActor in
+                                // Transition to active game
+                                guard var session = gameService.session,
+                                      session.gameState == .flagPlacement else {
+                                    print("⚠️ Cannot start game: Session state changed during countdown")
+                                    return
+                                }
+                                
+                                // HARD LOCK: Final verification before transitioning to active
+                                // Verify both flags and safe zones are placed and confirmed
+                                guard session.teamAFlagPlaced && session.teamBFlagPlaced,
+                                      let teamASafeZone = session.teamASafeZone,
+                                      let teamBSafeZone = session.teamBSafeZone,
+                                      teamASafeZone.confirmedAt.timeIntervalSince1970 > 0,
+                                      teamBSafeZone.confirmedAt.timeIntervalSince1970 > 0 else {
+                                    print("⚠️ Cannot start game: Flags or safe zones not fully confirmed")
+                                    // Reset countdown state to allow retry
+                                    hasStartedCountdown = false
+                                    return
+                                }
+                                
+                                // CRASH FIX: State modifications are already on MainActor via outer Task
+                                session.gameState = .active
+                                gameService.session = session
+                                gameService.gameState = .active
+                                
+                                // Start the game timer when transitioning to active
+                                gameService.startGameTimer()
+                                
+                                // Sync to Firestore
+                                Task {
+                                    do {
+                                        if let session = gameService.session {
+                                            try await gameService.firestore.updateSession(session)
+                                        }
+                                    } catch {
+                                        print("❌ Error syncing game start: \(error)")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return
                 }
-            }
             }
         }
         
@@ -828,5 +897,3 @@ struct CTFFlagPlacementView: View {
         RunLoop.current.add(timer, forMode: .common)
     }
 }
-
-

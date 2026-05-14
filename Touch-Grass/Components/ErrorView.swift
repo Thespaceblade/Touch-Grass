@@ -27,72 +27,48 @@ struct ErrorView: View {
     
     var body: some View {
         VStack(spacing: AppSpacing.lg) {
-            // Error Icon
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 48))
-                .foregroundColor(AppColors.error)
-                .symbolEffect(.pulse, options: .repeating)
+            CartoonMedallion(background: AppColors.error, size: 64, borderWidth: 2.5) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 28, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+            }
+            .symbolEffect(.pulse, options: .repeating)
             
-            // Title
             Text(title)
-                .font(AppTypography.headlineLarge())
-                .foregroundColor(AppColors.textPrimary)
+                .font(.system(size: 24, weight: .black, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk)
                 .multilineTextAlignment(.center)
             
-            // Message
             Text(message)
-                .font(AppTypography.bodyMedium())
-                .foregroundColor(AppColors.textSecondary)
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, AppSpacing.md)
+                .fixedSize(horizontal: false, vertical: true)
             
-            // Actions
             VStack(spacing: AppSpacing.sm) {
                 if let retryAction = retryAction {
                     Button(action: retryAction) {
                         HStack(spacing: AppSpacing.sm) {
                             Image(systemName: "arrow.clockwise")
-                                .font(.title3)
+                                .font(.system(size: 18, weight: .black, design: .rounded))
                             Text("Try Again")
-                                .font(AppTypography.labelLarge())
-                                .fontWeight(.semibold)
+                                .lineLimit(1)
                         }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, AppSpacing.md)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [AppColors.manhuntPrimary, AppColors.manhuntSecondary],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                        )
                     }
-                    .buttonStyle(PlainButtonStyle())
+                    .buttonStyle(CartoonButtonStyle(accent: AppColors.error))
                 }
                 
                 if let dismissAction = dismissAction {
                     Button(action: dismissAction) {
                         Text("Dismiss")
-                            .font(AppTypography.labelMedium())
-                            .foregroundColor(AppColors.textSecondary)
-                            .padding(.vertical, AppSpacing.sm)
                     }
-                    .buttonStyle(PlainButtonStyle())
+                    .buttonStyle(CartoonSecondaryButtonStyle())
                 }
             }
-            .padding(.horizontal, AppSpacing.lg)
         }
         .padding(AppSpacing.xl)
         .frame(maxWidth: 400)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(.ultraThinMaterial)
-                .shadow(color: Color.black.opacity(0.2), radius: 20, x: 0, y: 10)
-        )
+        .cartoonCard(cornerRadius: 20, shadowOffset: 5, borderWidth: 2.5)
     }
 }
 
@@ -120,6 +96,14 @@ extension View {
         }
     }
 }
+
+
+
+
+
+
+
+
 
 
 

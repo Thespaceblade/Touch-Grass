@@ -5,7 +5,6 @@
 //  Created by Jason Charwin on 12/26/25.
 //
 
-
 import SwiftUI
 
 struct StatCard: View {
@@ -14,18 +13,18 @@ struct StatCard: View {
     let icon: String?
     let color: Color
     let style: CardStyle
-    
+
     enum CardStyle {
         case compact
         case standard
         case prominent
     }
-    
+
     init(
         title: String,
         value: String,
         icon: String? = nil,
-        color: Color = AppColors.textPrimary,
+        color: Color = AppColors.cartoonInk,
         style: CardStyle = .standard
     ) {
         self.title = title
@@ -34,58 +33,38 @@ struct StatCard: View {
         self.color = color
         self.style = style
     }
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            HStack(spacing: AppSpacing.xs) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
                 if let icon = icon {
                     Image(systemName: icon)
-                        .font(AppTypography.labelSmall())
-                        .foregroundColor(color.opacity(0.7))
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(color)
                 }
                 Text(title)
-                    .appTypography(AppTypography.labelSmall(), color: color.opacity(0.7))
+                    .font(.system(size: 11, weight: .black, design: .rounded))
+                    .tracking(0.3)
+                    .foregroundColor(AppColors.cartoonInk.opacity(0.5))
             }
-            
+
             Text(value)
-                .appTypography(
-                    style == .prominent ? AppTypography.statMedium() : AppTypography.headlineSmall(),
-                    color: color
-                )
+                .font(.system(
+                    size: style == .prominent ? 26 : 22,
+                    weight: .black,
+                    design: .monospaced
+                ))
+                .foregroundColor(AppColors.cartoonInk)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(AppSpacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            color.opacity(0.15),
-                            color.opacity(0.1),
-                            color.opacity(0.05)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(
-                            LinearGradient(
-                                colors: [
-                                    color.opacity(0.4),
-                                    color.opacity(0.3),
-                                    color.opacity(0.2)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1.5
-                        )
-                )
-                .shadow(color: color.opacity(0.2), radius: 8, x: 0, y: 4)
-                .shadow(color: Color.black.opacity(0.1), radius: 6, x: 0, y: 3)
+        .background(AppColors.cartoonCream)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(AppColors.cartoonInk, lineWidth: 2)
         )
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(white: 0.18)).offset(x: 3, y: 3))
     }
 }
 
@@ -101,23 +80,21 @@ struct StatCard_Previews: PreviewProvider {
                 color: AppColors.bubbleSafe,
                 style: .prominent
             )
-            
             StatCard(
                 title: "Players Alive",
                 value: "5/8",
                 icon: "person.2.fill",
-                color: AppColors.textPrimary
+                color: AppColors.cartoonInk
             )
-            
             StatCard(
                 title: "Distance to Edge",
                 value: "45m",
                 icon: "location.fill",
-                color: AppColors.warning
+                color: AppColors.manhuntPrimary
             )
         }
         .padding()
-        .background(AppColors.backgroundPrimary)
+        .background(AppColors.cartoonCream)
         .previewLayout(.sizeThatFits)
     }
 }

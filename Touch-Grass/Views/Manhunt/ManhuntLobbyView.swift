@@ -20,13 +20,22 @@ struct ManhuntLobbyView: View {
     @State private var showGameInfo = false
     @State private var gameCode: String = ""
     @State private var bubbleStartRadius: Double = 300
-    @State private var bubbleDuration: Double = 300
+    @State private var bubbleDuration: Double = 900 // Default 15 minutes
     @State private var hunterCount: Int = 1
-    @State private var contentAppeared: Bool = false
+    @State private var enableShrinking: Bool = true // Default to shrinking enabled
     @State private var errorMessage: String? = nil
     @State private var showErrorAlert: Bool = false
     @State private var showNoProfileNameAlert: Bool = false
     @State private var showExitConfirmation: Bool = false
+    @State private var showCountdown: Bool = false
+    @State private var countdownStartTime: Date?
+    @State private var countdownCompleted: Bool = false
+    @State private var hasCopiedJoinCode: Bool = false
+    @State private var resetCopiedJoinCodeTask: Task<Void, Never>? = nil
+    
+    // OPTIMIZATION: Cache gameService state to reduce re-renders
+    @State private var cachedGameState: GameState = .lobby
+    @State private var cachedSession: GameSession? = nil
     
     // Hardcoded Manhunt theme properties
     private var primaryColor: Color {
@@ -46,20 +55,27 @@ struct ManhuntLobbyView: View {
     }
     
     var body: some View {
-        ZStack {
-            // Aesthetic Gradient Background
-            aestheticBackground
-                .ignoresSafeArea()
-            
-            // Lobby Content Panel
-            lobbyContentPanel
-        }
-        .animation(.easeInOut(duration: 0.3), value: viewModel.gameService.session?.id)
+        let _ = {
+            #if DEBUG
+            let timestamp = Date().timeIntervalSince1970
+            print("🔍 DEBUG: [\(String(format: "%.3f", timestamp))] ManhuntLobbyView body rendering")
+            print("🔍 DEBUG:   - viewModel.selectedGame: \(String(describing: viewModel.selectedGame))")
+            print("🔍 DEBUG:   - viewModel.isServicesInitializing: \(viewModel.isServicesInitializing)")
+            print("🔍 DEBUG:   - viewModel.isCreatingSession: \(viewModel.isCreatingSession)")
+            print("🔍 DEBUG:   - cachedSession?.id: \(String(describing: cachedSession?.id))")
+            print("🔍 DEBUG:   - cachedGameState: \(cachedGameState)")
+            #endif
+        }()
+        
+        return mainContentView
         .onAppear {
+            print("🔍 DEBUG: ManhuntLobbyView onAppear called")
+            
             // Reset all state when view appears to ensure clean start for this game mode
             bubbleStartRadius = 300
-            bubbleDuration = 300
+            bubbleDuration = 900
             hunterCount = 1
+            enableShrinking = true
             gameCode = ""
             showBubbleSettings = false
             showJoinGameInput = false
@@ -67,22 +83,78 @@ struct ManhuntLobbyView: View {
             showGameInfo = false
             errorMessage = nil
             showErrorAlert = false
+            // OPTIMIZATION: Cache gameService state on appear
+            cachedGameState = viewModel.gameService.gameState
+            cachedSession = viewModel.gameService.session
             
-            // Staggered entrance animation
-            withAnimation(.smoothTransition.delay(0.1)) {
-                contentAppeared = true
+            // Only reset countdown state if game is not active or ended
+            if cachedGameState != .active {
+                showCountdown = false
+                countdownStartTime = nil
+                countdownCompleted = false
             }
+            
+            // If game is already ended, ensure we have the latest session and stats
+            if cachedGameState == .ended {
+                cachedSession = viewModel.gameService.session
+            }
+            
+            // SAFETY: Check for stale sessions from previous app launches (async for performance)
+            // If session exists but no bubble is configured, it's likely stale
+            Task { @MainActor in
+                if let session = cachedSession,
+                   session.bubble == nil,
+                   cachedGameState == .lobby {
+                    // This is a stale session from a previous app launch - clear it
+                    print("🧹 Detected stale session on appear, clearing...")
+                    viewModel.gameService.clearSession()
+                }
+            }
+        }
+        // OPTIMIZATION: Update cached state only when gameState changes
+        .onChange(of: viewModel.gameService.gameState) { oldValue, newValue in
+            cachedGameState = newValue
+            // When game state changes to active, show countdown
+            if oldValue != .active && newValue == .active {
+                // Check if we haven't already started the countdown
+                if countdownStartTime == nil && !countdownCompleted {
+                    countdownStartTime = Date()
+                    countdownCompleted = false
+                    withAnimation(.smoothTransition) {
+                        showCountdown = true
+                    }
+                }
+            } else if newValue == .ended {
+                // Game ended - ensure countdown is hidden and reset
+                showCountdown = false
+                countdownStartTime = nil
+                countdownCompleted = false
+                // Ensure cached session is updated
+                cachedSession = viewModel.gameService.session
+            } else if newValue != .active {
+                // Reset countdown state if game is no longer active
+                showCountdown = false
+                countdownStartTime = nil
+                countdownCompleted = false
+            }
+        }
+        // OPTIMIZATION: Update cached session only when it changes
+        .onChange(of: viewModel.gameService.session) { oldValue, newValue in
+            cachedSession = newValue
         }
         .onChange(of: viewModel.gameService.session?.gameType) { oldValue, newValue in
             // If game type changes, reset all configuration state
-            if oldValue != nil && oldValue != newValue {
-                bubbleStartRadius = 300
-                bubbleDuration = 300
-                hunterCount = 1
-                gameCode = ""
-                showBubbleSettings = false
-                showJoinGameInput = false
-                showHunterManagement = false
+            // Use Task to avoid blocking view updates
+            Task { @MainActor in
+                if oldValue != nil && oldValue != newValue {
+                    bubbleStartRadius = 300
+                    bubbleDuration = 900
+                    hunterCount = 1
+                    gameCode = ""
+                    showBubbleSettings = false
+                    showJoinGameInput = false
+                    showHunterManagement = false
+                }
             }
         }
         .sheet(isPresented: $showBubbleSettings) {
@@ -90,9 +162,12 @@ struct ManhuntLobbyView: View {
                 startRadius: $bubbleStartRadius,
                 duration: $bubbleDuration,
                 hunterCount: $hunterCount,
+                showTimer: .constant(true), // Timer always enabled
+                enableShrinking: $enableShrinking,
                 onStart: { selectedCenter in
                     print("⚙️ ManhuntLobbyView: Configure game button pressed")
                     print("   Selected center: \(selectedCenter.latitude), \(selectedCenter.longitude)")
+                    print("   Enable shrinking: \(enableShrinking)")
                     // Configure game first, then dismiss sheet
                     viewModel.configureGame(
                         bubbleStartRadius: bubbleStartRadius,
@@ -101,7 +176,8 @@ struct ManhuntLobbyView: View {
                         center: selectedCenter,
                         scoreLimit: nil,
                         teamABase: nil,
-                        teamBBase: nil
+                        teamBBase: nil,
+                        enableShrinking: enableShrinking
                     )
                     // Dismiss sheet after configuration
                     showBubbleSettings = false
@@ -128,23 +204,21 @@ struct ManhuntLobbyView: View {
         .alert("Profile Name Required", isPresented: $showNoProfileNameAlert) {
             Button("OK", role: .cancel) { }
         } message: {
-            Text("Please add your name to your profile to start a game. You can update your profile name in the Profile tab.")
+            Text("Please add your name to start a game. You can set your profile name in Settings.")
         }
-        .alert("Exit Lobby", isPresented: $showExitConfirmation) {
-            Button("Yes", role: .destructive) {
-                // Reset game state to lobby before going back to prevent showing game over screen
-                viewModel.gameService.gameState = .lobby
-                if var session = viewModel.gameService.session {
-                    session.gameState = .lobby
-                    viewModel.gameService.session = session
-                }
-                // End the game session and go back to menu
-                viewModel.gameService.endGame()
-                onBackToMenu()
-            }
-            Button("No", role: .cancel) { }
+        .themedExitLobbyConfirmation(
+            isPresented: $showExitConfirmation,
+            primaryColor: primaryColor,
+            secondaryColor: secondaryColor,
+            iconName: "figure.run"
+        ) {
+            viewModel.gameService.clearSession()
+            onBackToMenu()
+        }
+        .alert("Error", isPresented: $showErrorAlert) {
+            Button("OK", role: .cancel) { }
         } message: {
-            Text("Going back to main menu will close this lobby. Are you sure?")
+            Text(errorMessage ?? "An unknown error occurred.")
         }
         #if DEBUG
         .debugButton(showDebugTestPanel: $showDebugTestPanel, viewModel: viewModel)
@@ -154,41 +228,94 @@ struct ManhuntLobbyView: View {
         #endif
     }
     
-    // MARK: - Aesthetic Background (Dynamic Theme)
+    // MARK: - Main Content View
     
-    private var aestheticBackground: some View {
-        ZStack {
-            // Base gradient (dynamic based on game type)
-            LinearGradient(
-                colors: [
-                    primaryColor.opacity(0.2),
-                    secondaryColor.opacity(0.15),
-                    lightColor.opacity(0.1),
-                    AppColors.backgroundPrimary
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            
-            // Simple animated accent circles (lightweight)
-            GeometryReader { geometry in
-                let size = max(geometry.size.width, geometry.size.height)
-                
-                // Top-left accent
-                Circle()
-                    .fill(primaryColor.opacity(0.15))
-                    .frame(width: size * 0.6, height: size * 0.6)
-                    .offset(x: -size * 0.2, y: -size * 0.2)
-                    .blur(radius: 60)
-                
-                // Bottom-right accent
-                Circle()
-                    .fill(secondaryColor.opacity(0.12))
-                    .frame(width: size * 0.5, height: size * 0.5)
-                    .offset(x: size * 0.3, y: size * 0.4)
-                    .blur(radius: 50)
+    private var mainContentView: some View {
+        Group {
+            // OPTIMIZATION: Use cached gameState instead of accessing gameService directly
+            if cachedGameState == .ended {
+                // Show game end view when game has ended
+                gameEndContentView
+            } else if cachedGameState == .active {
+                activeGameContentView
+            } else {
+                lobbyViewContent
             }
-            .allowsHitTesting(false)
+        }
+    }
+    
+    // MARK: - Game End Content View
+    
+    @ViewBuilder
+    private var gameEndContentView: some View {
+        if let session = viewModel.gameService.session,
+           let gameStats = viewModel.gameService.gameStats {
+            ManhuntGameEndView(
+                session: session,
+                gameStats: gameStats,
+                currentPlayer: viewModel.gameService.currentPlayer,
+                onPlayAgain: {
+                    viewModel.playAgain()
+                },
+                onBackToLobby: {
+                    // Reset game state to lobby
+                    viewModel.gameService.resetToLobby()
+                }
+            )
+            .transition(.opacity)
+        } else {
+            // Fallback: Show lobby if stats not available
+            lobbyViewContent
+        }
+    }
+    
+    @ViewBuilder
+    private var activeGameContentView: some View {
+        if showCountdown && !countdownCompleted {
+            // Show countdown if game just started
+            ManhuntCountdownView(
+                gameService: viewModel.gameService,
+                locationService: viewModel.locationService,
+                onCountdownComplete: {
+                    // Start the game timer when countdown completes
+                    viewModel.gameService.startGameTimer()
+                    // After countdown completes, mark as complete and show active game view
+                    withAnimation(.smoothTransition) {
+                        countdownCompleted = true
+                        showCountdown = false
+                    }
+                }
+            )
+            .transition(.opacity)
+        } else {
+            // Show active game view after countdown completes or if countdown was skipped
+            ManhuntActiveGameView(
+                gameService: viewModel.gameService,
+                locationService: viewModel.locationService,
+                viewModel: viewModel
+            )
+            .transition(.opacity)
+        }
+    }
+    
+    private var lobbyViewContent: some View {
+        ZStack {
+            // Cartoon landscape background
+            LandscapeBackground()
+                .drawingGroup()
+                .ignoresSafeArea(.all)
+                .zIndex(0)
+
+            AestheticBackground(gradientOffset: 0, pulseScale: 1.0)
+                .ignoresSafeArea(.all)
+                .allowsHitTesting(false)
+                .zIndex(1)
+
+            // Lobby Content Panel
+            lobbyContentPanel
+                .zIndex(2)
+        }
+        .onAppear {
         }
     }
     
@@ -208,22 +335,22 @@ struct ManhuntLobbyView: View {
                             onBackToMenu()
                         }
                     }) {
-                        HStack(spacing: AppSpacing.xs) {
+                        HStack(spacing: 4) {
                             Image(systemName: "chevron.left")
-                                .font(.body)
+                                .font(.system(size: 15, weight: .bold))
                             Text("Back to Games")
-                                .font(AppTypography.bodyMedium())
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
+                                .font(.system(size: 15, weight: .black, design: .rounded))
                         }
-                        .foregroundColor(primaryColor)
+                        .foregroundColor(AppColors.cartoonInk)
                         .padding(.horizontal, AppSpacing.md)
                         .padding(.vertical, AppSpacing.sm)
                         .background(
-                            Capsule()
-                                .fill(primaryColor.opacity(0.1))
+                            Capsule().fill(AppColors.cartoonCream)
                         )
+                        .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 2))
+                        .background(Capsule().fill(Color(white: 0.18)).offset(x: 2, y: 2))
                     }
+                    .buttonStyle(PlainButtonStyle())
                     Spacer()
                 }
                 .padding(.horizontal, AppSpacing.md)
@@ -233,18 +360,19 @@ struct ManhuntLobbyView: View {
                         // Centered Header
                 lobbyHeader
                     .padding(.horizontal, AppSpacing.md)
-                    .padding(.top, AppSpacing.lg)
-                    .padding(.bottom, AppSpacing.xs)
-                
+                    .padding(.top, AppSpacing.md)
+                    // More breathing room between tagline and cards
+                    .padding(.bottom, viewModel.gameService.session != nil ? AppSpacing.md : AppSpacing.xs)
+
                         // Content Cards (only show if session exists)
                 if let session = viewModel.gameService.session {
-                            VStack(spacing: AppSpacing.lg) {
+                            VStack(spacing: AppSpacing.sm) {
                     sessionInfoCard(session: session)
                             .transition(.asymmetric(
                                 insertion: .move(edge: .top).combined(with: .opacity),
                                 removal: .move(edge: .top).combined(with: .opacity)
                             ))
-                
+
                                 if !session.players.isEmpty {
                     playerListCard(session: session)
                                 .transition(.asymmetric(
@@ -255,76 +383,34 @@ struct ManhuntLobbyView: View {
                             }
                             .padding(.horizontal, AppSpacing.md)
                         }
-                        
+
                         // Centered Controls
                 lobbyControls
                             .padding(.horizontal, AppSpacing.md)
-                            .padding(.top, AppSpacing.lg)
+                            // Tighter gap when session is active so everything fits
+                            .padding(.top, viewModel.gameService.session != nil ? AppSpacing.sm : AppSpacing.lg)
                     
                     Spacer()
-                    .frame(height: AppSpacing.lg)
+                    .frame(height: AppSpacing.xl)
             }
         }
+        .safeAreaPadding(.bottom, AppSpacing.lg)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: viewModel.gameService.session?.id)
     }
     
     private var lobbyHeader: some View {
-        ZStack {
+        let hasSession = viewModel.gameService.session != nil
+        return ZStack {
             // Game Title - Dynamic based on game type
         VStack(spacing: AppSpacing.sm) {
-                // Game Logo/Title
-                gameTitleView
+                // Game Logo/Title — smaller when a session exists to save vertical space
+                gameTitleView(compact: hasSession)
                     .frame(maxWidth: .infinity)
                     .transition(.scale.combined(with: .opacity))
-            
-            // Tagline (dynamic)
-            Text(gameTagline)
-                .font(AppTypography.headlineSmall())
-                .fontWeight(.semibold)
-                .foregroundColor(AppColors.textPrimary)
-                .padding(.horizontal, AppSpacing.lg)
-                .padding(.top, -AppSpacing.sm)
-                .padding(.vertical, AppSpacing.sm)
-                .background(
-                    Capsule()
-                        .fill(primaryColor.opacity(0.1))
-                        .overlay(
-                            Capsule()
-                                .stroke(
-                                    LinearGradient(
-                                        colors: [
-                                            primaryColor.opacity(0.3),
-                                            secondaryColor.opacity(0.3)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                                    ),
-                                    lineWidth: 1
-                                )
-                        )
-                )
+
+            // Tagline (cartoon pill)
+            CartoonPill(text: gameTagline, color: primaryColor)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
-            
-                // Decorative line (dynamic theme)
-                HStack {
-                    Rectangle()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.clear,
-                                    primaryColor.opacity(0.6),
-                                    secondaryColor.opacity(0.6),
-                                    Color.clear
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(height: 2)
-                        .padding(.horizontal, AppSpacing.lg)
-                }
-                .padding(.top, AppSpacing.sm)
-                .transition(.opacity)
             }
             .multilineTextAlignment(.center)
             
@@ -332,19 +418,13 @@ struct ManhuntLobbyView: View {
             HStack {
                 Spacer()
                 VStack {
-                    Button(action: {
-                        showGameInfo = true
-                    }) {
-                        Image(systemName: "info.circle.fill")
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundColor(primaryColor)
-                            .padding(8)
-                            .background(
-                                Circle()
-                                    .fill(primaryColor.opacity(0.1))
-                            )
-                    }
-                    Spacer()
+	                    Button(action: {
+	                        showGameInfo = true
+	                    }) {
+	                        CartoonLobbyIconButtonLabel(systemName: "info.circle.fill")
+	                    }
+	                    .buttonStyle(IconButtonStyle(size: 42, color: primaryColor))
+	                    Spacer()
                 }
             }
             .padding(.horizontal, AppSpacing.md)
@@ -352,146 +432,92 @@ struct ManhuntLobbyView: View {
         }
     }
     
-    // Manhunt game logo view (matching ZombieTag logo size)
-    private var gameTitleView: some View {
-        ZStack {
-            // Outer glow effect
-            Image("Manhunt")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: 650, maxHeight: 280)
-                .blur(radius: 20)
-                .opacity(0.6)
-                .offset(y: 4)
-            
-            // Middle glow layer
-            Image("Manhunt")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: 650, maxHeight: 280)
-                .blur(radius: 10)
-                .opacity(0.5)
-                .offset(y: 2)
-            
-            // Main logo
-            Image("Manhunt")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: 650, maxHeight: 280)
-                .shadow(color: Color.black.opacity(0.4), radius: 15, x: 0, y: 8)
-                .shadow(color: primaryColor.opacity(0.7), radius: 25, x: 0, y: 0)
-                .shadow(color: secondaryColor.opacity(0.5), radius: 35, x: 0, y: 0)
-        }
+    // Manhunt game logo view — compact mode shrinks it when session panel is visible
+    private func gameTitleView(compact: Bool = false) -> some View {
+        let maxH: CGFloat = compact ? 100 : 216
+        let maxW: CGFloat = compact ? 360 : 780
+        return Image("Manhunt")
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(maxWidth: maxW, maxHeight: maxH)
+            .shadow(color: Color.black.opacity(0.4), radius: 15, x: 0, y: 8)
+        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: compact)
     }
     
     private func sessionInfoCard(session: GameSession) -> some View {
-        VStack(spacing: AppSpacing.lg) {
+        VStack(spacing: AppSpacing.sm) {
             // Top Section: Status and Players (Horizontal)
-            HStack(spacing: AppSpacing.lg) {
+            HStack(spacing: AppSpacing.md) {
                 // Status Badge
-                VStack(spacing: AppSpacing.xs) {
+                VStack(spacing: 3) {
                     Text("Status")
                         .font(AppTypography.caption())
-                        .foregroundColor(AppColors.textSecondary)
+                        .foregroundColor(AppColors.cartoonInk.opacity(0.55))
                     Text(session.gameState.rawValue.capitalized)
                         .font(AppTypography.labelMedium())
                         .fontWeight(.semibold)
                         .foregroundColor(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
                         .background(
                             Capsule()
                                 .fill(stateColor(for: session.gameState))
                         )
                 }
-                
+
                 Divider()
-                    .frame(height: 40)
-                
+                    .frame(height: 32)
+
                 // Players Count
-                VStack(spacing: AppSpacing.xs) {
+                VStack(spacing: 3) {
                     Text("Players")
                         .font(AppTypography.caption())
-                        .foregroundColor(AppColors.textSecondary)
+                        .foregroundColor(AppColors.cartoonInk.opacity(0.55))
                     HStack(spacing: 4) {
                         Text("\(session.players.count)")
-                            .font(.system(size: 24, weight: .bold, design: .rounded))
-                            .foregroundColor(AppColors.textPrimary)
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .foregroundColor(AppColors.cartoonInk)
                         Text("/")
-                            .font(.system(size: 18, weight: .regular))
-                            .foregroundColor(AppColors.textSecondary)
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundColor(AppColors.cartoonInk.opacity(0.55))
                         Text("\(GameService.maxPlayersPerSession)")
-                            .font(.system(size: 20, weight: .medium, design: .rounded))
-                            .foregroundColor(AppColors.textSecondary)
+                            .font(.system(size: 17, weight: .medium, design: .rounded))
+                            .foregroundColor(AppColors.cartoonInk.opacity(0.55))
                     }
                 }
-                
+
                 Spacer()
             }
-            
+
             // Join Code Section (only show if host)
             if let currentPlayer = viewModel.gameService.currentPlayer,
                currentPlayer.id == session.hostId {
-                VStack(spacing: AppSpacing.sm) {
+                VStack(spacing: AppSpacing.xs) {
                     HStack {
                         Image(systemName: "number")
                             .foregroundColor(primaryColor)
                             .font(.caption)
                         Text("Join Code")
                             .font(AppTypography.caption())
-                            .foregroundColor(AppColors.textSecondary)
+                            .foregroundColor(AppColors.cartoonInk.opacity(0.55))
                         Spacer()
                     }
-                    
-                    HStack(spacing: AppSpacing.md) {
-                        // Join code - clean format with separator
-                        Text(formatJoinCode(session.joinCode))
-                            .font(.system(size: 28, weight: .bold, design: .monospaced))
-                            .foregroundColor(primaryColor)
-                            .tracking(2)
-                            .padding(.horizontal, AppSpacing.md)
-                            .padding(.vertical, AppSpacing.sm)
-                            .frame(maxWidth: .infinity)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(primaryColor.opacity(0.1))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .stroke(primaryColor.opacity(0.2), lineWidth: 1)
-                                    )
-                            )
-                        
-                        // Action buttons
-                        HStack(spacing: AppSpacing.xs) {
-                            // Copy button
+
+                    HStack(spacing: AppSpacing.sm) {
+                        CartoonJoinCodeBadge(code: formatJoinCode(session.joinCode), accent: primaryColor)
+
+                        HStack(spacing: AppSpacing.sm) {
                             Button(action: {
-                                UIPasteboard.general.string = session.joinCode
-                                HapticFeedbackManager.shared.selection()
+                                copyJoinCode(session.joinCode)
                             }) {
-                                Image(systemName: "doc.on.doc.fill")
-                                    .foregroundColor(.white)
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .frame(width: 40, height: 40)
-                                    .background(
-                                        Circle()
-                                            .fill(primaryColor)
-                                            .shadow(color: primaryColor.opacity(0.3), radius: 4, x: 0, y: 2)
-                                    )
+                                CartoonLobbyIconButtonLabel(systemName: hasCopiedJoinCode ? "checkmark" : "doc.on.doc.fill")
                             }
-                            .buttonStyle(ScaleButtonStyle())
-                            
-                            // Share button
+                            .buttonStyle(IconButtonStyle(size: 42, color: hasCopiedJoinCode ? AppColors.success : primaryColor))
+
                             ShareLink(item: shareText(for: session)) {
-                                Image(systemName: "square.and.arrow.up.fill")
-                                    .foregroundColor(.white)
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .frame(width: 40, height: 40)
-                                    .background(
-                                        Circle()
-                                            .fill(secondaryColor)
-                                            .shadow(color: secondaryColor.opacity(0.3), radius: 4, x: 0, y: 2)
-                                    )
+                                CartoonLobbyIconButtonLabel(systemName: "square.and.arrow.up.fill")
                             }
+                            .buttonStyle(IconButtonStyle(size: 42, color: secondaryColor))
                         }
                     }
                 }
@@ -507,17 +533,17 @@ struct ManhuntLobbyView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Play Zone")
                             .font(AppTypography.caption())
-                            .foregroundColor(AppColors.textSecondary)
+                            .foregroundColor(AppColors.cartoonInk.opacity(0.55))
                         HStack(spacing: 6) {
                             Text("\(Int(bubble.startRadius))m")
                                 .font(.system(size: 16, weight: .semibold, design: .rounded))
-                                .foregroundColor(AppColors.textPrimary)
+                                .foregroundColor(AppColors.cartoonInk)
                             Text("→")
                                 .font(.system(size: 14, weight: .regular))
-                                .foregroundColor(AppColors.textSecondary)
+                                .foregroundColor(AppColors.cartoonInk.opacity(0.55))
                             Text("0m")
                                 .font(.system(size: 16, weight: .medium, design: .rounded))
-                                .foregroundColor(AppColors.textSecondary)
+                                .foregroundColor(AppColors.cartoonInk.opacity(0.55))
                         }
                     }
                     
@@ -526,10 +552,10 @@ struct ManhuntLobbyView: View {
                     VStack(alignment: .trailing, spacing: 4) {
                         Text("Duration")
                             .font(AppTypography.caption())
-                            .foregroundColor(AppColors.textSecondary)
+                            .foregroundColor(AppColors.cartoonInk.opacity(0.55))
                         Text(timeString(from: bubble.duration))
                             .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundColor(AppColors.textPrimary)
+                            .foregroundColor(AppColors.cartoonInk)
                     }
                 }
                 .padding(AppSpacing.sm)
@@ -543,12 +569,11 @@ struct ManhuntLobbyView: View {
                 )
             }
         }
-        .padding(AppSpacing.lg)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(.ultraThinMaterial)
-                .shadow(color: Color.black.opacity(0.1), radius: 12, x: 0, y: 4)
-        )
+        .padding(AppSpacing.md)
+        .background(AppColors.cartoonCream)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(AppColors.cartoonInk, lineWidth: 2))
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(white: 0.18)).offset(x: 4, y: 4))
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.gameService.session?.gameState)
     }
     
@@ -572,89 +597,21 @@ struct ManhuntLobbyView: View {
     }
     
     private func playerListCard(session: GameSession) -> some View {
-        VStack(alignment: .leading, spacing: AppSpacing.md) {
-            // Header
-            HStack(spacing: AppSpacing.sm) {
+        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            // Compact header
+            HStack(spacing: AppSpacing.xs) {
                 Image(systemName: "person.2.fill")
                     .foregroundColor(AppColors.hiderPrimary)
-                    .font(.title3)
-                Text("Players")
-                    .font(AppTypography.labelLarge())
-                    .fontWeight(.semibold)
+                    .font(.system(size: 14, weight: .bold))
+                Text("Players (\(session.players.count))")
+                    .font(.system(size: 14, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
             }
-            
+
             Divider()
-            
-            // Role distribution summary
-            let hunters = session.players.filter { $0.role == .hunter && $0.isAlive }
-            let hiders = session.players.filter { $0.role == .hider && $0.isAlive }
-            let eliminated = session.players.filter { !$0.isAlive }
-            
-            if !session.players.isEmpty {
-                HStack(spacing: AppSpacing.md) {
-                    // Hunters count
-                    HStack(spacing: 4) {
-                        Image(systemName: "target")
-                            .font(.caption)
-                            .foregroundColor(AppColors.hunterPrimary)
-                        Text("\(hunters.count)")
-                            .font(AppTypography.labelSmall())
-                            .fontWeight(.bold)
-                            .foregroundColor(AppColors.hunterPrimary)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule()
-                            .fill(AppColors.hunterPrimary.opacity(0.15))
-                    )
-                    
-                    // Hiders count
-                    HStack(spacing: 4) {
-                        Image(systemName: "eye.slash.fill")
-                            .font(.caption)
-                            .foregroundColor(AppColors.hiderPrimary)
-                        Text("\(hiders.count)")
-                            .font(AppTypography.labelSmall())
-                            .fontWeight(.bold)
-                            .foregroundColor(AppColors.hiderPrimary)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule()
-                            .fill(AppColors.hiderPrimary.opacity(0.15))
-                    )
-                    
-                    // Eliminated count
-                    if !eliminated.isEmpty {
-                        HStack(spacing: 4) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.caption)
-                                .foregroundColor(AppColors.error)
-                            Text("\(eliminated.count)")
-                                .font(AppTypography.labelSmall())
-                                .fontWeight(.bold)
-                                .foregroundColor(AppColors.error)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(AppColors.error.opacity(0.15))
-                        )
-                    }
-                    
-                    Spacer()
-                }
-                .padding(.bottom, AppSpacing.xs)
-            }
-            
-            Divider()
-                .padding(.vertical, AppSpacing.xs)
-            
-            // Player List
-            VStack(alignment: .leading, spacing: AppSpacing.sm) {
+
+            // Player List (no redundant role-count row)
+            VStack(alignment: .leading, spacing: 6) {
                 ForEach(session.players) { player in
                     HStack(spacing: AppSpacing.sm) {
                         // Profile picture or role icon
@@ -689,62 +646,37 @@ struct ManhuntLobbyView: View {
                         Text(player.displayName)
                             .font(AppTypography.bodyMedium())
                             .fontWeight(.medium)
-                            .foregroundColor(AppColors.textPrimary)
+                            .foregroundColor(AppColors.cartoonInk)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
+                            .layoutPriority(0)
                         
                         Spacer(minLength: AppSpacing.xs)
                         
                         // Role badge
-                        Text(player.role == .hunter ? "Hunter" : "Hider")
-                            .font(AppTypography.caption())
-                            .fontWeight(.semibold)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(
-                                Capsule()
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [
-                                                roleColor(for: player.role),
-                                                roleColor(for: player.role).opacity(0.8)
-                                            ],
-                                            startPoint: .leading,
-                                            endPoint: .trailing
-                                        )
-                                    )
-                            )
+                        CartoonPill(
+                            text: player.role == .hunter ? "Hunter" : "Hider",
+                            color: roleColor(for: player.role)
+                        )
+                        .frame(width: 76)
+                        .layoutPriority(1)
                         
                         // Role switch button (if host)
                         if let currentPlayer = viewModel.gameService.currentPlayer,
                            let session = viewModel.gameService.session,
                            currentPlayer.id == session.hostId {
-                            Button(action: {
-                                // Simply call setHunter - it handles toggling the role
-                                viewModel.gameService.setHunter(playerId: player.id)
-                            }) {
-                                Image(systemName: "arrow.left.arrow.right")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(primaryColor)
-                                    .frame(width: 28, height: 28)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        }
+	                            Button(action: {
+	                                // Simply call setHunter - it handles toggling the role
+	                                viewModel.gameService.setHunter(playerId: player.id)
+	                            }) {
+	                                CartoonLobbyIconButtonLabel(systemName: "arrow.left.arrow.right")
+	                            }
+	                            .buttonStyle(IconButtonStyle(size: 30, color: primaryColor))
+	                        }
                         
                         // You badge
                         if player.id == viewModel.gameService.currentPlayer?.id {
-                            Text("You")
-                                .font(AppTypography.caption())
-                                .fontWeight(.bold)
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(
-                                    Capsule()
-                                        .fill(primaryColor)
-                                        .shadow(color: primaryColor.opacity(0.5), radius: 2, x: 0, y: 1)
-                                )
+                            CartoonPill(text: "You", color: AppColors.cartoonSun, textColor: AppColors.cartoonInk)
                         }
                         
                         // Eliminated indicator
@@ -754,26 +686,35 @@ struct ManhuntLobbyView: View {
                                 .font(.system(size: 18, weight: .semibold))
                         }
                     }
-                    .padding(.horizontal, AppSpacing.sm)
-                    .padding(.vertical, AppSpacing.xs)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
                     .background(
                         RoundedRectangle(cornerRadius: 10)
-                            .fill(player.id == viewModel.gameService.currentPlayer?.id ? primaryColor.opacity(0.1) : AppColors.backgroundSecondary)
+                            .fill(player.id == viewModel.gameService.currentPlayer?.id ? primaryColor.opacity(0.12) : AppColors.cartoonCream.opacity(0.7))
                     )
                 }
             }
         }
         .padding(AppSpacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(.ultraThinMaterial)
-                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
-        )
+        .background(AppColors.cartoonCream)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppColors.cartoonInk, lineWidth: 2))
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(white: 0.18)).offset(x: 4, y: 4))
         .animation(.spring(response: 0.4, dampingFraction: 0.7), value: session.players.count)
     }
     
     private var lobbyControls: some View {
         VStack(spacing: AppSpacing.md) {
+            let locationReady = viewModel.locationService.isReadyForGameplay
+
+            LocationPermissionCard(
+                locationService: viewModel.locationService,
+                accent: primaryColor,
+                onRequestAdditionalPermissions: {
+                    viewModel.requestBluetoothPermissionIfNeeded()
+                }
+            )
+
             if viewModel.gameService.session == nil {
                 // Join Game Input Box (animated)
                 if showJoinGameInput {
@@ -787,56 +728,25 @@ struct ManhuntLobbyView: View {
                 // Create Game and Join Game Cards (beautified like game cards)
                 VStack(spacing: AppSpacing.md) {
                     // Create Game Card
-                Button(action: {
-                    HapticFeedbackManager.shared.selection()
-                    // Check if profile has a name
-                    if ProfileService.shared.displayName.isEmpty {
-                        showNoProfileNameAlert = true
-                    } else {
-                        viewModel.createSession()
-                    }
-                }) {
-                        HStack(spacing: AppSpacing.md) {
-                        Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 28, weight: .semibold))
-                                .foregroundColor(primaryColor)
-                                .frame(width: 44, height: 44)
-                                .background(
-                                    Circle()
-                                        .fill(primaryColor.opacity(0.15))
-                                )
-                            
-                            VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                                Text("Create Game")
-                                    .font(AppTypography.headlineSmall())
-                                    .fontWeight(.bold)
-                                    .foregroundColor(AppColors.textPrimary)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.8)
-                                
-                                Text("Start a new Hunter Tag session")
-                                    .font(AppTypography.bodySmall())
-                                    .foregroundColor(AppColors.textSecondary)
-                                    .lineLimit(2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            
-                            Spacer(minLength: AppSpacing.xs)
-                            
-                            Image(systemName: "chevron.right")
-                                .font(.body)
-                                .foregroundColor(primaryColor)
+                    Button(action: {
+                        HapticFeedbackManager.shared.selection()
+                        // Check if profile has a name
+                        if ProfileService.shared.displayName.isEmpty {
+                            showNoProfileNameAlert = true
+                        } else {
+                            viewModel.createSession()
                         }
-                        .padding(AppSpacing.md)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(.ultraThinMaterial)
-                                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
+                    }) {
+                        CartoonLobbyActionCard(
+                            iconName: "plus.circle.fill",
+                            title: "Create Game",
+                            subtitle: "Start a new Hunter Tag session",
+                            accent: primaryColor
                         )
                     }
-                    .buttonStyle(ScaleButtonStyle())
-                    .disabled(showJoinGameInput)
-                    .opacity(showJoinGameInput ? 0.6 : 1.0)
+                    .buttonStyle(CartoonCardButtonStyle())
+                    .disabled(showJoinGameInput || !locationReady)
+                    .opacity((showJoinGameInput || !locationReady) ? 0.6 : 1.0)
                     .accessibilityLabel("Create game")
                     .accessibilityHint("Creates a new Hunter Tag game session")
                     
@@ -850,45 +760,17 @@ struct ManhuntLobbyView: View {
                             }
                         }
                     }) {
-                        HStack(spacing: AppSpacing.md) {
-                            Image(systemName: showJoinGameInput ? "xmark.circle.fill" : "person.2.circle.fill")
-                                .font(.system(size: 28, weight: .semibold))
-                                .foregroundColor(secondaryColor)
-                                .frame(width: 44, height: 44)
-                                .background(
-                                    Circle()
-                                        .fill(secondaryColor.opacity(0.15))
-                                )
-                            
-                            VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                                Text(showJoinGameInput ? "Cancel" : "Join Game")
-                                    .font(AppTypography.headlineSmall())
-                                    .fontWeight(.bold)
-                                    .foregroundColor(AppColors.textPrimary)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.8)
-                                
-                                Text(showJoinGameInput ? "Close join code input" : "Enter a game code to join")
-                                    .font(AppTypography.bodySmall())
-                                    .foregroundColor(AppColors.textSecondary)
-                                    .lineLimit(2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            
-                            Spacer(minLength: AppSpacing.xs)
-                            
-                            Image(systemName: showJoinGameInput ? "xmark" : "chevron.right")
-                                .font(.body)
-                                .foregroundColor(secondaryColor)
-                        }
-                    .padding(AppSpacing.md)
-                    .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(.ultraThinMaterial)
-                                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
+                        CartoonLobbyActionCard(
+                            iconName: showJoinGameInput ? "xmark.circle.fill" : "person.2.circle.fill",
+                            title: showJoinGameInput ? "Cancel" : "Join Game",
+                            subtitle: showJoinGameInput ? "Close join code input" : "Enter a game code to join",
+                            accent: secondaryColor,
+                            trailingIconName: showJoinGameInput ? "xmark" : "chevron.right"
                         )
                     }
-                    .buttonStyle(ScaleButtonStyle())
+                    .buttonStyle(CartoonCardButtonStyle())
+                    .disabled(!locationReady)
+                    .opacity(locationReady ? 1.0 : 0.6)
                 }
                 .transition(.asymmetric(
                     insertion: .move(edge: .bottom).combined(with: .opacity),
@@ -897,105 +779,60 @@ struct ManhuntLobbyView: View {
             } else if viewModel.gameService.session?.gameState == .lobby {
                 VStack(spacing: AppSpacing.md) {
                     // Configure Game Button (if bubble not configured) OR Checkmark (if configured)
-                    if viewModel.gameService.session?.bubble == nil {
+                    // Only show configure button to host
+                    if let currentPlayer = viewModel.gameService.currentPlayer,
+                       let session = viewModel.gameService.session,
+                       currentPlayer.id == session.hostId,
+                       session.bubble == nil {
                         Button(action: { showBubbleSettings = true }) {
                             HStack(spacing: AppSpacing.sm) {
-                                Image(systemName: "gearshape.fill")
-                                    .font(.title3)
-                                    .symbolEffect(.bounce, value: showBubbleSettings)
+                                Image(systemName: "gearshape.fill").font(.title3)
                                 Text("Configure Game")
-                                    .font(AppTypography.labelLarge())
-                                    .fontWeight(.semibold)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.8)
+                                    .font(AppTypography.labelLarge()).fontWeight(.semibold)
+                                    .lineLimit(1).minimumScaleFactor(0.8)
                             }
-                            .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, AppSpacing.md)
                             .padding(.vertical, AppSpacing.md)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [
-                                                primaryColor,
-                                                secondaryColor
-                                            ],
-                                            startPoint: .leading,
-                                            endPoint: .trailing
-                                        )
-                                    )
-                                    .shadow(color: primaryColor.opacity(0.4), radius: 12, x: 0, y: 6)
-                            )
                         }
-                        .disabled(viewModel.locationService.coordinate == nil)
-                        .opacity(viewModel.locationService.coordinate == nil ? 0.6 : 1.0)
-                        .buttonStyle(ScaleButtonStyle())
+                        .buttonStyle(CartoonButtonStyle(accent: primaryColor, textColor: .white, isDisabled: !locationReady))
+                        .disabled(!locationReady)
+                        .opacity(locationReady ? 1.0 : 0.6)
                         .transition(.asymmetric(
                             insertion: .move(edge: .bottom).combined(with: .opacity),
                             removal: .move(edge: .bottom).combined(with: .opacity)
                         ))
                     } else {
                         // Game configured - show checkmark button that can be tapped to reconfigure (host only)
-                        if let currentPlayer = viewModel.gameService.currentPlayer,
-                           let session = viewModel.gameService.session,
-                           currentPlayer.id == session.hostId {
-                            Button(action: { showBubbleSettings = true }) {
-                                HStack(spacing: AppSpacing.sm) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.title3)
-                                        .foregroundColor(AppColors.success)
-                                    Text("Game Configured")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(AppColors.textPrimary)
-                                    Spacer()
-                                    Image(systemName: "gearshape")
-                                        .font(.body)
-                                        .foregroundColor(AppColors.textSecondary)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.horizontal, AppSpacing.md)
-                                .padding(.vertical, AppSpacing.md)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .fill(AppColors.success.opacity(0.1))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 16)
-                                                .stroke(AppColors.success.opacity(0.3), lineWidth: 2)
-                                        )
-                                )
-                            }
-                            .buttonStyle(ScaleButtonStyle())
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .bottom).combined(with: .opacity),
-                                removal: .move(edge: .bottom).combined(with: .opacity)
-                            ))
-                        } else {
-                            // Non-host sees read-only "Game Configured" indicator
-                            HStack(spacing: AppSpacing.sm) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(.title3)
-                                    .foregroundColor(AppColors.success)
-                                Text("Game Configured")
-                                    .font(AppTypography.labelLarge())
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(AppColors.textPrimary)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, AppSpacing.md)
-                            .padding(.vertical, AppSpacing.md)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(AppColors.success.opacity(0.1))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 16)
-                                            .stroke(AppColors.success.opacity(0.3), lineWidth: 2)
-                                    )
-                            )
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .bottom).combined(with: .opacity),
-                                removal: .move(edge: .bottom).combined(with: .opacity)
+	                        if let currentPlayer = viewModel.gameService.currentPlayer,
+	                           let session = viewModel.gameService.session,
+	                           currentPlayer.id == session.hostId {
+	                            Button(action: { showBubbleSettings = true }) {
+	                                CartoonLobbyActionCard(
+	                                    iconName: "checkmark.circle.fill",
+	                                    title: "Game Configured",
+	                                    subtitle: "Tap to edit the play zone",
+	                                    accent: AppColors.success,
+	                                    trailingIconName: "gearshape.fill"
+	                                )
+	                            }
+	                            .buttonStyle(CartoonCardButtonStyle())
+	                            .transition(.asymmetric(
+	                                insertion: .move(edge: .bottom).combined(with: .opacity),
+	                                removal: .move(edge: .bottom).combined(with: .opacity)
+	                            ))
+	                        } else {
+	                            // Non-host sees read-only "Game Configured" indicator
+	                            CartoonLobbyActionCard(
+	                                iconName: "checkmark.circle.fill",
+	                                title: "Game Configured",
+	                                subtitle: "Waiting for the host to start",
+	                                accent: AppColors.success,
+	                                trailingIconName: "checkmark"
+	                            )
+	                            .transition(.asymmetric(
+	                                insertion: .move(edge: .bottom).combined(with: .opacity),
+	                                removal: .move(edge: .bottom).combined(with: .opacity)
                             ))
                         }
                         
@@ -1011,33 +848,19 @@ struct ManhuntLobbyView: View {
                                         errorMessage = "Only the host can manage hunters."
                                         showErrorAlert = true
                                     } else {
-                                        showHunterManagement = true
-                                    }
-                                }) {
-                                    HStack(spacing: AppSpacing.sm) {
-                                        Image(systemName: "person.2.badge.gearshape.fill")
-                                            .font(.title3)
-                                        Text("Manage Hunters")
-                                            .font(AppTypography.labelLarge())
-                                            .fontWeight(.semibold)
-                                            .lineLimit(1)
-                                            .minimumScaleFactor(0.8)
-                                    }
-                                    .foregroundColor(primaryColor)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.horizontal, AppSpacing.md)
-                                    .padding(.vertical, AppSpacing.sm)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .fill(primaryColor.opacity(0.1))
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 12)
-                                                    .stroke(primaryColor.opacity(0.3), lineWidth: 1)
-                                            )
-                                    )
-                                }
-                                .buttonStyle(ScaleButtonStyle())
-                            }
+	                                        showHunterManagement = true
+	                                    }
+	                                }) {
+	                                    CartoonLobbyActionCard(
+	                                        iconName: "person.2.badge.gearshape.fill",
+	                                        title: "Manage Hunters",
+	                                        subtitle: "Choose who starts as hunter",
+	                                        accent: primaryColor,
+	                                        trailingIconName: "slider.horizontal.3"
+	                                    )
+	                                }
+	                                .buttonStyle(CartoonCardButtonStyle())
+	                            }
                             .transition(.asymmetric(
                                 insertion: .move(edge: .bottom).combined(with: .opacity),
                                 removal: .move(edge: .bottom).combined(with: .opacity)
@@ -1048,8 +871,14 @@ struct ManhuntLobbyView: View {
                         if let currentPlayer = viewModel.gameService.currentPlayer,
                            let session = viewModel.gameService.session {
                             let isHost = currentPlayer.id == session.hostId
+                            let playerCount = session.players.count
+                            let minimumPlayers = session.gameType.minimumPlayers
+                            let hasMinimumPlayers = playerCount >= minimumPlayers
+                            let hunterSlotsConfigured = session.hunterCount >= 1 && session.hunterCount < playerCount
+                            let isEnabled = locationReady && isHost && hasMinimumPlayers && hunterSlotsConfigured && !viewModel.isBeginningGame
+                            
                             Button(action: {
-                                if isHost {
+                                if isEnabled {
                                     HapticFeedbackManager.shared.selection()
                                     print("🎮 ManhuntLobbyView: Begin game button pressed")
                                     withAnimation(.smoothTransition) {
@@ -1058,62 +887,34 @@ struct ManhuntLobbyView: View {
                                 }
                             }) {
                                 HStack(spacing: AppSpacing.sm) {
-                                    Image(systemName: "play.circle.fill")
-                                        .font(.title3)
-                                        .symbolEffect(.bounce, value: viewModel.gameService.gameState)
-                                    Text("Begin Game")
+                                    if viewModel.isBeginningGame {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                            .scaleEffect(0.9)
+                                    } else {
+                                        Image(systemName: "play.circle.fill")
+                                            .font(.title3)
+                                            .symbolEffect(.bounce, value: viewModel.gameService.gameState)
+                                    }
+                                    Text(viewModel.isBeginningGame ? "Starting..." : "Begin Game")
                                         .font(AppTypography.labelLarge())
                                         .fontWeight(.semibold)
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.8)
                                 }
-                                .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
                                 .padding(.horizontal, AppSpacing.md)
                                 .padding(.vertical, AppSpacing.md)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .fill(
-                                            LinearGradient(
-                                                colors: isHost ? [
-                                                    primaryColor,
-                                                    secondaryColor
-                                                ] : [
-                                                    AppColors.textSecondary.opacity(0.5),
-                                                    AppColors.textSecondary.opacity(0.3)
-                                                ],
-                                                startPoint: .leading,
-                                                endPoint: .trailing
-                                            )
-                                        )
-                                        .shadow(color: isHost ? primaryColor.opacity(0.4) : Color.clear, radius: 12, x: 0, y: 6)
-                                )
                             }
-                            .buttonStyle(ScaleButtonStyle())
-                            .disabled(!isHost || viewModel.isBeginningGame)
-                            .opacity((isHost && !viewModel.isBeginningGame) ? 1.0 : 0.6)
-                            .transition(.asymmetric(
+	                            .buttonStyle(CartoonButtonStyle(accent: primaryColor, textColor: .white, isDisabled: !isEnabled))
+	                            .disabled(!isEnabled)
+	                            .transition(.asymmetric(
                                 insertion: .move(edge: .bottom).combined(with: .opacity),
                                 removal: .move(edge: .bottom).combined(with: .opacity)
                             ))
                         }
                     }
                 }
-            }
-            
-            // Location Permission Button
-            if viewModel.locationService.authorization != .authorizedAlways {
-                Button(action: { viewModel.locationService.requestPermission() }) {
-                    HStack(spacing: AppSpacing.xs) {
-                        Image(systemName: "location.fill")
-                            .symbolEffect(.pulse, options: .repeating)
-                        Text("Enable Location")
-                    }
-                    .font(AppTypography.bodyMedium())
-                    .foregroundColor(AppColors.textSecondary)
-                    .padding(.vertical, AppSpacing.sm)
-                }
-                .transition(.opacity)
             }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.7), value: viewModel.gameService.session?.id)
@@ -1124,13 +925,14 @@ struct ManhuntLobbyView: View {
     private var joinGameInputBox: some View {
         VStack(spacing: AppSpacing.md) {
             HStack(spacing: AppSpacing.sm) {
-                Image(systemName: "number.square.fill")
-                    .foregroundColor(AppColors.manhuntPrimary)
-                    .font(.title2)
+                CartoonMedallion(background: AppColors.manhuntPrimary, size: 36) {
+                    Image(systemName: "number")
+                        .font(.system(size: 17, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
+                }
                 Text("Enter Game Code")
-                    .font(AppTypography.labelLarge())
-                    .fontWeight(.semibold)
-                    .foregroundColor(AppColors.textPrimary)
+                    .font(.system(size: 17, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
@@ -1138,7 +940,7 @@ struct ManhuntLobbyView: View {
             HStack(spacing: AppSpacing.sm) {
                 TextField("000000", text: $gameCode)
                     .font(.system(size: 28, weight: .bold, design: .monospaced))
-                    .foregroundColor(AppColors.textPrimary)
+                    .foregroundColor(AppColors.cartoonInk)
                     .multilineTextAlignment(.center)
                     .keyboardType(.numberPad)
                     .autocorrectionDisabled()
@@ -1147,12 +949,12 @@ struct ManhuntLobbyView: View {
                     .frame(maxWidth: .infinity)
                     .background(
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(AppColors.backgroundSecondary)
+                            .fill(AppColors.cartoonCream2)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
                             .stroke(
-                                gameCode.isEmpty ? AppColors.textSecondary.opacity(0.3) : AppColors.hiderPrimary,
+                                gameCode.isEmpty ? AppColors.cartoonInk.opacity(0.35) : AppColors.hiderPrimary,
                                 lineWidth: 2
                             )
                     )
@@ -1167,6 +969,13 @@ struct ManhuntLobbyView: View {
                     }
                 
                 Button(action: {
+                    guard viewModel.locationService.isReadyForGameplay else {
+                        errorMessage = "Finish the two-step location setup before joining."
+                        showErrorAlert = true
+                        viewModel.requestRequiredPreGamePermissions()
+                        return
+                    }
+
                     guard gameCode.count == 6 else {
                         errorMessage = "Please enter a 6-digit game code."
                         showErrorAlert = true
@@ -1187,16 +996,16 @@ struct ManhuntLobbyView: View {
                     }
                 }) {
                     Image(systemName: "arrow.right.circle.fill")
-                        .font(.title2)
-                        .foregroundColor(gameCode.isEmpty ? AppColors.textSecondary : AppColors.hiderPrimary)
-                        .frame(width: 44, height: 44)
+                        .font(.system(size: 20, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
                 }
-                .disabled(gameCode.isEmpty)
+                .buttonStyle(IconButtonStyle(size: 44, color: (gameCode.count == 6 && viewModel.locationService.isReadyForGameplay) ? AppColors.hiderPrimary : AppColors.cartoonInk.opacity(0.45)))
+                .disabled(gameCode.count != 6 || !viewModel.locationService.isReadyForGameplay)
             }
             
             Text("Enter the game code shared by the host")
-                .font(AppTypography.caption())
-                .foregroundColor(AppColors.textSecondary)
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1204,15 +1013,14 @@ struct ManhuntLobbyView: View {
         .padding(.horizontal, AppSpacing.md)
         .padding(.vertical, AppSpacing.lg)
         .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(.ultraThinMaterial)
-                .shadow(color: Color.black.opacity(0.2), radius: 15, x: 0, y: 5)
-        )
+        .background(AppColors.cartoonCream)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppColors.cartoonInk, lineWidth: 2))
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(white: 0.18)).offset(x: 4, y: 4))
     }
-    
+
     // MARK: - Button Style
-    
+
     struct ScaleButtonStyle: ButtonStyle {
         func makeBody(configuration: Configuration) -> some View {
             configuration.label
@@ -1241,17 +1049,36 @@ struct ManhuntLobbyView: View {
     }
     
     // MARK: - Share Helper
+
+    private func copyJoinCode(_ joinCode: String) {
+        UIPasteboard.general.string = joinCode
+        HapticFeedbackManager.shared.selection()
+
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+            hasCopiedJoinCode = true
+        }
+
+        resetCopiedJoinCodeTask?.cancel()
+        resetCopiedJoinCodeTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                hasCopiedJoinCode = false
+            }
+        }
+    }
     
     private func shareText(for session: GameSession) -> String {
-        let bubbleInfo = session.bubble != nil ? "Game is configured and ready!" : "Waiting for host to configure game."
+        let bubbleInfo = session.bubble != nil ? "The game is configured and ready." : "The host is still setting up the game."
         return """
-        🎮 Join my Touch Grass game!
+        Join my Touch Grass \(session.gameType.rawValue) game.
         
         Game Code: \(session.joinCode)
         
         \(bubbleInfo)
         
-        Open Touch Grass and enter the code to join!
+        Open Touch Grass, choose \(session.gameType.rawValue), and enter this code to join.
         """
     }
 }

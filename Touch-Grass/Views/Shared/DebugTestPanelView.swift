@@ -14,11 +14,21 @@ struct DebugTestPanelView: View {
     // Use the shared GameViewModel from ContentView instead of creating a new one
     @ObservedObject var viewModel: GameViewModel
     @ObservedObject private var profileService = ProfileService.shared
-    @StateObject private var bluetoothService = BluetoothTagService()
+    // Use the actual BLE service from GameService, not a separate instance
+    private var bluetoothService: BluetoothTagService {
+        viewModel.gameService.bleService
+    }
     
     @State private var selectedCategory: TestCategory = .game
     @State private var showBluetoothTest = false
     @State private var showProfileTest = false
+    
+    /// When true, every fake player in the session jumps to a new random
+    /// coordinate inside the current playable circle on a timer, and each
+    /// move is persisted via Firestore the same way a real device would.
+    @State private var fakePlayerMovementSimulationEnabled = false
+    @State private var fakePlayerMovementTimer: Timer?
+    private static let fakePlayerMovementInterval: TimeInterval = 3.0
     
     enum TestCategory: String, CaseIterable {
         case game = "Game"
@@ -92,6 +102,9 @@ struct DebugTestPanelView: View {
             .background(AppColors.backgroundPrimary)
             .navigationTitle("Debug Tests")
             .navigationBarTitleDisplayMode(.inline)
+        }
+        .onDisappear {
+            stopFakePlayerMovementSimulation()
         }
         .sheet(isPresented: $showBluetoothTest) {
             BluetoothTestView()
@@ -211,6 +224,29 @@ struct DebugTestPanelView: View {
                                 addMultipleFakePlayers(count: min(5, remainingSlots))
                             }
                         }
+                        
+                        // GPS simulation toggle: only meaningful if at least
+                        // one fake player exists in the session. CTF is
+                        // excluded for v1 (flag/safe-zone rules).
+                        let hasFakes = session.players.contains { isFakePlayer($0) }
+                        if hasFakes && session.gameType != .captureTheFlag {
+                            Toggle(isOn: $fakePlayerMovementSimulationEnabled) {
+                                Text("Simulate fake player GPS (Firestore)")
+                                    .font(AppTypography.bodySmall())
+                            }
+                            .tint(AppColors.grassPrimary)
+                            .onChange(of: fakePlayerMovementSimulationEnabled) { _, enabled in
+                                if enabled {
+                                    startFakePlayerMovementSimulation()
+                                } else {
+                                    stopFakePlayerMovementSimulation()
+                                }
+                            }
+                        } else if hasFakes && session.gameType == .captureTheFlag {
+                            Text("Fake GPS simulation disabled in CTF.")
+                                .font(AppTypography.bodySmall())
+                                .foregroundColor(AppColors.textSecondary)
+                        }
                     } else {
                         Text("Create a session first")
                             .font(AppTypography.bodySmall())
@@ -324,43 +360,60 @@ struct DebugTestPanelView: View {
                 .font(AppTypography.headlineLarge())
                 .foregroundColor(AppColors.textPrimary)
             
-            // Status
+            // Status - Use actual BLE service from GameService
             testCard(title: "Bluetooth Status", icon: "antenna.radiowaves.left.and.right") {
                 VStack(alignment: .leading, spacing: AppSpacing.md) {
+                    let bleService = viewModel.gameService.bleService
+                    
                     HStack {
                         Circle()
-                            .fill(bluetoothService.isAdvertising ? .green : .red)
+                            .fill(bleService.isAdvertising ? .green : .red)
                             .frame(width: 12, height: 12)
-                        Text("Advertising: \(bluetoothService.isAdvertising ? "ON" : "OFF")")
+                        Text("Advertising: \(bleService.isAdvertising ? "ON" : "OFF")")
                             .font(AppTypography.bodyMedium())
                     }
                     
                     HStack {
                         Circle()
-                            .fill(bluetoothService.isScanning ? .green : .red)
+                            .fill(bleService.isScanning ? .green : .red)
                             .frame(width: 12, height: 12)
-                        Text("Scanning: \(bluetoothService.isScanning ? "ON" : "OFF")")
+                        Text("Scanning: \(bleService.isScanning ? "ON" : "OFF")")
                             .font(AppTypography.bodyMedium())
                     }
                     
-                    Text("Nearby Players: \(bluetoothService.nearbyPlayers.count)")
+                    Text("Nearby Players: \(bleService.nearbyPlayers.count)")
                         .font(AppTypography.bodyMedium())
+                    
+                    Text("Note: BLE auto-starts when game begins (beginGame())")
+                        .font(AppTypography.caption())
+                        .foregroundColor(AppColors.textSecondary)
+                        .padding(.top, AppSpacing.xs)
                 }
             }
             
             // Actions
             testCard(title: "Bluetooth Actions", icon: "power") {
                 VStack(spacing: AppSpacing.md) {
+                    let bleService = viewModel.gameService.bleService
+                    
                     testButton(title: "Open Full BLE Test", color: .blue) {
                         showBluetoothTest = true
                     }
                     
-                    testButton(title: "Start BLE", color: .green) {
-                        bluetoothService.start(playerId: UUID().uuidString, playerName: "Test Player")
+                    // Note: BLE is started/stopped automatically by GameService when game begins/ends
+                    // These buttons are for manual testing only
+                    if let currentPlayer = viewModel.gameService.currentPlayer {
+                        testButton(title: "Start BLE (Manual)", color: .green) {
+                            bleService.start(playerId: currentPlayer.id, playerName: currentPlayer.displayName)
+                        }
+                    } else {
+                        testButton(title: "Start BLE (Manual)", color: .green) {
+                            bleService.start(playerId: UUID().uuidString, playerName: "Test Player")
+                        }
                     }
                     
-                    testButton(title: "Stop BLE", color: .red) {
-                        bluetoothService.stop()
+                    testButton(title: "Stop BLE (Manual)", color: .red) {
+                        bleService.stop()
                     }
                 }
             }
@@ -471,7 +524,7 @@ struct DebugTestPanelView: View {
     
     private func createNewSession(gameType: GameType) {
         viewModel.selectedGameType = gameType
-        viewModel.ensureServicesInitialized()
+        // createSession() will ensure services are initialized internally
         viewModel.createSession()
     }
     
@@ -507,25 +560,17 @@ struct DebugTestPanelView: View {
                     role = teamACount <= teamBCount ? .teamA : .teamB
                 }
         
-        let baseLocation = session.players.first?.coordinate ?? viewModel.locationService.coordinate ?? CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194)
-        
-        // Ensure base location is valid
-        let safeLatitude = baseLocation.latitude.isFinite && baseLocation.latitude >= -90 && baseLocation.latitude <= 90 
-            ? baseLocation.latitude 
-            : 37.7749
-        let safeLongitude = baseLocation.longitude.isFinite && baseLocation.longitude >= -180 && baseLocation.longitude <= 180
-            ? baseLocation.longitude
-            : -122.4194
-        
-        // Generate random offset within valid range
-        let latOffset = Double.random(in: -0.001...0.001)
-        let lonOffset = Double.random(in: -0.001...0.001)
+        // Spawn at the local player's location so fakes appear "near you" for
+        // testing, not at session.players.first which can be a stale host pin
+        // far away. Add a small disk jitter so multiple adds don't stack.
+        let spawnCenter = spawnCoordinateForDebug()
+        let spawn = Self.randomCoordinateInDisk(center: spawnCenter, radiusMeters: 15)
         
         let fakePlayer = Player(
             id: UUID().uuidString, // Explicitly generate ID
             displayName: "Fake Player \(session.players.count + 1)",
-            latitude: safeLatitude + latOffset,
-            longitude: safeLongitude + lonOffset,
+            latitude: spawn.latitude,
+            longitude: spawn.longitude,
             role: role,
             isAlive: true,
             lastUpdated: Date(),
@@ -605,25 +650,14 @@ struct DebugTestPanelView: View {
                     role = teamACount <= teamBCount ? .teamA : .teamB // Teams may be rebalanced
                 }
                 
-                let baseLocation = currentSession.players.first?.coordinate ?? viewModel.locationService.coordinate ?? CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194)
-                
-                // Ensure base location is valid
-                let safeLatitude = baseLocation.latitude.isFinite && baseLocation.latitude >= -90 && baseLocation.latitude <= 90 
-                    ? baseLocation.latitude 
-                    : 37.7749
-                let safeLongitude = baseLocation.longitude.isFinite && baseLocation.longitude >= -180 && baseLocation.longitude <= 180
-                    ? baseLocation.longitude
-                    : -122.4194
-                
-                // Generate random offset within valid range
-                let latOffset = Double.random(in: -0.001...0.001)
-                let lonOffset = Double.random(in: -0.001...0.001)
+                let spawnCenter = spawnCoordinateForDebug()
+                let spawn = Self.randomCoordinateInDisk(center: spawnCenter, radiusMeters: 15)
                 
                 let fakePlayer = Player(
                     id: UUID().uuidString,
                     displayName: "Fake Player \(currentSession.players.count + 1)",
-                    latitude: safeLatitude + latOffset,
-                    longitude: safeLongitude + lonOffset,
+                    latitude: spawn.latitude,
+                    longitude: spawn.longitude,
                     role: role,
                     isAlive: true,
                     lastUpdated: Date(),
@@ -793,6 +827,161 @@ struct DebugTestPanelView: View {
         // Force UI update by triggering objectWillChange
         profileService.objectWillChange.send()
         print("✅ Debug: Reset all statistics")
+    }
+    
+    // MARK: - Fake Player GPS Simulation
+    //
+    // These helpers let the debug panel pretend that fake players have real
+    // GPS: they spawn at the local user's coordinate and, when the simulation
+    // toggle is on, every few seconds each fake gets a new random coordinate
+    // inside the current playable circle. Every move is persisted via the
+    // same `FirestoreService.updatePlayerLocation` path real devices use, so
+    // listeners and obfuscation snapshots exercise the real sync path.
+    
+    /// True when a player was added via the debug panel. Matches the same
+    /// convention used elsewhere in `GameService` (display-name prefix).
+    private func isFakePlayer(_ player: Player) -> Bool {
+        return player.displayName.contains("Fake Player")
+    }
+    
+    /// Coordinate fakes should be spawned at: prefer the local current
+    /// player's coordinate, then the active GPS, then a safe default so
+    /// debug spawning still produces valid pins on simulators with no GPS.
+    private func spawnCoordinateForDebug() -> CLLocationCoordinate2D {
+        if let coord = viewModel.gameService.currentPlayer?.coordinate,
+           isValid(coord) {
+            return coord
+        }
+        if let coord = viewModel.locationService.coordinate,
+           isValid(coord) {
+            return coord
+        }
+        return CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194)
+    }
+    
+    private func isValid(_ coord: CLLocationCoordinate2D) -> Bool {
+        return coord.latitude.isFinite && coord.longitude.isFinite
+            && coord.latitude >= -90 && coord.latitude <= 90
+            && coord.longitude >= -180 && coord.longitude <= 180
+            && !(coord.latitude == 0 && coord.longitude == 0)
+    }
+    
+    /// The current playable circle for fake-player random movement.
+    ///
+    /// - No bubble (lobby): a small disk around the spawn point so fakes
+    ///   still wander visibly while you're testing the lobby map.
+    /// - New zone system: the current active zone from `ZoneService`, with a
+    ///   small margin so points don't bunch right on the boundary.
+    /// - Legacy: the bubble's center and `currentRadius()` with the same
+    ///   margin.
+    private func playableCircle(for session: GameSession) -> (center: CLLocationCoordinate2D, radiusMeters: Double) {
+        guard let bubble = session.bubble else {
+            return (spawnCoordinateForDebug(), 400)
+        }
+        let marginFactor = 0.92
+        if bubble.usesNewZoneSystem {
+            let runtimeState = ZoneService.deriveRuntimeZoneState(for: bubble, now: Date())
+            let zone = runtimeState.currentActiveZone
+            return (zone.centerCoordinate, max(30, zone.radiusMeters * marginFactor))
+        }
+        return (bubble.center, max(30, bubble.currentRadius() * marginFactor))
+    }
+    
+    /// Uniform random point inside a disk of the given radius (meters),
+    /// converted from local meters to a lat/lon coordinate.
+    ///
+    /// Uses `r = R * sqrt(U)` so density is uniform in area (not biased
+    /// toward the center, which `U * R` would produce).
+    static func randomCoordinateInDisk(
+        center: CLLocationCoordinate2D,
+        radiusMeters: Double
+    ) -> CLLocationCoordinate2D {
+        guard radiusMeters > 0 else { return center }
+        let r = radiusMeters * sqrt(Double.random(in: 0...1))
+        let theta = 2 * .pi * Double.random(in: 0...1)
+        
+        let dy = r * cos(theta)
+        let dx = r * sin(theta)
+        
+        let cosLat = cos(center.latitude * .pi / 180.0)
+        let safeCosLat = abs(cosLat) < 1e-9 ? 1 : cosLat
+        
+        return CLLocationCoordinate2D(
+            latitude: center.latitude + dy / 111_000.0,
+            longitude: center.longitude + dx / (111_000.0 * safeCosLat)
+        )
+    }
+    
+    private func startFakePlayerMovementSimulation() {
+        stopFakePlayerMovementSimulation()
+        let timer = Timer.scheduledTimer(
+            withTimeInterval: Self.fakePlayerMovementInterval,
+            repeats: true
+        ) { _ in
+            Task { @MainActor in
+                stepFakePlayerMovement()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        fakePlayerMovementTimer = timer
+        // Fire once immediately so the toggle has a visible effect without
+        // waiting for the first interval.
+        Task { @MainActor in
+            stepFakePlayerMovement()
+        }
+    }
+    
+    private func stopFakePlayerMovementSimulation() {
+        fakePlayerMovementTimer?.invalidate()
+        fakePlayerMovementTimer = nil
+    }
+    
+    /// Move every alive fake player to a new random point in the playable
+    /// circle, then persist each move via Firestore. Sequential awaits avoid
+    /// races on the same session document.
+    @MainActor
+    private func stepFakePlayerMovement() {
+        guard var session = viewModel.gameService.session else { return }
+        // Excluded in v1 — CTF has flag/safe-zone semantics that should not
+        // be perturbed by random fake movement.
+        guard session.gameType != .captureTheFlag else { return }
+        
+        let circle = playableCircle(for: session)
+        var movedFakes: [Player] = []
+        
+        for index in session.players.indices {
+            let player = session.players[index]
+            guard isFakePlayer(player), player.isAlive else { continue }
+            
+            let newCoord = Self.randomCoordinateInDisk(
+                center: circle.center,
+                radiusMeters: circle.radiusMeters
+            )
+            session.players[index].latitude = newCoord.latitude
+            session.players[index].longitude = newCoord.longitude
+            session.players[index].lastUpdated = Date()
+            movedFakes.append(session.players[index])
+        }
+        
+        guard !movedFakes.isEmpty else { return }
+        
+        viewModel.gameService.session = session
+        
+        let firestore = viewModel.gameService.firestore
+        let sessionId = session.id
+        Task {
+            for fake in movedFakes {
+                do {
+                    try await firestore.updatePlayerLocation(
+                        sessionId: sessionId,
+                        player: fake,
+                        flags: nil
+                    )
+                } catch {
+                    print("⚠️ Debug: Failed to sync fake player \(fake.displayName) location: \(error)")
+                }
+            }
+        }
     }
 }
 #endif

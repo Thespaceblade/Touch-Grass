@@ -14,6 +14,7 @@ struct ZombieTagBubbleSettingsView: View {
     @Binding var startRadius: Double
     @Binding var duration: Double
     @Binding var zombieCount: Int
+    @Binding var showTimer: Bool
     let onStart: (CLLocationCoordinate2D) -> Void // Now passes selected center
     let userLocation: CLLocationCoordinate2D?
     let maxPlayers: Int // Maximum number of players in session
@@ -23,10 +24,11 @@ struct ZombieTagBubbleSettingsView: View {
     @State private var bubbleCenter: CLLocationCoordinate2D?
     
     // Initialize bubbleCenter immediately when view is created (not in onAppear)
-    init(startRadius: Binding<Double>, duration: Binding<Double>, zombieCount: Binding<Int>, onStart: @escaping (CLLocationCoordinate2D) -> Void, userLocation: CLLocationCoordinate2D?, maxPlayers: Int) {
+    init(startRadius: Binding<Double>, duration: Binding<Double>, zombieCount: Binding<Int>, showTimer: Binding<Bool>, onStart: @escaping (CLLocationCoordinate2D) -> Void, userLocation: CLLocationCoordinate2D?, maxPlayers: Int) {
         self._startRadius = startRadius
         self._duration = duration
         self._zombieCount = zombieCount
+        self._showTimer = showTimer
         self.onStart = onStart
         self.userLocation = userLocation
         self.maxPlayers = maxPlayers
@@ -46,12 +48,6 @@ struct ZombieTagBubbleSettingsView: View {
     
     private var secondaryColor: Color {
         AppColors.zombieSecondary
-    }
-    
-    // Calculate shrink info
-    private var shrinkInterval: Double { 180 } // 3 minutes
-    private var numberOfShrinks: Int {
-        Int(duration / shrinkInterval)
     }
     
     // Zombie count binding for slider
@@ -84,41 +80,24 @@ struct ZombieTagBubbleSettingsView: View {
     var body: some View {
         NavigationView {
             ZStack {
-                // Dynamic-themed background
-                LinearGradient(
-                    colors: [
-                        primaryColor.opacity(0.1),
-                        AppColors.backgroundPrimary
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
+                ThemeBackgroundView(
+                    primaryColor: primaryColor,
+                    secondaryColor: secondaryColor,
+                    lightColor: AppColors.zombieLight
                 )
-                .ignoresSafeArea()
                 
                 ScrollView {
-                    VStack(spacing: AppSpacing.xl) {
+                    VStack(spacing: AppSpacing.lg) {
                         Spacer()
-                            .frame(height: AppSpacing.lg)
+                            .frame(height: AppSpacing.md)
                         
-                        // Title
-                        VStack(spacing: AppSpacing.sm) {
-                            Text("Configure Game")
-                                .font(AppTypography.displayMedium())
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [
-                                            primaryColor,
-                                            secondaryColor
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                            
-                            Text("Set up the play zone")
-                                .font(AppTypography.bodyMedium())
-                                .foregroundColor(AppColors.textSecondary)
-                        }
+                        CartoonConfigurationHero(
+                            iconName: "figure.walk.motion",
+                            title: "Configure Game",
+                            subtitle: "Set the play zone, timer, and starting Zombies.",
+                            badge: "Zombie Setup",
+                            accent: primaryColor
+                        )
                         .padding(.horizontal, AppSpacing.md)
                         
                         // Interactive Map Card
@@ -127,22 +106,15 @@ struct ZombieTagBubbleSettingsView: View {
                                 .padding(.horizontal, AppSpacing.md)
                         }
                         
-                        // Settings Card
                         VStack(alignment: .leading, spacing: AppSpacing.lg) {
-                            // Start Radius
-                            VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                                HStack {
-                                    Text("Start Radius")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(AppColors.textPrimary)
-                                    Spacer()
-                                    Text("\(Int(startRadius))m")
-                                        .font(AppTypography.labelMedium())
-                                        .foregroundColor(primaryColor)
-                                }
+                            VStack(alignment: .leading, spacing: AppSpacing.md) {
+                                CartoonSettingHeader(
+                                    iconName: "scope",
+                                    title: "Start Radius",
+                                    value: "\(Int(startRadius))m",
+                                    accent: primaryColor
+                                )
                                 
-                                // Preset buttons
                                 HStack(spacing: AppSpacing.xs) {
                                     presetButton(title: "Small", radius: 200, currentRadius: $startRadius)
                                     presetButton(title: "Medium", radius: 500, currentRadius: $startRadius)
@@ -150,105 +122,83 @@ struct ZombieTagBubbleSettingsView: View {
                                 }
                                 
                                 Slider(value: $startRadius, in: 50...1000, step: 10)
-                                    .tint(AppColors.bubbleSafe)
-                            }
-                            
-                            Divider()
-                            
-                            // Duration
-                            VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                                HStack {
-                                    Text("Game Duration")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(AppColors.textPrimary)
-                                    Spacer()
-                                    Text(timeString(from: duration))
-                                        .font(AppTypography.labelMedium())
-                                        .foregroundColor(AppColors.zombiePrimary)
-                                }
-                                
-                                // Preset buttons
-                                HStack(spacing: AppSpacing.xs) {
-                                    presetButton(title: "5 min", duration: 300, currentDuration: $duration)
-                                    presetButton(title: "10 min", duration: 600, currentDuration: $duration)
-                                    presetButton(title: "15 min", duration: 900, currentDuration: $duration)
-                                }
-                                
-                                Slider(value: $duration, in: 60...600, step: 30)
                                     .tint(primaryColor)
                             }
                             
-                            Divider()
+                            CartoonSettingDivider()
                             
-                            // Zombie Count (for Zombie Tag)
-                            VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                                HStack {
-                                    Text("Number of Initial Zombies")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(AppColors.textPrimary)
-                                    Spacer()
-                                    Text("\(zombieCount)")
-                                        .font(AppTypography.labelMedium())
-                                        .foregroundColor(primaryColor)
+                            VStack(alignment: .leading, spacing: AppSpacing.md) {
+                                CartoonSettingHeader(
+                                    iconName: "timer",
+                                    title: "Game Duration",
+                                    value: timeString(from: duration),
+                                    accent: primaryColor
+                                )
+                                
+                                HStack(spacing: AppSpacing.xs) {
+                                    presetButton(title: "15", duration: 900, currentDuration: $duration)
+                                    presetButton(title: "30", duration: 1800, currentDuration: $duration)
+                                    presetButton(title: "60", duration: 3600, currentDuration: $duration)
                                 }
                                 
-                                // Only show slider if we have a valid range (maxZombieCount > 1)
-                                // Slider crashes with "max stride must be positive" if range is 1...1.0
+                                Slider(value: $duration, in: 900...7200, step: 900)
+                                    .tint(primaryColor)
+                            }
+                            
+                            CartoonSettingDivider()
+                            
+                            VStack(alignment: .leading, spacing: AppSpacing.md) {
+                                CartoonSettingHeader(
+                                    iconName: "person.crop.circle.badge.plus",
+                                    title: "Initial Zombies",
+                                    value: "\(zombieCount)",
+                                    accent: primaryColor
+                                )
+                                
                                 if canShowZombieSlider {
-                                    // Ensure valid range for slider (at least 1...2)
                                     let sliderMax = max(2, maxZombieCount)
                                     Slider(value: zombieCountBinding, in: 1...Double(sliderMax), step: 1)
-                                    .tint(primaryColor)
+                                        .tint(primaryColor)
+                                    
+                                    CartoonInfoLine(
+                                        iconName: "shuffle",
+                                        text: "Initial zombies will be randomly selected.",
+                                        accent: primaryColor,
+                                        isSubtle: true
+                                    )
                                 } else {
-                                    // If only 1 player, just show the value (can't have more than 1 zombie with 1 player)
-                                    Text("1 (Only you in game)")
-                                        .font(AppTypography.bodySmall())
-                                        .foregroundColor(AppColors.textSecondary)
-                                        .padding(.vertical, AppSpacing.xs)
-                                }
-                                
-                                if canShowZombieSlider {
-                                Text("Initial zombies will be randomly selected")
-                                    .font(AppTypography.caption())
-                                    .foregroundColor(AppColors.textTertiary)
+                                    CartoonInfoLine(
+                                        iconName: "person.fill",
+                                        text: "Only you are in the game right now.",
+                                        accent: primaryColor,
+                                        isSubtle: true
+                                    )
                                 }
                             }
                             
-                            Divider()
+                            CartoonSettingDivider()
                             
-                            // Zone Shrink Info
-                            VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                                Text("Zone Shrinks")
-                                    .font(AppTypography.labelMedium())
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(AppColors.textPrimary)
+                            VStack(alignment: .leading, spacing: AppSpacing.md) {
+                                CartoonSettingHeader(
+                                    iconName: "arrow.down.right.and.arrow.up.left",
+                                    title: "Zone Shrinks",
+                                    value: startRadius < ZoneService.minimumShrinkingStartRadius ? "Off" : "Scheduled",
+                                    accent: primaryColor
+                                )
                                 
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Every 3 minutes, shrinks by 15%")
-                                        .font(AppTypography.bodySmall())
-                            .foregroundColor(AppColors.textSecondary)
-                                    Text("Zone moves randomly each shrink")
-                                        .font(AppTypography.bodySmall())
-                                        .foregroundColor(AppColors.textSecondary)
-                                    Text("Shrinks to zero (no minimum)")
-                                        .font(AppTypography.caption())
-                                        .foregroundColor(AppColors.textTertiary)
-                                    if numberOfShrinks > 0 {
-                                        Text("Total shrinks: ~\(numberOfShrinks)")
-                            .font(AppTypography.caption())
-                                            .foregroundColor(AppColors.textTertiary)
+                                VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                                    if startRadius < ZoneService.minimumShrinkingStartRadius {
+                                        CartoonInfoLine(iconName: "lock.circle.fill", text: "Small zone: shrinking is disabled under 100m.", accent: primaryColor)
+                                    } else {
+                                        CartoonInfoLine(iconName: "clock.arrow.circlepath", text: "First safe zone reveals after opening grace.", accent: primaryColor)
+                                        CartoonInfoLine(iconName: "move.3d", text: "Zones close on a duration-scaled schedule.", accent: primaryColor, isSubtle: true)
+                                        CartoonInfoLine(iconName: "circle.dashed", text: "Controlled pulls keep each new safe zone inside the current bubble.", accent: primaryColor, isSubtle: true)
                                     }
                                 }
                             }
                         }
                         .padding(AppSpacing.md)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(.ultraThinMaterial)
-                                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
-                        )
+                        .cartoonCard(cornerRadius: 18, shadowOffset: 5, borderWidth: 2.5)
                         .padding(.horizontal, AppSpacing.md)
                         
                         // Configure Button
@@ -261,15 +211,13 @@ struct ZombieTagBubbleSettingsView: View {
                         }) {
                             HStack(spacing: AppSpacing.sm) {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .font(.title3)
+                                    .font(.system(size: 20, weight: .black, design: .rounded))
                                 Text("Configure")
-                                    .font(AppTypography.labelLarge())
-                                    .fontWeight(.semibold)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.8)
                             }
                         }
-                        .buttonStyle(PrimaryButtonStyle())
+                        .buttonStyle(CartoonButtonStyle(accent: primaryColor, textColor: .white))
                         .padding(.horizontal, AppSpacing.md)
                         .accessibilityLabel("Configure game")
                         .accessibilityHint("Saves the game configuration and starts the game")
@@ -278,11 +226,13 @@ struct ZombieTagBubbleSettingsView: View {
                             .frame(height: AppSpacing.lg)
                     }
                 }
+                .safeAreaPadding(.bottom, AppSpacing.lg)
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .font(.system(size: 16, weight: .black, design: .rounded))
                         .foregroundColor(primaryColor)
                 }
             }
@@ -307,13 +257,24 @@ struct ZombieTagBubbleSettingsView: View {
     // MARK: - Interactive Map
     
     private func interactiveMapCard(userLocation: CLLocationCoordinate2D) -> some View {
-        VStack(alignment: .leading, spacing: AppSpacing.sm) {
-            HStack {
-                Text("Zone Configuration")
-                .font(AppTypography.labelLarge())
-                .fontWeight(.semibold)
-                .foregroundColor(AppColors.textPrimary)
-            
+        VStack(alignment: .leading, spacing: AppSpacing.md) {
+            HStack(spacing: AppSpacing.sm) {
+                CartoonMedallion(background: primaryColor, size: 34) {
+                    Image(systemName: "map.fill")
+                        .font(.system(size: 15, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
+                }
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Zone Configuration")
+                        .font(.system(size: 17, weight: .black, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk)
+                    
+                    Text("Pan the map or drag the red marker.")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundColor(AppColors.cartoonInk.opacity(0.62))
+                }
+                
                 Spacer()
                 
                 Button(action: {
@@ -323,24 +284,27 @@ struct ZombieTagBubbleSettingsView: View {
                 }) {
                     HStack(spacing: 4) {
                         Image(systemName: "location.fill")
-                            .font(.caption)
+                            .font(.system(size: 12, weight: .black, design: .rounded))
                         Text("Reset")
-                            .font(AppTypography.caption())
+                            .font(.system(size: 12, weight: .black, design: .rounded))
+                            .tracking(0.4)
+                            .textCase(.uppercase)
                     }
-                    .foregroundColor(primaryColor)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(primaryColor)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 2))
                     .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(primaryColor.opacity(0.1))
+                        Capsule()
+                            .fill(AppColors.cartoonInk)
+                            .offset(x: 2, y: 2)
                     )
                 }
+                .buttonStyle(PlainButtonStyle())
             }
-            
-            Text("Pan the map to set zone center, or drag the red marker")
-                .font(AppTypography.caption())
-                .foregroundColor(AppColors.textSecondary)
-            
+
             // Draggable map with MKMapView for smooth native dragging
             // userLocation is guaranteed non-nil in this function (it's a non-optional parameter)
             DraggableBubbleMapView(
@@ -360,41 +324,41 @@ struct ZombieTagBubbleSettingsView: View {
                 }
             )
             .frame(height: 300)
-            .cornerRadius(12)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(AppColors.cartoonInk, lineWidth: 2.5)
+            )
             
             // Legend
             VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            HStack(spacing: AppSpacing.md) {
-                HStack(spacing: AppSpacing.xs) {
-                    Circle()
-                        .fill(AppColors.bubbleSafe)
-                        .frame(width: 8, height: 8)
+                HStack(spacing: AppSpacing.md) {
+                    HStack(spacing: AppSpacing.xs) {
+                        Circle()
+                            .fill(AppColors.bubbleSafe)
+                            .frame(width: 9, height: 9)
                         Text("Zone: \(Int(startRadius))m")
-                        .font(AppTypography.caption())
-                        .foregroundColor(AppColors.textSecondary)
-                }
-                
-                HStack(spacing: AppSpacing.xs) {
-                    Circle()
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundColor(AppColors.cartoonInk.opacity(0.68))
+                    }
+                    
+                    HStack(spacing: AppSpacing.xs) {
+                        Circle()
                             .fill(primaryColor)
-                        .frame(width: 8, height: 8)
+                            .frame(width: 9, height: 9)
                         Text("Center")
-                            .font(AppTypography.caption())
-                            .foregroundColor(AppColors.textSecondary)
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundColor(AppColors.cartoonInk.opacity(0.68))
                     }
                 }
                 
-                Text("Pan the map to set zone center, or drag the red marker")
-                    .font(AppTypography.caption())
-                    .foregroundColor(AppColors.textTertiary)
+                Text("The bubble center is saved when you tap Configure.")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk.opacity(0.52))
             }
         }
         .padding(AppSpacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(.ultraThinMaterial)
-                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
-        )
+        .cartoonCard(cornerRadius: 18, shadowOffset: 5, borderWidth: 2.5)
     }
     
     private func regionForBubble(center: CLLocationCoordinate2D, radius: Double) -> MKCoordinateRegion {
@@ -407,72 +371,53 @@ struct ZombieTagBubbleSettingsView: View {
     // MARK: - Preset Helpers
     
     private func presetButton(title: String, radius: Double, currentRadius: Binding<Double>) -> some View {
-        Button(action: {
+        CartoonPresetChip(
+            title: title,
+            isSelected: abs(currentRadius.wrappedValue - radius) < 10,
+            accent: primaryColor
+        ) {
             HapticFeedbackManager.shared.selection()
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                 currentRadius.wrappedValue = radius
             }
-        }) {
-            Text(title)
-                .font(AppTypography.caption())
-                .fontWeight(.medium)
-                .foregroundColor(abs(currentRadius.wrappedValue - radius) < 10 ? .white : AppColors.textSecondary)
-                .padding(.horizontal, AppSpacing.sm)
-                .padding(.vertical, AppSpacing.xs)
-                .background(
-                    Capsule()
-                        .fill(abs(currentRadius.wrappedValue - radius) < 10 ? primaryColor : AppColors.backgroundSecondary)
-                )
         }
-        .buttonStyle(PlainButtonStyle())
     }
     
     private func presetButton(title: String, duration: Double, currentDuration: Binding<Double>) -> some View {
-        Button(action: {
+        CartoonPresetChip(
+            title: title,
+            isSelected: abs(currentDuration.wrappedValue - duration) < 30,
+            accent: primaryColor
+        ) {
             HapticFeedbackManager.shared.selection()
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                 currentDuration.wrappedValue = duration
             }
-        }) {
-            Text(title)
-                .font(AppTypography.caption())
-                .fontWeight(.medium)
-                .foregroundColor(abs(currentDuration.wrappedValue - duration) < 30 ? .white : AppColors.textSecondary)
-                .padding(.horizontal, AppSpacing.sm)
-                .padding(.vertical, AppSpacing.xs)
-                .background(
-                    Capsule()
-                        .fill(abs(currentDuration.wrappedValue - duration) < 30 ? primaryColor : AppColors.backgroundSecondary)
-                )
         }
-        .buttonStyle(PlainButtonStyle())
     }
     
     private func presetButton(title: String, value: Double, currentValue: Binding<Double>) -> some View {
-        Button(action: {
+        CartoonPresetChip(
+            title: title,
+            isSelected: abs(currentValue.wrappedValue - value) < 0.5,
+            accent: primaryColor
+        ) {
             HapticFeedbackManager.shared.selection()
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                 currentValue.wrappedValue = value
             }
-        }) {
-            Text(title)
-                .font(AppTypography.caption())
-                .fontWeight(.medium)
-                .foregroundColor(abs(currentValue.wrappedValue - value) < 0.5 ? .white : AppColors.textSecondary)
-                .padding(.horizontal, AppSpacing.sm)
-                .padding(.vertical, AppSpacing.xs)
-                .background(
-                    Capsule()
-                        .fill(abs(currentValue.wrappedValue - value) < 0.5 ? primaryColor : AppColors.backgroundSecondary)
-                )
         }
-        .buttonStyle(PlainButtonStyle())
     }
     
     private func timeString(from seconds: Double) -> String {
         let minutes = Int(seconds) / 60
         let remainingSeconds = Int(seconds) % 60
-        if minutes > 0 {
+        let hours = minutes / 60
+        let remainingMinutes = minutes % 60
+
+        if hours > 0 {
+            return remainingMinutes > 0 ? "\(hours)h \(remainingMinutes)m" : "\(hours)h"
+        } else if minutes > 0 {
             return remainingSeconds > 0 ? "\(minutes)m \(remainingSeconds)s" : "\(minutes)m"
         } else {
             return "\(Int(seconds))s"

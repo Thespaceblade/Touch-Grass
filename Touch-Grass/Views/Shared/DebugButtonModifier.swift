@@ -15,7 +15,7 @@ struct DebugButtonModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .overlay(alignment: .topTrailing) {
-                if viewModel != nil {
+                if !ScreenshotScenario.isActive, viewModel != nil {
                     Button(action: {
                         HapticFeedbackManager.shared.selection()
                         showDebugTestPanel = true

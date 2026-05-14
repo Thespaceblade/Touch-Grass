@@ -1,471 +1,399 @@
 import SwiftUI
 import MapKit
 import UIKit
+import UserNotifications
 
 struct ContentView: View {
     @StateObject private var viewModel = GameViewModel()
-    @ObservedObject private var themeManager = ThemeManager.shared
-    @ObservedObject private var profileService = ProfileService.shared
+    // OPTIMIZATION: Don't observe ProfileService from ContentView (it causes unnecessary re-renders)
+    private let profileService = ProfileService.shared
+    @Environment(\.scenePhase) private var scenePhase
     
-    @State private var selectedGame: GameType? = nil
     @State private var selectedTab: Int = 0
+    @State private var previousGame: GameType? = nil
+    @State private var isInitialLoad: Bool = true
+    @State private var isTransitioning: Bool = false
+    @State private var profileTabIconUpdateTask: Task<Void, Never>? = nil
     #if DEBUG
     @State private var showDebugTestPanel = false
     #endif
     
     var body: some View {
-            Group {
-            if shouldShowTabBar {
-                // Standard Apple TabView with green styling (only visible on home screen)
-                TabView(selection: $selectedTab) {
-                    gameContentView
-                        .tabItem {
-                            Label("Game", systemImage: "gamecontroller.fill")
-                        }
-                        .tag(0)
-                    
-                    // Profile tab - always render to ensure tab appears in tab bar
-                    // PERFORMANCE: ProfileView uses lazy loading internally if needed
-                    ProfileView()
-                        .id("profile") // Cache profile view identity
-                        .tabItem {
-                            Label("Profile", systemImage: "person.fill")
-                        }
-                        .tag(1)
-                        #if DEBUG
-                        .overlay(alignment: .topTrailing) {
-                            // Debug test panel button in top right
-                            Button(action: {
-                                HapticFeedbackManager.shared.selection()
-                                showDebugTestPanel = true
-                            }) {
-                                Image(systemName: "testtube.2")
-                                    .font(.system(size: 18, weight: .semibold))
-                                    .foregroundColor(.white)
-                                    .frame(width: 36, height: 36)
-                                    .background(
-                                        Circle()
-                                            .fill(AppColors.grassPrimary)
-                                            .shadow(color: Color.black.opacity(0.2), radius: 4, x: 0, y: 2)
-                                    )
-                            }
-                            .padding(.top, 8)
-                            .padding(.trailing, 16)
-                        }
-                        #endif
-                }
-                #if DEBUG
-                .sheet(isPresented: $showDebugTestPanel) {
-                    DebugTestPanelView(viewModel: viewModel)
-                }
-                #endif
-                .onAppear {
-                    // Style the TabView to be green
-                    let appearance = UITabBarAppearance()
-                    appearance.configureWithOpaqueBackground()
-                    appearance.backgroundColor = UIColor(AppColors.backgroundPrimary)
-                    
-                    // Set selected tab color to green
-                    appearance.stackedLayoutAppearance.selected.iconColor = UIColor(AppColors.grassPrimary)
-                    appearance.stackedLayoutAppearance.selected.titleTextAttributes = [.foregroundColor: UIColor(AppColors.grassPrimary)]
-                    
-                    // Set unselected tab color
-                    appearance.stackedLayoutAppearance.normal.iconColor = UIColor(AppColors.textSecondary)
-                    appearance.stackedLayoutAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor(AppColors.textSecondary)]
-                    
-                    UITabBar.appearance().standardAppearance = appearance
-                    UITabBar.appearance().scrollEdgeAppearance = appearance
-                    
-                    // Update profile tab icon with profile picture if available
-                    updateProfileTabIcon()
-                }
-                .onChange(of: selectedTab) { _, newTab in
-                    // PERFORMANCE: Only update icon when switching to profile tab
-                    if newTab == 1 {
-                        updateProfileTabIcon()
-                    }
-                }
-                .onChange(of: profileService.displayName) { _, _ in
-                    // Update tab icon when profile changes (only if profile tab is visible)
-                    if selectedTab == 1 {
-                        updateProfileTabIcon()
-                    }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ProfilePictureUpdated"))) { _ in
-                    // Update tab icon when profile picture is updated (only if profile tab is visible)
-                    if selectedTab == 1 {
-                        updateProfileTabIcon()
-                    }
-                }
-                .preferredColorScheme(themeManager.colorScheme)
-            } else {
-                // No tab bar - just show game content (lobby, active game, etc.)
-                // When a game is selected, always show game content
-                gameContentView
-                    .preferredColorScheme(themeManager.colorScheme)
-            }
-        }
-        .onAppear {
-            // Ensure services are initialized if game is already selected (e.g., app restored)
-            if selectedGame != nil {
-                viewModel.ensureServicesInitialized()
-            }
-        }
-        .onChange(of: selectedGame) { oldValue, newValue in
-            // Initialize services when game is selected (before view body accesses them)
-            if newValue != nil {
-                viewModel.ensureServicesInitialized()
-                
-                // If switching between game modes (oldValue != nil and different from newValue),
-                // completely clear the previous session to ensure isolation
-                if let oldGameType = oldValue, oldGameType != newValue {
-                    print("🔄 Switching game modes: \(oldGameType.rawValue) -> \(newValue!.rawValue)")
-                    // Completely clear the previous game mode's session
-                    viewModel.gameService.clearSession()
-                }
-                
-                // If coming from main screen (oldValue was nil), reset gameState to lobby
-                // This prevents game over screen from showing when entering a game
-                if oldValue == nil {
-                    let gameService = viewModel.gameService
-                    if gameService.gameState == .ended {
-                        // Reset game state to lobby when coming from main screen
-                        if var session = gameService.session {
-                            session.gameState = .lobby
-                            gameService.session = session
-                        }
-                        gameService.gameState = .lobby
-                    }
-                }
-            } else {
-                // Returning to home screen - clear any existing session
-                if oldValue != nil {
-                    print("🏠 Returning to home screen - clearing session")
-                    viewModel.gameService.clearSession()
-                }
-                // Reset to game tab when returning to home screen
-                selectedTab = 0
-            }
-            #if DEBUG
-            DebugLogger.log("🔄 ContentView: selectedGame changed from \(oldValue?.rawValue ?? "nil") to \(newValue?.rawValue ?? "nil")")
-            #endif
-        }
-    }
-    
-    // MARK: - Tab Bar Visibility
-    
-    private var shouldShowTabBar: Bool {
-        // Only show tab bar on the main home screen (game selection screen)
-        // Hide it on all other screens (lobby, active game, end screens)
-        // Users can switch between Game and Profile tabs on the home screen
-        // Once they leave the home screen, they use back arrows to navigate
-        return selectedGame == nil
-    }
-    
-    @ViewBuilder
-    private var gameContentView: some View {
         ZStack {
+            // Persistent background — always on screen at full opacity so it never
+            // flashes white during page transitions. The landscape inside each tab/
+            // lobby view is additive on top of this layer.
             AppColors.backgroundPrimary
                 .ignoresSafeArea()
-                .allowsHitTesting(false) // CRASH FIX: Don't block touches - background shouldn't intercept
-            
-            // PERFORMANCE: Optimized routing - only access services when game is selected
-            if selectedGame == nil {
-                // Game Selection Menu - no services needed yet
-                GameSelectionView { gameType in
-                    // PERFORMANCE: No animation for game selection - instant transition for better responsiveness
-                    selectedGame = gameType
-                }
-                .transition(.opacity) // PERFORMANCE: Simple fade transition
-                #if DEBUG
-                .debugButton(showDebugTestPanel: $showDebugTestPanel, viewModel: viewModel)
-                #endif
-            } else {
-                // Game is selected - ensure services are initialized
-                // Accessing gameService will trigger lazy initialization if needed
-                let gameService = viewModel.gameService
-                let gameState = gameService.gameState
-                
-                if gameState == .ended {
-                // Game End Screen - route to game-specific view
-                    if let session = gameService.session,
-                       let stats = gameService.gameStats {
-                    switch selectedGame {
-                    case .zombieTag:
-                        ZombieTagGameEndView(
-                            session: session,
-                            gameStats: stats,
-                            currentPlayer: gameService.currentPlayer,
-                            onPlayAgain: {
-                                viewModel.playAgain()
-                            },
-                            onBackToLobby: {
-                                // Reset game state to lobby so we don't return to game end screen
-                                let gameService = viewModel.gameService
-                                if var session = gameService.session {
-                                    session.gameState = .lobby
-                                    gameService.session = session
-                                }
-                                gameService.gameState = .lobby
-                                // PERFORMANCE: No animation for faster navigation
-                                selectedGame = nil
-                            }
-                        )
-                        .transition(.opacity) // PERFORMANCE: Simpler transition for better performance
-                    case .captureTheFlag:
-                        CTFGameEndView(
-                            session: session,
-                            gameStats: stats,
-                            currentPlayer: gameService.currentPlayer,
-                            onPlayAgain: {
-                                viewModel.playAgain()
-                            },
-                            onBackToLobby: {
-                                // Reset game state to lobby so we don't return to game end screen
-                                let gameService = viewModel.gameService
-                                if var session = gameService.session {
-                                    session.gameState = .lobby
-                                    gameService.session = session
-                                }
-                                gameService.gameState = .lobby
-                                // PERFORMANCE: No animation for faster navigation
-                                selectedGame = nil
-                            }
-                        )
-                        .transition(.opacity) // PERFORMANCE: Simpler transition for better performance
-                    case .manhunt, .none:
-                        ManhuntGameEndView(
-                            session: session,
-                            gameStats: stats,
-                            currentPlayer: gameService.currentPlayer,
-                            onPlayAgain: {
-                                viewModel.playAgain()
-                            },
-                            onBackToLobby: {
-                                // Reset game state to lobby so we don't return to game end screen
-                                let gameService = viewModel.gameService
-                                if var session = gameService.session {
-                                    session.gameState = .lobby
-                                    gameService.session = session
-                                }
-                                gameService.gameState = .lobby
-                                // PERFORMANCE: No animation for faster navigation
-                                selectedGame = nil
-                            }
-                        )
-                        .transition(.opacity) // PERFORMANCE: Simpler transition for better performance
-                    }
+            LandscapeBackground()
+                .drawingGroup()
+                .ignoresSafeArea(.all)
+            AestheticBackground(gradientOffset: 0, pulseScale: 1.0)
+                .ignoresSafeArea(.all)
+                .allowsHitTesting(false)
+
+            // Home or Game View — only the content cross-fades, not the background
+            Group {
+                if viewModel.selectedGame == nil {
+                    homeView
+                        .transition(.opacity)
                 } else {
-                    // Fallback: If game ended but no session/stats, go back to lobby
-                    switch selectedGame {
-                    case .zombieTag:
-                        ZombieTagLobbyView(
-                            viewModel: viewModel,
-                            onBackToMenu: {
-                                // PERFORMANCE: No animation for faster navigation
-                                selectedGame = nil
-                                viewModel.gameService.endGame()
-                            }
-                        )
-                        .transition(.opacity) // PERFORMANCE: Simpler transition for better performance
-                    case .captureTheFlag:
-                        CTFLobbyView(
-                            viewModel: viewModel,
-                            onBackToMenu: {
-                                // PERFORMANCE: No animation for faster navigation
-                                selectedGame = nil
-                                viewModel.gameService.endGame()
-                            }
-                        )
-                        .transition(.opacity) // PERFORMANCE: Simpler transition for better performance
-                    case .manhunt, .none:
-                        ManhuntLobbyView(
-                            viewModel: viewModel,
-                            onBackToMenu: {
-                                // PERFORMANCE: No animation for faster navigation
-                                selectedGame = nil
-                                viewModel.gameService.endGame()
-                            }
-                        )
-                        .transition(.opacity) // PERFORMANCE: Simpler transition for better performance
-                    }
-                }
-            } else if let currentPlayer = gameService.currentPlayer,
-                      !currentPlayer.isAlive,
-                          gameState == .active {
-                // Spectator Mode (player eliminated but game still active)
-                SpectatorView(
-                    gameService: gameService,
-                    locationService: viewModel.locationService
-                )
-                    .transition(.opacity) // PERFORMANCE: Simpler transition
-                    } else if gameState == .flagPlacement {
-                        // CTF Flag Placement Screen
-                        if let session = gameService.session,
-                           session.gameType == .captureTheFlag {
-                            CTFFlagPlacementView(
-                                gameService: gameService,
-                                locationService: viewModel.locationService
-                            )
-                            .transition(.opacity) // PERFORMANCE: Simpler transition for better performance
-                        } else {
-                            // Fallback - shouldn't happen
-                            EmptyView()
-                        }
-                    } else if gameState == .active {
-                // Full-screen active game - route to game-specific view
-                // Determine game type from session if selectedGame is nil
-                let gameType = selectedGame ?? gameService.session?.gameType ?? .manhunt
-                
-                switch gameType {
-                case .zombieTag:
-                    ZombieTagActiveGameView(
-                        gameService: gameService,
-                            locationService: viewModel.locationService,
-                            viewModel: viewModel
-                    )
-                        .transition(.opacity) // PERFORMANCE: Simpler transition for better performance
-                    .onAppear {
-                        if selectedGame == nil {
-                            selectedGame = .zombieTag
-                        }
-                    }
-                case .captureTheFlag:
-                    CTFActiveGameView(
-                        gameService: gameService,
-                        locationService: viewModel.locationService
-                    )
-                        .transition(.opacity) // PERFORMANCE: Simpler transition for better performance
-                    .onAppear {
-                        if selectedGame == nil {
-                            selectedGame = .captureTheFlag
-                        }
-                    }
-                case .manhunt:
-                    ManhuntActiveGameView(
-                        gameService: gameService,
-                            locationService: viewModel.locationService,
-                            viewModel: viewModel
-                    )
-                        .transition(.opacity) // PERFORMANCE: Simpler transition for better performance
-                    .onAppear {
-                        if selectedGame == nil {
-                            selectedGame = .manhunt
-                        }
-                    }
-                }
-            } else {
-                // Lobby/Menu screen for selected game - route to game-specific view
-                switch selectedGame {
-                case .zombieTag:
-                    ZombieTagLobbyView(
-                        viewModel: viewModel,
-                        onBackToMenu: {
-                            // PERFORMANCE: No animation for faster navigation
-                            selectedGame = nil
-                            gameService.endGame()
-                        }
-                    )
-                    .transition(.opacity) // PERFORMANCE: Simpler transition
-                    // PERFORMANCE: Removed redundant onAppear/onChange - game type is set in parent view
-                case .captureTheFlag:
-                    CTFLobbyView(
-                        viewModel: viewModel,
-                        onBackToMenu: {
-                            // PERFORMANCE: No animation for faster navigation
-                            selectedGame = nil
-                            gameService.endGame()
-                        }
-                    )
-                    .transition(.opacity) // PERFORMANCE: Simpler transition
-                    // PERFORMANCE: Removed redundant onAppear/onChange - game type is set in parent view
-                case .manhunt, .none:
-                    ManhuntLobbyView(
-                        viewModel: viewModel,
-                        onBackToMenu: {
-                            // PERFORMANCE: No animation for faster navigation
-                            selectedGame = nil
-                            gameService.endGame()
-                        }
-                    )
-                    .transition(.opacity) // PERFORMANCE: Simpler transition
-                    .onAppear {
-                        // Set game type when lobby appears
-                        if let gameType = selectedGame {
-                            viewModel.selectedGameType = gameType
-                        }
-                    }
-                    .onChange(of: selectedGame) { oldValue, newValue in
-                        // Update game type when selection changes
-                        if let gameType = newValue {
-                            viewModel.selectedGameType = gameType
-                            }
-                        }
-                    }
+                    gameView
+                        .transition(.opacity)
                 }
             }
         }
+        .preferredColorScheme(.light) // Cartoon design is always light-mode
+        .animation(.easeOut(duration: 0.2), value: viewModel.selectedGame?.rawValue)
         .alert("Game Over", isPresented: $viewModel.showGameOverAlert) {
             Button("OK") {
-                // Only end game if it's actually over, not for begin game errors
-                let gameService = viewModel.gameService
-                if gameService.gameState == .ended {
-                    gameService.endGame()
+                Task { @MainActor in
+                    let gameService = viewModel.gameService
+                    if gameService.gameState == .ended {
+                        gameService.endGame()
+                    }
                 }
             }
-            if viewModel.gameService.gameState == .ended {
-                Button("Play Again") {
-                    viewModel.playAgain()
-                }
+            Button("Play Again") {
+                viewModel.playAgain()
             }
         } message: {
             Text(viewModel.gameOverMessage)
         }
     }
     
-    // MARK: - Profile Tab Icon Update
+    // MARK: - Home View
     
-    private func updateProfileTabIcon() {
-        // PERFORMANCE: Only update once immediately instead of multiple delayed attempts
-        updateTabIconOnce()
+    private var homeView: some View {
+        TabView(selection: $selectedTab) {
+            GameSelectionView { gameType in
+                // Prevent multiple rapid taps
+                guard !isTransitioning else {
+                    #if DEBUG
+                    print("🔍 DEBUG: ContentView - GameSelectionView callback blocked (already transitioning)")
+                    #endif
+                    return
+                }
+                
+                #if DEBUG
+                print("🔍 DEBUG: ContentView - GameSelectionView callback triggered for \(gameType)")
+                print("🔍 DEBUG: ContentView - Current selectedGame: \(String(describing: viewModel.selectedGame))")
+                print("🔍 DEBUG: ContentView - Setting isTransitioning = true")
+                #endif
+                
+                // OPTIMIZATION: Set transition flag and change state immediately
+                isTransitioning = true
+                // OPTIMIZATION: Removed duplicate haptic - button style handles it
+                
+                // OPTIMIZATION: Instant state change with fast animation for responsive feel
+                #if DEBUG
+                print("🔍 DEBUG: ContentView - Starting animation block")
+                #endif
+                withAnimation(.easeOut(duration: 0.2)) {
+                    previousGame = viewModel.selectedGame
+                    viewModel.selectedGame = gameType
+                    viewModel.selectedGameType = gameType
+                    isInitialLoad = false
+                    #if DEBUG
+                    print("🔍 DEBUG: ContentView - Animation block: selectedGame set to \(gameType)")
+                    #endif
+                }
+                
+                #if DEBUG
+                print("🔍 DEBUG: ContentView - Animation block completed, starting service initialization")
+                #endif
+                
+                // OPTIMIZATION: Initialize services AFTER transition completes for smooth animation
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    Task { @MainActor in
+                        await viewModel.ensureServicesInitialized()
+                        #if DEBUG
+                        print("🔍 DEBUG: ContentView - Service initialization completed")
+                        #endif
+                    }
+                    
+                    isTransitioning = false
+                    #if DEBUG
+                    print("🔍 DEBUG: ContentView - isTransitioning reset to false")
+                    #endif
+                }
+            }
+            .tabItem {
+                Label("Game", systemImage: "gamecontroller.fill")
+            }
+            .tag(0)
+            
+            ProfileView()
+                .tabItem {
+                    Label("Profile", systemImage: "person.fill")
+                }
+                .tag(1)
+                #if DEBUG
+                .overlay(alignment: .topTrailing) {
+                    Button(action: {
+                        HapticFeedbackManager.shared.selection()
+                        showDebugTestPanel = true
+                    }) {
+                        Image(systemName: "testtube.2")
+                            .font(.system(size: 18, weight: .black, design: .rounded))
+                            .foregroundColor(.white)
+                    }
+                    .buttonStyle(IconButtonStyle(size: 36, color: AppColors.grassPrimary))
+                    .padding(.top, 8)
+                    .padding(.trailing, 16)
+                }
+                #endif
+            
+            SettingsView()
+                .tabItem {
+                    Label("Settings", systemImage: "gearshape.fill")
+                }
+                .tag(2)
+        }
+        #if DEBUG
+        .sheet(isPresented: $showDebugTestPanel) {
+            DebugTestPanelView(viewModel: viewModel)
+        }
+        #endif
+        .onAppear {
+            setupTabBarAppearance()
+            updateProfileTabIcon()
+            // Optional: warm the cache once at launch (doesn't trigger ContentView re-renders now)
+            profileService.preloadProfilePicture()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ProfilePictureUpdated"))) { _ in
+            // Update tab icon whenever the picture changes (regardless of selected tab)
+            updateProfileTabIcon()
+        }
     }
     
-    private func updateTabIconOnce() {
-        // Try multiple ways to find the tab bar controller
-        var tabBarController: UITabBarController?
+    // MARK: - Game View
+    
+    private var gameView: some View {
+        let _ = {
+            #if DEBUG
+            print("🔍 DEBUG: ContentView gameView computed - selectedGame: \(String(describing: viewModel.selectedGame))")
+            #endif
+        }()
         
-        // Method 1: From window scene
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let window = windowScene.windows.first {
-            tabBarController = window.rootViewController?.findTabBarController()
-        }
-        
-        // Method 2: From key window (iOS 15+ compatible)
-        if tabBarController == nil,
-           let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let keyWindow = windowScene.windows.first(where: { $0.isKeyWindow }) {
-            tabBarController = keyWindow.rootViewController?.findTabBarController()
-        }
-        
-        guard let tabBar = tabBarController?.tabBar,
-              tabBar.items?.count ?? 0 > 1 else {
-            return
-        }
-        
-        // Get profile picture or use default icon
-        if let profileImage = profileService.loadProfilePicture() {
-            // Resize and make circular for tab bar
-            let tabBarIconSize: CGFloat = 28
-            let resizedImage = profileImage.resized(to: CGSize(width: tabBarIconSize, height: tabBarIconSize))
-            let circularImage = resizedImage.circularImage()
+        return ZStack {
+            AppColors.backgroundPrimary
+                .ignoresSafeArea()
             
-            // Set as tab bar item image with alwaysOriginal to prevent tinting
-            tabBar.items?[1].image = circularImage.withRenderingMode(.alwaysOriginal)
-            tabBar.items?[1].selectedImage = circularImage.withRenderingMode(.alwaysOriginal)
-        } else {
-            // Use default system icon
-            tabBar.items?[1].image = UIImage(systemName: "person.fill")
-            tabBar.items?[1].selectedImage = UIImage(systemName: "person.fill")
+            if viewModel.isServicesInitializing {
+                LobbySkeletonView()
+                    .transition(.opacity)
+            } else if let gameType = viewModel.selectedGame {
+                #if DEBUG
+                let _ = print("🔍 DEBUG: ContentView gameView - Creating lobby view for \(gameType)")
+                #endif
+                switch gameType {
+                case .manhunt:
+                    ManhuntLobbyView(
+                            viewModel: viewModel,
+                            onBackToMenu: {
+                            #if DEBUG
+                            print("🔍 DEBUG: ContentView - ManhuntLobbyView onBackToMenu called")
+                            #endif
+                            Task { @MainActor in
+                                guard !isTransitioning else { return }
+                                isTransitioning = true
+                                
+                                withAnimation(.easeOut(duration: 0.25)) {
+                                    previousGame = viewModel.selectedGame
+                                    viewModel.selectedGame = nil
+                                    #if DEBUG
+                                    print("🔍 DEBUG: ContentView - Back to menu: selectedGame set to nil")
+                                    #endif
+                                }
+                                
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    isTransitioning = false
+                                }
+                            }
+                        }
+                    )
+                case .zombieTag:
+                    ZombieTagLobbyView(
+                        viewModel: viewModel,
+                        onBackToMenu: {
+                            #if DEBUG
+                            print("🔍 DEBUG: ContentView - ZombieTagLobbyView onBackToMenu called")
+                            #endif
+                            Task { @MainActor in
+                                guard !isTransitioning else { return }
+                                isTransitioning = true
+                                
+                                withAnimation(.easeOut(duration: 0.25)) {
+                                    previousGame = viewModel.selectedGame
+                                    viewModel.selectedGame = nil
+                                }
+                                
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    isTransitioning = false
+                                }
+                            }
+                        }
+                    )
+                case .captureTheFlag:
+                    CTFLobbyView(
+                        viewModel: viewModel,
+                        onBackToMenu: {
+                            #if DEBUG
+                            print("🔍 DEBUG: ContentView - CTFLobbyView onBackToMenu called")
+                            #endif
+                            Task { @MainActor in
+                                guard !isTransitioning else { return }
+                                isTransitioning = true
+                                
+                                withAnimation(.easeOut(duration: 0.25)) {
+                                    previousGame = viewModel.selectedGame
+                                    viewModel.selectedGame = nil
+                                }
+                                
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    isTransitioning = false
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+        }
+        .overlay {
+            if let loadingMessage = activeLoadingMessage {
+                SmoothLoadingOverlay(message: loadingMessage, showProgress: true)
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            // Initialize services if needed (for cases where view appears without going through game selection)
+            if viewModel.selectedGame != nil {
+                Task { @MainActor in
+                    await viewModel.ensureServicesInitialized()
+                }
+            }
+            if let game = viewModel.selectedGame {
+                viewModel.selectedGameType = game
+            }
+        }
+        .onChange(of: viewModel.selectedGame) { oldValue, newValue in
+            if newValue == nil {
+                // Going back to main menu - completely clear the game session (async to avoid blocking)
+                if oldValue != nil {
+                    Task { @MainActor in
+                        viewModel.gameService.clearSession()
+                    }
+                }
+                withAnimation(.easeOut(duration: 0.25)) {
+                    selectedTab = 0
+                }
+            } else {
+                // Handle game switching
+                if oldValue != nil && oldValue != newValue {
+                    // Switching between games - clear previous session first (async to avoid blocking)
+                    Task { @MainActor in
+                        viewModel.gameService.clearSession()
+                    }
+                    previousGame = oldValue
+                }
+                // Initialize services asynchronously
+                Task { @MainActor in
+                    await viewModel.ensureServicesInitialized()
+                }
+                viewModel.selectedGameType = newValue!
+                isInitialLoad = false
+            }
+                    }
+                    .onAppear {
+            // Mark initial load complete immediately to ensure view appears
+            isInitialLoad = false
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                UNUserNotificationCenter.current().setBadgeCount(0)
+            }
+        }
+    }
+    
+    // MARK: - Transition Helpers
+    
+    private var activeLoadingMessage: String? {
+        if viewModel.isServicesInitializing {
+            return "Initializing game services..."
+        }
+        if viewModel.isCreatingSession {
+            return "Creating game..."
+        }
+        if viewModel.isJoiningGame {
+            return "Joining game..."
+        }
+        return nil
+    }
+    
+}
+
+// MARK: - Tab Bar Setup
+
+extension ContentView {
+    private func setupTabBarAppearance() {
+        let appearance = UITabBarAppearance()
+        appearance.configureWithTransparentBackground()
+        // Subtle top hairline so the tab bar is visually distinct without a bezel
+        appearance.shadowColor = UIColor(AppColors.cartoonInk).withAlphaComponent(0.18)
+
+        appearance.stackedLayoutAppearance.selected.iconColor = UIColor(AppColors.grassPrimary)
+        appearance.stackedLayoutAppearance.selected.titleTextAttributes = [
+            .foregroundColor: UIColor(AppColors.grassPrimary),
+            .font: UIFont.systemFont(ofSize: 12, weight: .black)
+        ]
+
+        appearance.stackedLayoutAppearance.normal.iconColor = UIColor(AppColors.cartoonInk)
+        appearance.stackedLayoutAppearance.normal.titleTextAttributes = [
+            .foregroundColor: UIColor(AppColors.cartoonInk),
+            .font: UIFont.systemFont(ofSize: 12, weight: .bold)
+        ]
+
+        UITabBar.appearance().standardAppearance = appearance
+        UITabBar.appearance().scrollEdgeAppearance = appearance
+        UITabBar.appearance().isTranslucent = true
+        UITabBar.appearance().tintColor = UIColor(AppColors.grassPrimary)
+        UITabBar.appearance().unselectedItemTintColor = UIColor(AppColors.cartoonInk)
+    }
+    
+    private func updateProfileTabIcon() {
+        // Cancel any in-flight work to avoid piling up tasks on rapid tab switches
+        profileTabIconUpdateTask?.cancel()
+        
+        profileTabIconUpdateTask = Task { @MainActor in
+            // Grab the latest cached image quickly (no disk I/O)
+            let cachedProfileImage = profileService.loadProfilePicture()
+            // Compute icon on main actor (UIKit drawing APIs are MainActor-isolated in Swift 6)
+            // This is now only triggered on app launch or when the picture actually changes.
+            let processedIcon: UIImage? = {
+                guard let image = cachedProfileImage else { return nil }
+                // Slight inset prevents iOS tab bar from visually cropping the circle
+                return image.circularPaddedIcon(diameter: 28, inset: 2)
+            }()
+            
+            guard !Task.isCancelled else { return }
+            
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let window = windowScene.windows.first,
+                  let tabBarController = window.rootViewController?.findTabBarController(),
+                  let items = tabBarController.tabBar.items,
+                  items.count > 1 else {
+                return
+            }
+            
+            if let processedIcon {
+                items[1].image = processedIcon.withRenderingMode(.alwaysOriginal)
+                items[1].selectedImage = processedIcon.withRenderingMode(.alwaysOriginal)
+            } else {
+                items[1].image = UIImage(systemName: "person.fill")
+                items[1].selectedImage = UIImage(systemName: "person.fill")
+            }
         }
     }
 }
@@ -477,13 +405,11 @@ extension UIViewController {
         if let tabBarController = self as? UITabBarController {
             return tabBarController
         }
-        
         for child in children {
             if let tabBarController = child.findTabBarController() {
                 return tabBarController
             }
         }
-        
         return nil
     }
 }
@@ -499,7 +425,7 @@ extension UIImage {
     }
     
     func circularImage() -> UIImage {
-        let size = min(size.width, size.height)
+        let size = min(self.size.width, self.size.height)
         let rect = CGRect(x: 0, y: 0, width: size, height: size)
         
         UIGraphicsBeginImageContextWithOptions(rect.size, false, 0.0)
@@ -507,18 +433,36 @@ extension UIImage {
         
         guard let context = UIGraphicsGetCurrentContext() else { return self }
         
-        // Create circular clipping path
         context.addEllipse(in: rect)
         context.clip()
-        
-        // Draw image
         draw(in: rect)
         
         return UIGraphicsGetImageFromCurrentImageContext() ?? self
     }
+    
+    /// Creates a circular icon with a transparent inset padding so it won't look cropped in a UITabBar.
+    func circularPaddedIcon(diameter: CGFloat, inset: CGFloat) -> UIImage {
+        let canvas = CGSize(width: diameter, height: diameter)
+        let drawRect = CGRect(x: inset, y: inset, width: diameter - 2 * inset, height: diameter - 2 * inset)
+        
+        UIGraphicsBeginImageContextWithOptions(canvas, false, 0.0)
+        defer { UIGraphicsEndImageContext() }
+        
+        guard let ctx = UIGraphicsGetCurrentContext() else { return self }
+        
+        ctx.addEllipse(in: drawRect)
+        ctx.clip()
+        
+        // Aspect-fill into drawRect
+        let scale = max(drawRect.width / size.width, drawRect.height / size.height)
+        let scaledSize = CGSize(width: size.width * scale, height: size.height * scale)
+        let origin = CGPoint(
+            x: drawRect.midX - scaledSize.width / 2,
+            y: drawRect.midY - scaledSize.height / 2
+        )
+        let target = CGRect(origin: origin, size: scaledSize)
+        draw(in: target)
+        
+        return UIGraphicsGetImageFromCurrentImageContext() ?? self
+    }
 }
-
-// MARK: - TabBarIconUpdater
-
-// REMOVED: TabBarIconUpdater - redundant and causes performance issues
-// Icon updates are now handled directly in ContentView's updateProfileTabIcon() method

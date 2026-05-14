@@ -16,6 +16,10 @@ struct DraggableBubbleMapView: UIViewRepresentable {
     @Binding var bubbleRadius: Double
     let onCenterChanged: (CLLocationCoordinate2D) -> Void
     
+    private static func log(_ message: String) {
+        DebugLogger.log(message)
+    }
+    
     func makeUIView(context: Context) -> MKMapView {
         let mapView = MKMapView()
         mapView.delegate = context.coordinator
@@ -26,7 +30,7 @@ struct DraggableBubbleMapView: UIViewRepresentable {
         guard bubbleCenter.latitude.isFinite && bubbleCenter.longitude.isFinite,
               bubbleCenter.latitude >= -90 && bubbleCenter.latitude <= 90,
               bubbleCenter.longitude >= -180 && bubbleCenter.longitude <= 180 else {
-            print("⚠️ Invalid bubble center in makeUIView - using default")
+            Self.log("⚠️ Invalid bubble center in makeUIView - using default")
             // Use a default location if invalid
             let defaultCenter = CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194) // San Francisco
             let region = calculateRegion(center: defaultCenter, radius: bubbleRadius)
@@ -72,7 +76,7 @@ struct DraggableBubbleMapView: UIViewRepresentable {
             }
         }
         
-        print("📍 DraggableBubbleMapView initialized with center: \(bubbleCenter.latitude), \(bubbleCenter.longitude), radius: \(bubbleRadius)m")
+        Self.log("📍 DraggableBubbleMapView initialized with center: \(bubbleCenter.latitude), \(bubbleCenter.longitude), radius: \(bubbleRadius)m")
         
         return mapView
     }
@@ -171,9 +175,13 @@ struct DraggableBubbleMapView: UIViewRepresentable {
         weak var mapView: MKMapView?
         var centerAnnotation: DraggableCenterAnnotation?
         var lastRadius: Double?
-        var isDragging: Bool = false // Track drag state to prevent interference
+        var isDragging: Bool = false
         var lastMapCenter: CLLocationCoordinate2D?
-        var isUpdatingRegionProgrammatically: Bool = false // Track programmatic region updates
+        var isUpdatingRegionProgrammatically: Bool = false
+        
+        private func log(_ message: String) {
+            DebugLogger.log(message)
+        }
         
         init(bubbleCenter: Binding<CLLocationCoordinate2D>, bubbleRadius: Binding<Double>, onCenterChanged: @escaping (CLLocationCoordinate2D) -> Void) {
             self._bubbleCenter = bubbleCenter
@@ -271,7 +279,7 @@ struct DraggableBubbleMapView: UIViewRepresentable {
             guard mapCenter.latitude.isFinite && mapCenter.longitude.isFinite,
                   mapCenter.latitude >= -90 && mapCenter.latitude <= 90,
                   mapCenter.longitude >= -180 && mapCenter.longitude <= 180 else {
-                print("⚠️ Invalid map center in regionDidChange - ignoring")
+                log("⚠️ Invalid map center in regionDidChange - ignoring")
                 return
             }
             
@@ -313,7 +321,7 @@ struct DraggableBubbleMapView: UIViewRepresentable {
             guard mapCenter.latitude.isFinite && mapCenter.longitude.isFinite,
                   mapCenter.latitude >= -90 && mapCenter.latitude <= 90,
                   mapCenter.longitude >= -180 && mapCenter.longitude <= 180 else {
-                print("⚠️ Invalid map center coordinate - skipping update")
+                log("⚠️ Invalid map center coordinate - skipping update")
                 return
             }
             
@@ -339,7 +347,7 @@ struct DraggableBubbleMapView: UIViewRepresentable {
             // Notify that center changed (this is separate from binding update to avoid conflicts)
             onCenterChanged(mapCenter)
             
-            print("📍 Map panned: Updated bubble center to \(mapCenter.latitude), \(mapCenter.longitude)")
+            log("📍 Map panned: Updated bubble center to \(mapCenter.latitude), \(mapCenter.longitude)")
         }
         
         func mapView(_ mapView: MKMapView, annotationView view: MKAnnotationView, didChange newState: MKAnnotationView.DragState, fromOldState oldState: MKAnnotationView.DragState) {
@@ -373,7 +381,7 @@ struct DraggableBubbleMapView: UIViewRepresentable {
                 // Update lastMapCenter to prevent regionDidChange from interfering
                 lastMapCenter = newCoordinate
                 
-                print("📍 Dragging: Updated bubble center to \(newCoordinate.latitude), \(newCoordinate.longitude)")
+                log("📍 Dragging: Updated bubble center to \(newCoordinate.latitude), \(newCoordinate.longitude)")
                 
             case .ending, .canceling:
                 // Drag ended - finalize position and clear drag flag
@@ -384,7 +392,7 @@ struct DraggableBubbleMapView: UIViewRepresentable {
                 guard finalCoordinate.latitude.isFinite && finalCoordinate.longitude.isFinite,
                       finalCoordinate.latitude >= -90 && finalCoordinate.latitude <= 90,
                       finalCoordinate.longitude >= -180 && finalCoordinate.longitude <= 180 else {
-                    print("⚠️ Invalid coordinate after drag - reverting to previous")
+                    log("⚠️ Invalid coordinate after drag - reverting to previous")
                     // Revert annotation to last valid position
                     if let lastValid = lastMapCenter {
                         annotation.coordinate = lastValid
@@ -406,7 +414,7 @@ struct DraggableBubbleMapView: UIViewRepresentable {
                 // Notify that center changed
                 onCenterChanged(finalCoordinate)
                 
-                print("📍 Drag ended: Final bubble center \(finalCoordinate.latitude), \(finalCoordinate.longitude)")
+                log("📍 Drag ended: Final bubble center \(finalCoordinate.latitude), \(finalCoordinate.longitude)")
                 
             default:
                 break
