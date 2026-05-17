@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="ctfSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#A8DCFF"></stop><stop offset="1" stop-color="#5FA8E6"></stop>
+    </linearGradient>
+    <linearGradient id="ctfGrass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#66E680"></stop><stop offset="1" stop-color="#1A8033"></stop>
+    </linearGradient>
+    <linearGradient id="ctfBlue" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#66B3FF"></stop><stop offset="1" stop-color="#1A4DCC"></stop>
+    </linearGradient>
+    <linearGradient id="ctfRed" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF8866"></stop><stop offset="1" stop-color="#991A1A"></stop>
+    </linearGradient>
+    <linearGradient id="pole" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6e6852"></stop><stop offset="1" stop-color="#3a3528"></stop>
+    </linearGradient>
+  </defs>
+
+  
+  <rect x="6" y="6" width="244" height="244" rx="36" fill="url(#ctfSky)" stroke="#1a1a1a" stroke-width="6"></rect>
+  
+  <path d="M6 180 Q70 150 128 168 Q186 186 250 158 L250 244 Q250 250 244 250 L12 250 Q6 250 6 244 Z" fill="url(#ctfGrass)" stroke="#1a1a1a" stroke-width="6" stroke-linejoin="round"></path>
+  
+  <g fill="#1A8033" stroke="#1a1a1a" stroke-width="2.5" stroke-linejoin="round">
+    <path d="M30 192 l-3 -10 l5 5 l3 -10 l3 10 l5 -5 l-3 10 z"></path>
+    <path d="M220 188 l-3 -10 l5 5 l3 -10 l3 10 l5 -5 l-3 10 z"></path>
+  </g>
+  
+  <circle cx="206" cy="58" r="20" fill="#FFE266" stroke="#1a1a1a" stroke-width="4"></circle>
+  
+  <g fill="#fff" stroke="#1a1a1a" stroke-width="4" stroke-linejoin="round">
+    <path d="M36 76 q-12 0 -12 -10 q0 -12 14 -12 q3 -10 14 -10 q12 0 14 10 q14 0 14 12 q0 10 -12 10 z"></path>
+  </g>
+
+  
+  <g>
+    
+    <line x1="80" y1="220" x2="156" y2="60" stroke="url(#pole)" stroke-width="10" stroke-linecap="round"></line>
+    <line x1="80" y1="220" x2="156" y2="60" stroke="#1a1a1a" stroke-width="14" stroke-linecap="round" opacity="0"></line>
+    
+    <line x1="176" y1="220" x2="100" y2="60" stroke="url(#pole)" stroke-width="10" stroke-linecap="round"></line>
+  </g>
+  
+  <g fill="none" stroke="#1a1a1a" stroke-width="3" stroke-linecap="round">
+    <line x1="80" y1="220" x2="156" y2="60"></line>
+    <line x1="176" y1="220" x2="100" y2="60"></line>
+  </g>
+  
+  <g stroke="#1a1a1a" stroke-width="3">
+    <circle cx="156" cy="60" r="6" fill="#FFE266"></circle>
+    <circle cx="100" cy="60" r="6" fill="#FFE266"></circle>
+  </g>
+
+  
+  <g>
+    <path d="M100 62 Q146 62 162 90 Q132 88 110 110 Z" fill="url(#ctfBlue)" stroke="#1a1a1a" stroke-width="5" stroke-linejoin="round"></path>
+    
+    <path d="M132 80 l3 6 l7 1 l-5 5 l1 7 l-6 -3 l-6 3 l1 -7 l-5 -5 l7 -1 z" fill="#fff" stroke="#1a1a1a" stroke-width="2.5" stroke-linejoin="round"></path>
+  </g>
+
+  
+  <g>
+    <path d="M156 62 Q110 62 94 90 Q124 88 146 110 Z" fill="url(#ctfRed)" stroke="#1a1a1a" stroke-width="5" stroke-linejoin="round"></path>
+    
+    <path d="M124 80 l3 6 l7 1 l-5 5 l1 7 l-6 -3 l-6 3 l1 -7 l-5 -5 l7 -1 z" fill="#fff" stroke="#1a1a1a" stroke-width="2.5" stroke-linejoin="round"></path>
+  </g>
+
+  
+  <ellipse cx="80" cy="220" rx="20" ry="8" fill="#1A8033" stroke="#1a1a1a" stroke-width="4"></ellipse>
+  <ellipse cx="176" cy="220" rx="20" ry="8" fill="#1A8033" stroke="#1a1a1a" stroke-width="4"></ellipse>
+</svg>

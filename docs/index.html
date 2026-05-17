@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<title>Touch Grass: A backyard-party game for iOS</title>
+<meta name="description" content="Touch Grass is a playful, in-person, location-based party game for iOS. Pick a mode (Capture The Flag, Zombie Tag, or Manhunt), draw a bubble on the map, and play."/>
+<meta property="og:title" content="Touch Grass: A backyard-party game for iOS"/>
+<meta property="og:description" content="Capture The Flag, Zombie Tag, Manhunt. Phones do the tagging. You just run."/>
+<meta property="og:image" content="https://thespaceblade.github.io/Touch-Grass/assets/brand-touchgrass.png"/>
+
+<link rel="icon" href="assets/app-icon.png"/>
+<link rel="stylesheet" href="colors_and_type.css"/>
+<link rel="stylesheet" href="cartoon.css"/>
+<link rel="stylesheet" href="marketing.css"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+</head>
+<body class="mkt">
+
+<!-- ────────────────────── NAV ────────────────────── -->
+<nav class="mkt-nav" aria-label="Primary">
+  <div class="row">
+    <a class="brand" href="#top">
+      <img src="assets/app-icon.png" alt="Touch Grass app icon"/>
+      <span>Touch Grass</span>
+    </a>
+    <div class="links">
+      <a href="#what">How it works</a>
+      <a href="#ctf">Capture The Flag</a>
+      <a href="#zombie">Zombie Tag</a>
+      <a href="#manhunt">Manhunt</a>
+      <a href="#gallery">Screens</a>
+    </div>
+    <a class="cta" href="#download" aria-label="Download on the App Store">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c.013 1.04-.388 2.04-1.094 2.79-.738.78-1.946 1.39-3.082 1.32-.144-1.02.385-2.07 1.05-2.74.755-.78 2.07-1.34 3.126-1.37zM20.5 17.06c-.563 1.3-.832 1.87-1.555 3.02-.978 1.57-2.358 3.52-4.07 3.53-1.52.01-1.911-.94-3.974-.93-2.063.01-2.5.95-4.02.93-1.71-.02-3.018-1.79-3.997-3.37C.16 16.4-.13 11.55 1.62 8.91 2.86 7.04 4.83 5.93 6.69 5.93c1.9 0 3.09.94 4.66.94 1.52 0 2.45-.95 4.65-.94 1.21 0 2.49.55 3.39 1.5-2.98 1.63-2.5 5.86.11 6.63z"/></svg>
+      App Store
+    </a>
+  </div>
+</nav>
+
+<!-- ────────────────────── HERO ────────────────────── -->
+<header id="top" class="hero">
+  <div class="mkt-wrap hero-grid">
+
+    <div class="hero-text">
+      <h1>
+        TOUCH
+        <span class="word--two">GRASS.</span>
+      </h1>
+      <p class="lede">
+        A playful, in-person, location-based party game for iOS. Pick a mode, draw a bubble on the map, and let the phones handle the tagging. You just run.
+      </p>
+
+      <div class="actions">
+        <a id="download" class="appstore-btn" href="#" aria-label="Download on the App Store">
+          <span class="glyph" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c.013 1.04-.388 2.04-1.094 2.79-.738.78-1.946 1.39-3.082 1.32-.144-1.02.385-2.07 1.05-2.74.755-.78 2.07-1.34 3.126-1.37zM20.5 17.06c-.563 1.3-.832 1.87-1.555 3.02-.978 1.57-2.358 3.52-4.07 3.53-1.52.01-1.911-.94-3.974-.93-2.063.01-2.5.95-4.02.93-1.71-.02-3.018-1.79-3.997-3.37C.16 16.4-.13 11.55 1.62 8.91 2.86 7.04 4.83 5.93 6.69 5.93c1.9 0 3.09.94 4.66.94 1.52 0 2.45-.95 4.65-.94 1.21 0 2.49.55 3.39 1.5-2.98 1.63-2.5 5.86.11 6.63z"/></svg>
+          </span>
+          <span class="copy">
+            <span class="small">Download on the</span>
+            <span class="big">App Store</span>
+          </span>
+        </a>
+      </div>
+
+      <nav class="hero-game-links" aria-label="Jump to game mode sections">
+        <a class="hero-game-card ctf" href="#ctf">
+          <span class="art"><img src="assets/game-ctf.png" alt=""/></span>
+          <span class="copy">
+            <span class="eyebrow-mini">Teams + flags</span>
+            <span class="name">Capture The Flag</span>
+          </span>
+          <span class="arrow" aria-hidden="true">Go</span>
+        </a>
+        <a class="hero-game-card zombie" href="#zombie">
+          <span class="art"><img src="assets/game-zombietag.png" alt=""/></span>
+          <span class="copy">
+            <span class="eyebrow-mini">Infect + survive</span>
+            <span class="name">Zombie Tag</span>
+          </span>
+          <span class="arrow" aria-hidden="true">Go</span>
+        </a>
+        <a class="hero-game-card manhunt" href="#manhunt">
+          <span class="art"><img src="assets/game-manhunt.png" alt=""/></span>
+          <span class="copy">
+            <span class="eyebrow-mini">Hunters vs hiders</span>
+            <span class="name">Manhunt</span>
+          </span>
+          <span class="arrow" aria-hidden="true">Go</span>
+        </a>
+      </nav>
+
+      <div class="hero-stats" role="list">
+        <span class="pill" role="listitem">3 game modes</span>
+        <span class="pill" role="listitem">4 – 20 players</span>
+        <span class="pill" role="listitem">Bluetooth + GPS</span>
+        <span class="pill" role="listitem">iOS · iPhone</span>
+      </div>
+    </div>
+
+    <div class="hero-scene" aria-hidden="true">
+      <div class="blob"></div>
+      <div class="hero-logo-cluster">
+        <img class="hero-brand-logo" src="assets/brand-touchgrass.png" alt=""/>
+
+        <span class="sticker grass sticker-orbit sticker-orbit--1 lg">
+          <span class="dot"></span>
+          Go outside
+        </span>
+        <span class="sticker sky sticker-orbit sticker-orbit--2">
+          <span class="dot"></span>
+          Bluetooth tagging
+        </span>
+        <span class="sticker sun sticker-orbit sticker-orbit--3">
+          <span class="dot"></span>
+          Saturday afternoon
+        </span>
+        <span class="sticker tomato sticker-orbit sticker-orbit--4">
+          <span class="dot"></span>
+          Capture · Infect · Hide
+        </span>
+        <span class="sticker swamp sticker-orbit sticker-orbit--5">
+          <span class="dot"></span>
+          Real map bubble
+        </span>
+        <span class="sticker cream sticker-orbit sticker-orbit--6">
+          <span class="dot"></span>
+          Phones up, then down
+        </span>
+      </div>
+    </div>
+
+  </div>
+</header>
+
+<!-- ────────────────────── WHAT IT IS ────────────────────── -->
+<section id="what" class="what">
+  <div class="mkt-wrap">
+    <div class="section-head center">
+      <span class="eyebrow"><span class="tg-pill sm">01</span> How it works</span>
+      <h2>Phones do the tagging.<br/>You just run.</h2>
+      <p class="sub">Touch Grass uses iPhone Bluetooth and GPS to track tags, zones, and roles in real time, so the rules enforce themselves and you can keep your eyes on the real world.</p>
+    </div>
+
+    <div class="what-grid">
+      <article class="feature-tile --map">
+        <div class="stamp">Step 1</div>
+        <div class="glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 1118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        </div>
+        <h3>Draw the bubble</h3>
+        <p>Pan the map. The bubble is your play zone. Step outside it and you’re flagged. Shrink it for a tighter game.</p>
+      </article>
+
+      <article class="feature-tile --bt">
+        <div class="stamp">Step 2</div>
+        <div class="glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><polyline points="6 4 18 16 12 22 12 2 18 8 6 20"/></svg>
+        </div>
+        <h3>Tag by Bluetooth</h3>
+        <p>Get close, get tagged. No buttons to mash, no honor system: proximity does the work.</p>
+      </article>
+
+      <article class="feature-tile --hud">
+        <div class="stamp">Step 3</div>
+        <div class="glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <h3>Heads-up HUD</h3>
+        <p>Glanceable chips for time, zone, alive count, role and flags. Eyes stay up. Phones stay in pockets.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ────────────────────── CTF MINI WORLD ────────────────────── -->
+<section id="ctf" class="mode mode--ctf">
+  <div class="mode-bg" aria-hidden="true"></div>
+  <div class="mkt-wrap mode-grid">
+
+    <div class="mode-copy">
+      <span class="mode-eyebrow"><span class="tg-pill sm sky">CTF</span> Game Mode · 01</span>
+      <h2>Capture<br/>The Flag.</h2>
+      <p class="tagline">Two teams. Two flags. One backyard. Capture the enemy flag, bring it home, defend yours.</p>
+
+      <div class="spec-strip" role="list">
+        <div class="spec-tile" role="listitem">
+          <div class="label">Players</div>
+          <div class="value">4–20</div>
+        </div>
+        <div class="spec-tile" role="listitem">
+          <div class="label">Length</div>
+          <div class="value">5<small>–15 min</small></div>
+        </div>
+        <div class="spec-tile" role="listitem">
+          <div class="label">Zone</div>
+          <div class="value">50<small>–500m</small></div>
+        </div>
+      </div>
+
+      <div class="howto">
+        <h4>How it plays</h4>
+        <ol>
+          <li>Auto-pick teams or set them in the lobby. Each team gets a flag player.</li>
+          <li>Cross the field to grab the enemy flag and bring it back to your safe zone.</li>
+          <li>Tagged? Drop the flag. Return your own to keep the score honest.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="mode-stage" aria-hidden="false">
+      <svg class="route" viewBox="0 0 400 500" preserveAspectRatio="none">
+        <path d="M40 60 Q160 200 200 250 T360 440"/>
+      </svg>
+
+      <span class="decor sky stamp decor--1"><span class="dot"></span> Team A</span>
+      <span class="decor tomato stamp decor--2"><span class="dot"></span> Team B</span>
+      <span class="decor sun decor--3 pulse"><span class="dot"></span> Bring it home</span>
+      <span class="decor cream decor--4">+1 Capture</span>
+
+      <img class="frame" src="assets/screenshots/ctfActive.png" alt="Capture The Flag active game screen showing teams, flags, and play zone bubble"/>
+    </div>
+
+  </div>
+</section>
+
+<!-- ────────────────────── ZOMBIE TAG MINI WORLD ────────────────────── -->
+<section id="zombie" class="mode mode--zombie">
+  <div class="mode-bg" aria-hidden="true"></div>
+
+  <!-- swamp splats -->
+  <svg class="splat" style="top:18%; left:6%;" viewBox="0 0 100 100" aria-hidden="true">
+    <g fill="#AABB44" stroke="#1a1a1a" stroke-width="3">
+      <circle cx="50" cy="50" r="24"/>
+      <circle cx="22" cy="34" r="9"/>
+      <circle cx="78" cy="62" r="10"/>
+      <circle cx="32" cy="78" r="7"/>
+    </g>
+  </svg>
+  <svg class="splat" style="bottom:8%; right:4%;" viewBox="0 0 100 100" aria-hidden="true">
+    <g fill="#AABB44" stroke="#1a1a1a" stroke-width="3">
+      <circle cx="50" cy="50" r="22"/>
+      <circle cx="76" cy="32" r="8"/>
+      <circle cx="22" cy="64" r="9"/>
+    </g>
+  </svg>
+
+  <div class="mkt-wrap mode-grid">
+
+    <div class="mode-stage" aria-hidden="false">
+      <svg class="route" viewBox="0 0 400 500" preserveAspectRatio="none">
+        <path d="M360 70 Q280 180 220 230 T60 420"/>
+      </svg>
+
+      <span class="decor swamp stamp decor--1"><span class="dot"></span> Patient Zero</span>
+      <span class="decor sun decor--2 pulse"><span class="dot"></span> Survive 5:00</span>
+      <span class="decor cream decor--3">Infected 3 / 8</span>
+      <span class="decor swamp decor--4">Stay loud · stay alive</span>
+
+      <img class="frame" src="assets/screenshots/zombieActive.png" alt="Zombie Tag active game screen with infected count and proximity warnings"/>
+    </div>
+
+    <div class="mode-copy">
+      <span class="mode-eyebrow"><span class="tg-pill sm swamp">ZB</span> Game Mode · 02</span>
+      <h2>Zombie<br/>Tag.</h2>
+      <p class="tagline">Patient zero is loose. Every tag turns a human. Outlast the timer or fall to the swarm.</p>
+
+      <div class="spec-strip" role="list">
+        <div class="spec-tile" role="listitem">
+          <div class="label">Players</div>
+          <div class="value">6–16</div>
+        </div>
+        <div class="spec-tile" role="listitem">
+          <div class="label">Length</div>
+          <div class="value">5<small>–10 min</small></div>
+        </div>
+        <div class="spec-tile" role="listitem">
+          <div class="label">Roles</div>
+          <div class="value">2</div>
+        </div>
+      </div>
+
+      <div class="howto">
+        <h4>How it plays</h4>
+        <ol>
+          <li>One player starts infected. Everyone else is human. Bluetooth tracks who is near you.</li>
+          <li>Tagged humans turn zombie instantly and join the hunt.</li>
+          <li>Survive the timer to win. Last human standing earns the badge.</li>
+        </ol>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ────────────────────── MANHUNT MINI WORLD ────────────────────── -->
+<section id="manhunt" class="mode mode--manhunt">
+  <div class="mode-bg" aria-hidden="true"></div>
+
+  <div class="tape" style="top:0; left:-4%; right:-4%;"></div>
+
+  <div class="mkt-wrap mode-grid">
+
+    <div class="mode-copy">
+      <span class="mode-eyebrow"><span class="tg-pill sm tomato">MH</span> Game Mode · 03</span>
+      <h2>Manhunt.</h2>
+      <p class="tagline">Hunters chase. Hiders run. The bubble keeps shrinking. Don’t get caught.</p>
+
+      <div class="spec-strip" role="list">
+        <div class="spec-tile" role="listitem">
+          <div class="label">Players</div>
+          <div class="value">4–12</div>
+        </div>
+        <div class="spec-tile" role="listitem">
+          <div class="label">Length</div>
+          <div class="value">6<small>–12 min</small></div>
+        </div>
+        <div class="spec-tile" role="listitem">
+          <div class="label">Zone</div>
+          <div class="value">shrinks</div>
+        </div>
+      </div>
+
+      <div class="howto">
+        <h4>How it plays</h4>
+        <ol>
+          <li>Pick hunters and hiders in the lobby. Hunters get a 30-second head start to spread out.</li>
+          <li>Hide, sprint, peek. The zone shrinks every few minutes, so no easy corners forever.</li>
+          <li>Last hider standing wins the round. Hunters win by clearing the field.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="mode-stage" aria-hidden="false">
+      <svg class="route" viewBox="0 0 400 500" preserveAspectRatio="none">
+        <path d="M70 70 Q200 160 240 220 T360 440"/>
+      </svg>
+
+      <span class="decor tomato stamp decor--1"><span class="dot"></span> Hunter</span>
+      <span class="decor sun decor--2"><span class="dot"></span> Hider</span>
+      <span class="decor warn decor--3 pulse"><span class="dot"></span> Zone shrinks 00:37</span>
+      <span class="decor cream decor--4">Don’t get caught</span>
+
+      <img class="frame" src="assets/screenshots/manhuntActive.png" alt="Manhunt active game screen with shrinking zone, hunter compass, and hider HUD"/>
+    </div>
+
+  </div>
+
+  <div class="tape" style="bottom:0; left:-4%; right:-4%;"></div>
+</section>
+
+<!-- ────────────────────── GALLERY ────────────────────── -->
+<section id="gallery" class="gallery">
+  <div class="mkt-wrap">
+    <div class="section-head center">
+      <span class="eyebrow"><span class="tg-pill sm">02</span> Screens</span>
+      <h2>From lobby to victory lap.</h2>
+      <p class="sub">A pocket field guide of the in-app flow: pick a mode, set up the bubble, play, share the stats.</p>
+    </div>
+
+    <div class="gallery-strip">
+      <figure class="shot">
+        <img class="frame" src="assets/screenshots/gameSelection.png" alt="Touch Grass main menu with three game mode cards"/>
+        <figcaption class="label">Pick a Mode</figcaption>
+        <span class="tag">Main Menu</span>
+      </figure>
+      <figure class="shot">
+        <img class="frame" src="assets/screenshots/ctfLobby.png" alt="Capture The Flag lobby with join code and player list"/>
+        <figcaption class="label">Lobby + Join Code</figcaption>
+        <span class="tag">Capture The Flag</span>
+      </figure>
+      <figure class="shot">
+        <img class="frame" src="assets/screenshots/ctfActive.png" alt="Capture The Flag active game map with flags and bubble"/>
+        <figcaption class="label">Capture + Score</figcaption>
+        <span class="tag">CTF Active</span>
+      </figure>
+      <figure class="shot">
+        <img class="frame" src="assets/screenshots/zombieActive.png" alt="Zombie Tag active game with infected count"/>
+        <figcaption class="label">Outrun the Horde</figcaption>
+        <span class="tag">Zombie Tag</span>
+      </figure>
+      <figure class="shot">
+        <img class="frame" src="assets/screenshots/manhuntActive.png" alt="Manhunt active game with shrinking zone"/>
+        <figcaption class="label">Hide. Shrink. Sprint.</figcaption>
+        <span class="tag">Manhunt</span>
+      </figure>
+      <figure class="shot">
+        <img class="frame" src="assets/screenshots/resultsShare.png" alt="Game end winner screen with stats and standings"/>
+        <figcaption class="label">Final Standings</figcaption>
+        <span class="tag">Game End</span>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ────────────────────── FINAL CTA ────────────────────── -->
+<section class="final">
+  <div class="mkt-wrap">
+    <span class="eyebrow"><span class="tg-pill sm grass">Ready</span> Step outside</span>
+    <h2>Phones up.<br/>Then phones down.</h2>
+    <p>Gather a few friends. Open the app. Touch grass.</p>
+    <div class="actions">
+      <a class="appstore-btn" href="#" aria-label="Download on the App Store">
+        <span class="glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c.013 1.04-.388 2.04-1.094 2.79-.738.78-1.946 1.39-3.082 1.32-.144-1.02.385-2.07 1.05-2.74.755-.78 2.07-1.34 3.126-1.37zM20.5 17.06c-.563 1.3-.832 1.87-1.555 3.02-.978 1.57-2.358 3.52-4.07 3.53-1.52.01-1.911-.94-3.974-.93-2.063.01-2.5.95-4.02.93-1.71-.02-3.018-1.79-3.997-3.37C.16 16.4-.13 11.55 1.62 8.91 2.86 7.04 4.83 5.93 6.69 5.93c1.9 0 3.09.94 4.66.94 1.52 0 2.45-.95 4.65-.94 1.21 0 2.49.55 3.39 1.5-2.98 1.63-2.5 5.86.11 6.63z"/></svg>
+        </span>
+        <span class="copy">
+          <span class="small">Download on the</span>
+          <span class="big">App Store</span>
+        </span>
+      </a>
+      <a class="ghost-btn" href="#top">Back to top</a>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="row">
+    <a class="brand-mini" href="#top">
+      <img src="assets/app-icon.png" alt=""/>
+      Touch Grass
+    </a>
+    <div class="links">
+      <a href="#what">How it works</a>
+      <a href="#ctf">CTF</a>
+      <a href="#zombie">Zombie Tag</a>
+      <a href="#manhunt">Manhunt</a>
+    </div>
+    <span style="opacity:.55">A backyard party game for iOS</span>
+  </div>
+</footer>
+
+</body>
+</html>

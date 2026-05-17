@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="zSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5C7D3E"></stop><stop offset="1" stop-color="#2D4220"></stop>
+    </linearGradient>
+    <linearGradient id="zGrass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#88A84A"></stop><stop offset="1" stop-color="#3D5E20"></stop>
+    </linearGradient>
+    <linearGradient id="zSkin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#AABB44"></stop><stop offset="1" stop-color="#4D6E22"></stop>
+    </linearGradient>
+    <linearGradient id="zSkin2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C8D26A"></stop><stop offset="1" stop-color="#5A7B2E"></stop>
+    </linearGradient>
+    <linearGradient id="zShirt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#557A30"></stop><stop offset="1" stop-color="#225522"></stop>
+    </linearGradient>
+    <radialGradient id="zMoon" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFF6C2"></stop><stop offset="1" stop-color="#FFD645"></stop>
+    </radialGradient>
+  </defs>
+
+  <rect x="6" y="6" width="244" height="244" rx="36" fill="url(#zSky)" stroke="#1a1a1a" stroke-width="6"></rect>
+
+  
+  <circle cx="60" cy="62" r="22" fill="url(#zMoon)" stroke="#1a1a1a" stroke-width="4"></circle>
+  <circle cx="54" cy="58" r="4" fill="#1a1a1a" opacity="0.18"></circle>
+  <circle cx="66" cy="68" r="3" fill="#1a1a1a" opacity="0.18"></circle>
+  
+  <g fill="#1a1a1a">
+    <path d="M150 50 q4 -4 8 0 q4 -4 8 0 q-2 2 -8 4 q-6 -2 -8 -4 z"></path>
+    <path d="M200 80 q3 -3 6 0 q3 -3 6 0 q-2 2 -6 3 q-4 -1 -6 -3 z"></path>
+  </g>
+
+  
+  <path d="M6 188 Q70 168 128 178 Q186 188 250 168 L250 244 Q250 250 244 250 L12 250 Q6 250 6 244 Z" fill="url(#zGrass)" stroke="#1a1a1a" stroke-width="6" stroke-linejoin="round"></path>
+  
+  <g>
+    <path d="M40 200 q0 -22 18 -22 q18 0 18 22 v22 h-36 z" fill="#9aa1a8" stroke="#1a1a1a" stroke-width="4" stroke-linejoin="round"></path>
+    <text x="58" y="208" text-anchor="middle" font-family="Nunito,system-ui" font-weight="900" font-size="14" fill="#1a1a1a">RIP</text>
+  </g>
+
+  
+  <g>
+    
+    <path d="M132 196 q-4 -28 14 -36 q22 -10 38 -2 q14 8 12 34 z" fill="url(#zShirt)" stroke="#1a1a1a" stroke-width="5" stroke-linejoin="round"></path>
+    
+    <path d="M148 196 l4 -6 l2 6 l3 -8 l3 8" fill="none" stroke="#1a1a1a" stroke-width="3" stroke-linejoin="round"></path>
+    
+    <ellipse cx="168" cy="130" rx="30" ry="32" fill="url(#zSkin)" stroke="#1a1a1a" stroke-width="5"></ellipse>
+    
+    <ellipse cx="139" cy="132" rx="5" ry="8" fill="url(#zSkin)" stroke="#1a1a1a" stroke-width="4"></ellipse>
+    
+    <path d="M148 106 q4 -10 10 -8 q3 -8 10 -6 q4 -8 12 -4 q6 -4 12 4 q6 -2 8 10" fill="#3a4d18" stroke="#1a1a1a" stroke-width="4" stroke-linejoin="round"></path>
+    
+    <ellipse cx="158" cy="128" rx="7" ry="6" fill="#1a1a1a"></ellipse>
+    <ellipse cx="180" cy="128" rx="7" ry="6" fill="#1a1a1a"></ellipse>
+    
+    <circle cx="160" cy="128" r="2.5" fill="#FFE266"></circle>
+    <circle cx="182" cy="128" r="2.5" fill="#FFE266"></circle>
+    
+    <path d="M152 148 q16 8 30 -2" fill="none" stroke="#1a1a1a" stroke-width="3.5" stroke-linecap="round"></path>
+    <path d="M156 147 v6 M163 149 v6 M170 150 v6 M178 148 v6" stroke="#1a1a1a" stroke-width="2.5" stroke-linecap="round"></path>
+    
+    <path d="M170 156 q-1 8 2 14" fill="none" stroke="#88c95a" stroke-width="3" stroke-linecap="round"></path>
+    
+    <circle cx="138" cy="148" r="4" fill="#9aa1a8" stroke="#1a1a1a" stroke-width="2.5"></circle>
+    <circle cx="138" cy="148" r="1.2" fill="#1a1a1a"></circle>
+  </g>
+
+  
+  <g>
+    <path d="M138 188 q-30 -10 -56 -28 q-6 -4 -2 -12 q4 -8 14 -2 q22 12 48 22" fill="url(#zSkin2)" stroke="#1a1a1a" stroke-width="5" stroke-linejoin="round"></path>
+    
+    <g>
+      <ellipse cx="78" cy="152" rx="14" ry="11" fill="url(#zSkin2)" stroke="#1a1a1a" stroke-width="5"></ellipse>
+      
+      <path d="M70 148 q-8 -2 -12 -10 q-4 -8 4 -6 q4 0 10 6 z" fill="url(#zSkin2)" stroke="#1a1a1a" stroke-width="4"></path>
+      <path d="M74 144 q-4 -8 -2 -16 q2 -8 8 -2 q2 6 0 14 z" fill="url(#zSkin2)" stroke="#1a1a1a" stroke-width="4"></path>
+      <path d="M82 142 q0 -10 4 -16 q4 -6 8 0 q2 6 -2 14 z" fill="url(#zSkin2)" stroke="#1a1a1a" stroke-width="4"></path>
+      <path d="M90 144 q4 -8 10 -10 q6 -2 6 4 q-2 6 -8 10 z" fill="url(#zSkin2)" stroke="#1a1a1a" stroke-width="4"></path>
+    </g>
+  </g>
+</svg>

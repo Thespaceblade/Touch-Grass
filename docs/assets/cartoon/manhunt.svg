@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="mSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFC2B0"></stop><stop offset="1" stop-color="#FF6650"></stop>
+    </linearGradient>
+    <linearGradient id="mGrass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#66E680"></stop><stop offset="1" stop-color="#1A8033"></stop>
+    </linearGradient>
+    <linearGradient id="hunter" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF8866"></stop><stop offset="1" stop-color="#991A1A"></stop>
+    </linearGradient>
+    <linearGradient id="runner" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE266"></stop><stop offset="1" stop-color="#CC8800"></stop>
+    </linearGradient>
+    <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFDFB8"></stop><stop offset="1" stop-color="#C8956A"></stop>
+    </linearGradient>
+  </defs>
+
+  <rect x="6" y="6" width="244" height="244" rx="36" fill="url(#mSky)" stroke="#1a1a1a" stroke-width="6"></rect>
+
+  
+  <circle cx="200" cy="60" r="22" fill="#FFE266" stroke="#1a1a1a" stroke-width="4"></circle>
+  <g stroke="#1a1a1a" stroke-width="3.5" stroke-linecap="round">
+    <line x1="200" y1="22" x2="200" y2="30"></line>
+    <line x1="232" y1="40" x2="226" y2="46"></line>
+    <line x1="168" y1="40" x2="174" y2="46"></line>
+  </g>
+
+  
+  <path d="M6 180 Q70 162 128 172 Q186 182 250 160 L250 244 Q250 250 244 250 L12 250 Q6 250 6 244 Z" fill="url(#mGrass)" stroke="#1a1a1a" stroke-width="6" stroke-linejoin="round"></path>
+  
+  <g fill="#fff" stroke="#1a1a1a" stroke-width="3" stroke-linejoin="round">
+    <path d="M22 210 q12 -10 24 -2 q-10 8 -24 6 z"></path>
+    <path d="M50 218 q8 -6 16 -2 q-7 6 -16 4 z"></path>
+  </g>
+
+  
+  <g>
+    
+    <path d="M198 210 q14 -4 18 -22 q4 -16 -10 -16 q-6 8 -10 22 z" fill="url(#hunter)" stroke="#1a1a1a" stroke-width="5" stroke-linejoin="round"></path>
+    
+    <path d="M168 196 q-4 -22 8 -36 q8 -10 16 -2 q-2 16 -8 26 z" fill="url(#hunter)" stroke="#1a1a1a" stroke-width="5" stroke-linejoin="round"></path>
+    
+    <path d="M170 168 q-8 -20 8 -30 q14 -10 28 -2 q12 8 4 28 q-4 12 -16 14 q-14 2 -24 -10 z" fill="url(#hunter)" stroke="#1a1a1a" stroke-width="5" stroke-linejoin="round"></path>
+    
+    <path d="M212 148 q14 -8 18 4 q4 12 -10 16 q-6 -2 -12 -8 z" fill="url(#hunter)" stroke="#1a1a1a" stroke-width="5" stroke-linejoin="round"></path>
+    
+    <path d="M178 144 q-18 -2 -22 -16 q-2 -10 8 -10 q10 0 22 12 z" fill="url(#hunter)" stroke="#1a1a1a" stroke-width="5" stroke-linejoin="round"></path>
+    
+    <circle cx="200" cy="118" r="18" fill="url(#skin)" stroke="#1a1a1a" stroke-width="5"></circle>
+    
+    <path d="M180 116 q0 -22 22 -22 q22 0 22 22 q-12 -8 -22 -8 q-12 0 -22 8 z" fill="#1A4DCC" stroke="#1a1a1a" stroke-width="5" stroke-linejoin="round"></path>
+    <path d="M180 116 q4 4 14 6" fill="none" stroke="#1a1a1a" stroke-width="4"></path>
+    
+    <circle cx="196" cy="120" r="2.6" fill="#1a1a1a"></circle>
+    
+    <path d="M192 130 q6 -2 12 0" stroke="#1a1a1a" stroke-width="3" fill="none" stroke-linecap="round"></path>
+  </g>
+
+  
+  <g>
+    
+    <path d="M110 210 q14 -4 16 -22 q4 -16 -10 -16 q-6 8 -10 22 z" fill="url(#runner)" stroke="#1a1a1a" stroke-width="5" stroke-linejoin="round"></path>
+    
+    <path d="M70 198 q-2 -22 10 -34 q8 -8 14 0 q-2 14 -6 22 z" fill="url(#runner)" stroke="#1a1a1a" stroke-width="5" stroke-linejoin="round"></path>
+    
+    <path d="M76 170 q-8 -20 8 -30 q14 -10 28 -2 q12 8 4 28 q-4 12 -16 14 q-14 2 -24 -10 z" fill="url(#runner)" stroke="#1a1a1a" stroke-width="5" stroke-linejoin="round"></path>
+    
+    <path d="M118 150 q14 -8 18 4 q4 12 -10 16 q-6 -2 -12 -8 z" fill="url(#runner)" stroke="#1a1a1a" stroke-width="5" stroke-linejoin="round"></path>
+    
+    <path d="M84 144 q-22 -2 -26 -16 q-2 -10 8 -10 q12 0 26 14 z" fill="url(#runner)" stroke="#1a1a1a" stroke-width="5" stroke-linejoin="round"></path>
+    
+    <circle cx="106" cy="118" r="18" fill="url(#skin)" stroke="#1a1a1a" stroke-width="5"></circle>
+    
+    <path d="M88 110 q0 -20 18 -22 q22 -2 24 18 q-6 -6 -12 -6 q-4 0 -6 4 q-4 -4 -10 -2 q-6 0 -14 8 z" fill="#5b3a18" stroke="#1a1a1a" stroke-width="5" stroke-linejoin="round"></path>
+    
+    <circle cx="98" cy="118" r="3.4" fill="#fff" stroke="#1a1a1a" stroke-width="2"></circle>
+    <circle cx="98" cy="119" r="1.6" fill="#1a1a1a"></circle>
+    
+    <ellipse cx="100" cy="130" rx="3.5" ry="3" fill="#1a1a1a"></ellipse>
+    
+    <path d="M118 110 q4 -2 4 4 q0 4 -4 4 q-4 0 -4 -4 q0 -6 4 -4 z" fill="#9CDDFF" stroke="#1a1a1a" stroke-width="2.5"></path>
+  </g>
+
+  
+  <g stroke="#1a1a1a" stroke-width="3" stroke-linecap="round" opacity="0.45">
+    <line x1="140" y1="156" x2="160" y2="156"></line>
+    <line x1="138" y1="172" x2="156" y2="172"></line>
+    <line x1="142" y1="188" x2="158" y2="188"></line>
+  </g>
+</svg>

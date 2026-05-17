@@ -1,0 +1,237 @@
+/* =========================================================
+   Touch Grass, Colors & Type
+   Playful outdoor-game app. Vibrant grass-greens, game-mode
+   accent palettes, rounded friendly type with monospaced
+   numerics for stats and timers.
+   ========================================================= */
+
+:root {
+  /* ---------- Brand / Grass ---------- */
+  --grass-primary:   #33B34D;   /* vibrant green, primary brand */
+  --grass-secondary: #4DCC66;   /* light green */
+  --grass-dark:      #1A8033;   /* dark green */
+  --grass-light:     #66E680;   /* very light green, glow */
+
+  /* ---------- Game Mode: Manhunt (Red) ---------- */
+  --manhunt-primary:   #CC3333;
+  --manhunt-secondary: #FF4D4D;
+  --manhunt-dark:      #991A1A;
+  --manhunt-light:     #FF8066;
+
+  /* ---------- Game Mode: Zombie Tag (Dark Green / Decay) ---------- */
+  --zombie-primary:   #225522;
+  --zombie-secondary: #448844;
+  --zombie-dark:      #112B11;
+  --zombie-light:     #66AA66;
+  --zombie-decay:     #AABB44;
+  --human-primary:    #3399FF;
+  --human-secondary:  #66CCFF;
+
+  /* ---------- Game Mode: Capture The Flag (Blue / Red) ---------- */
+  --ctf-primary:         #3380FF;
+  --ctf-secondary:       #4D99FF;
+  --ctf-dark:            #1A4DCC;
+  --ctf-light:           #66B3FF;
+  --ctf-team-a:          #3380FF;  /* blue */
+  --ctf-team-b:          #CC4D33;  /* red-orange */
+  --ctf-team-a-secondary:#4D99FF;
+  --ctf-team-b-secondary:#FF6650;
+
+  /* ---------- Bubble / Play-zone warning states ---------- */
+  --bubble-safe:     #33B34D;
+  --bubble-warning:  #FFCC00;
+  --bubble-danger:   #FF4D33;
+  --bubble-critical: #E61A1A;
+
+  /* ---------- Semantic status ---------- */
+  --success: #33B34D;
+  --warning: #FF9500;   /* iOS orange */
+  --error:   #FF3B30;   /* iOS red */
+  --info:    #007AFF;   /* iOS blue */
+  --neutral: #8E8E93;   /* iOS gray */
+
+  /* ---------- Background (light) ---------- */
+  --bg-primary:   #FFFFFF;
+  --bg-secondary: #F2F2F7;
+  --bg-tertiary:  #FFFFFF;
+  --bg-grouped:   #F2F2F7;
+  --card:         #FFFFFF;
+  --overlay:      rgba(0,0,0,0.6);
+
+  /* ---------- Text (light) ---------- */
+  --fg1: #000000;                /* primary label */
+  --fg2: rgba(60,60,67,0.60);    /* secondary label */
+  --fg3: rgba(60,60,67,0.30);    /* tertiary label */
+  --fg-inverse: #FFFFFF;
+
+  /* ---------- Cartoon design tokens (light = day) ----------
+     Mirrors `AppColors.cartoon*` on iOS. The dark overrides below
+     keep the cartoon vocabulary intact while re-authoring it for night:
+     cream paper becomes moonlit slate, ink becomes pale moon-paper. */
+  --cartoon-cream:   #FFFAEC;
+  --cartoon-cream2:  #F4ECD3;
+  --cartoon-ink:     #1A1A1A;
+  --cartoon-sun:     #FFD645;
+  --cartoon-sun2:    #FFE88A;
+  --cartoon-mint:    #D7F2D9;
+  --cartoon-rose:    #FFD7D2;
+  --cartoon-cloud:   #D5E6FF;
+  --cartoon-shadow:  #2E2E2E;
+
+  /* ---------- Opacity scale ---------- */
+  --op-light:   0.10;
+  --op-medium:  0.20;
+  --op-regular: 0.30;
+  --op-semi:    0.50;
+  --op-strong:  0.70;
+  --op-heavy:   0.90;
+
+  /* ---------- Spacing (8pt grid) ---------- */
+  --sp-xs:   4px;
+  --sp-sm:   8px;
+  --sp-md:   16px;
+  --sp-lg:   24px;
+  --sp-xl:   32px;
+  --sp-xxl:  48px;
+  --sp-xxxl: 64px;
+
+  /* ---------- Radii ---------- */
+  --r-sm:   8px;
+  --r-md:   12px;
+  --r-lg:   16px;
+  --r-xl:   20px;
+  --r-2xl:  24px;
+  --r-pill: 999px;
+
+  /* ---------- Shadows (layered: key + ambient) ---------- */
+  --shadow-sm: 0 2px 6px rgba(0,0,0,0.08);
+  --shadow-md: 0 6px 15px rgba(0,0,0,0.15), 0 3px 6px rgba(0,0,0,0.10);
+  --shadow-lg: 0 15px 30px rgba(0,0,0,0.18), 0 8px 15px rgba(0,0,0,0.12);
+  --shadow-glow-grass:   0 0 25px rgba(51,179,77,0.35);
+  --shadow-glow-ctf:     0 0 25px rgba(51,128,255,0.35);
+  --shadow-glow-manhunt: 0 0 25px rgba(204,51,51,0.35);
+  --shadow-glow-zombie:  0 0 25px rgba(34,85,34,0.45);
+
+  /* ---------- Type: families ---------- */
+  /* SF Pro Rounded on Apple; Nunito is the closest Google Font match
+     for the playful rounded display used on marketing surfaces.
+     SF Pro Text for body; SF Mono for numerics. System monospace
+     fallback keeps stats aligned even without the webfont. */
+  --font-display: "Nunito", "SF Pro Rounded", -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif;
+  --font-body:    -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:    "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+
+  /* ---------- Type: scale (matches AppTypography.swift) ---------- */
+  --fs-display-lg: 48px;  --fw-display-lg: 800;
+  --fs-display-md: 36px;  --fw-display-md: 800;
+  --fs-display-sm: 28px;  --fw-display-sm: 800;
+  --fs-headline-lg: 24px; --fw-headline-lg: 700;
+  --fs-headline-md: 20px; --fw-headline-md: 600;
+  --fs-headline-sm: 18px; --fw-headline-sm: 600;
+  --fs-body-lg: 17px;     --fw-body-lg: 400;
+  --fs-body-md: 15px;     --fw-body-md: 400;
+  --fs-body-sm: 13px;     --fw-body-sm: 400;
+  --fs-label-lg: 15px;    --fw-label-lg: 500;
+  --fs-label-md: 13px;    --fw-label-md: 500;
+  --fs-label-sm: 11px;    --fw-label-sm: 500;
+  --fs-stat-lg: 32px;     --fw-stat-lg: 700;
+  --fs-stat-md: 24px;     --fw-stat-md: 600;
+  --fs-stat-sm: 18px;     --fw-stat-sm: 600;
+  --fs-caption: 12px;     --fw-caption: 400;
+  --fs-caption-sm: 10px;  --fw-caption-sm: 400;
+}
+
+/* ---------- Dark theme override ---------- */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary:   #000000;
+    --bg-secondary: #1C1C1E;
+    --bg-tertiary:  #2C2C2E;
+    --bg-grouped:   #000000;
+    --card:         #1C1C1E;
+
+    --fg1: #FFFFFF;
+    --fg2: rgba(235,235,245,0.60);
+    --fg3: rgba(235,235,245,0.30);
+
+    /* Cartoon night: same vocabulary, re-authored as moonlit surfaces.
+       Game / role / bubble ramps deliberately stay untouched so semantics
+       (red = danger, blue = hider/team, zombie greens) remain stable. */
+    --cartoon-cream:   #1B2332;   /* moonlit slate panel */
+    --cartoon-cream2:  #26304D;   /* slightly lifted panel */
+    --cartoon-ink:     #EFEAD9;   /* pale moon-paper ink */
+    --cartoon-sun:     #F5D87F;   /* cooler moon-gold */
+    --cartoon-sun2:    #FFE3A8;   /* soft moonlit gold */
+    --cartoon-mint:    #264638;   /* muted night mint */
+    --cartoon-rose:    #4D323C;   /* dusky night rose */
+    --cartoon-cloud:   #232F4A;   /* deep night blue */
+    --cartoon-shadow:  #050A12;   /* near-merged night shadow */
+  }
+}
+
+/* =========================================================
+   Semantic element styles
+   ========================================================= */
+html, body { background: var(--bg-primary); color: var(--fg1); font-family: var(--font-body); }
+
+h1, .h1 {
+  font-family: var(--font-display);
+  font-size: var(--fs-display-md);
+  font-weight: var(--fw-display-md);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--fg1);
+}
+h2, .h2 {
+  font-family: var(--font-display);
+  font-size: var(--fs-display-sm);
+  font-weight: var(--fw-display-sm);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+h3, .h3 {
+  font-family: var(--font-body);
+  font-size: var(--fs-headline-lg);
+  font-weight: var(--fw-headline-lg);
+  line-height: 1.2;
+}
+h4, .h4 {
+  font-family: var(--font-body);
+  font-size: var(--fs-headline-md);
+  font-weight: var(--fw-headline-md);
+  line-height: 1.25;
+}
+
+p, .body {
+  font-size: var(--fs-body-lg);
+  font-weight: var(--fw-body-lg);
+  line-height: 1.4;
+  color: var(--fg1);
+}
+.body-md { font-size: var(--fs-body-md); line-height: 1.4; }
+.body-sm { font-size: var(--fs-body-sm); line-height: 1.4; color: var(--fg2); }
+
+.label      { font-size: var(--fs-label-lg); font-weight: var(--fw-label-lg); }
+.label-sm   { font-size: var(--fs-label-sm); font-weight: var(--fw-label-sm); text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg2); }
+.caption    { font-size: var(--fs-caption); color: var(--fg2); }
+
+.stat, code, kbd, .mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.stat-lg { font-size: var(--fs-stat-lg); font-weight: var(--fw-stat-lg); }
+.stat-md { font-size: var(--fs-stat-md); font-weight: var(--fw-stat-md); }
+.stat-sm { font-size: var(--fs-stat-sm); font-weight: var(--fw-stat-sm); }
+
+/* Utility: pill + capsule button baseline */
+.pill { border-radius: var(--r-pill); padding: 6px 12px; font-weight: 600; }
+.capsule-btn {
+  border-radius: var(--r-lg);
+  padding: var(--sp-md);
+  font-weight: 700;
+  font-family: var(--font-display);
+  box-shadow: var(--shadow-md);
+}
+
+/* Webfont imports (fallbacks live in var chain above) */
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');

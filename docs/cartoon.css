@@ -1,0 +1,209 @@
+/* cartoon.css, the chunky-cartoon design language for Touch Grass.
+   The whole project is being refactored to use this. Import alongside
+   colors_and_type.css.
+
+   Vocab:
+     • cream surfaces (#FFFAEC), bold black ink (#1a1a1a)
+     • 2.5–3px black strokes, hard offset shadow 4px 4px 0 #1a1a1a
+     • Lilita One display font, sentence-case + UPPERCASE labels
+     • bright filled tiles, stroke-only icons in chunky strokes
+     • slight translate-up on active states
+     • text-stroke ("paint-order: stroke fill") on the punchiest titles
+*/
+
+@import url('https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
+
+:root {
+  --ink:        #1a1a1a;
+  --cream:      #FFFAEC;
+  --cream-2:    #F4ECD3;
+  --paper:      #FAFAFA;
+
+  /* ink-on-bright palette */
+  --ck-grass:   #33B34D;
+  --ck-grass-2: #4DCC66;
+  --ck-leaf:    #1A8033;
+  --ck-sky:     #3380FF;
+  --ck-sky-2:   #66A3FF;
+  --ck-tomato:  #CC3333;
+  --ck-tomato-2:#FF6650;
+  --ck-sun:     #FFD645;
+  --ck-sun-2:   #FFE88A;
+  --ck-orange:  #FF9500;
+  --ck-violet:  #7355CC;
+  --ck-swamp:   #225522;
+  --ck-decay:   #AABB44;
+  --ck-mint:    #D7F2D9;
+  --ck-rose:    #FFD7D2;
+  --ck-cloud:   #D5E6FF;
+
+  --cartoon-shadow:     4px 4px 0 var(--ink);
+  --cartoon-shadow-sm:  2px 2px 0 var(--ink);
+  --cartoon-shadow-xs:  1.5px 1.5px 0 var(--ink);
+
+  --stroke:   2.5px solid var(--ink);
+  --stroke-sm:2px solid var(--ink);
+  --stroke-thin:1.5px solid var(--ink);
+
+  --r-pill: 999px;
+  --r-md:   12px;
+  --r-lg:   16px;
+  --r-xl:   20px;
+
+  --font-cartoon: 'Lilita One', 'Nunito', system-ui, sans-serif;
+}
+
+/* ───────── Card frame for preview tiles ───────── */
+.tg-page {
+  background: var(--cream);
+  font-family: var(--font-body, system-ui);
+  color: var(--ink);
+  padding: 18px 20px;
+  box-sizing: border-box;
+  min-height: 100%;
+}
+
+/* ───────── Tile / surface ───────── */
+.tg-tile {
+  background: var(--cream);
+  border: var(--stroke);
+  border-radius: var(--r-lg);
+  box-shadow: var(--cartoon-shadow);
+  overflow: hidden;
+}
+.tg-tile.sm  { border-radius: var(--r-md); box-shadow: var(--cartoon-shadow-sm); border: var(--stroke-sm); }
+.tg-tile.flat{ box-shadow: none; }
+
+/* ───────── Pill ───────── */
+.tg-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px;
+  font-family: var(--font-cartoon);
+  font-size: 12px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--ck-sun-2);
+  border: var(--stroke-sm);
+  border-radius: var(--r-pill);
+  box-shadow: var(--cartoon-shadow-sm);
+}
+.tg-pill.sm { padding: 3px 9px; font-size: 10px; box-shadow: var(--cartoon-shadow-xs); }
+.tg-pill .dot { width:8px; height:8px; border-radius:999px; background: var(--ink); border: 1.5px solid var(--ink); }
+
+/* color variants, bg only; text is always --ink unless .ink-light */
+.tg-pill.grass   { background: var(--ck-grass);   color: #fff; text-shadow: 0 1.5px 0 rgba(0,0,0,.25); }
+.tg-pill.sky     { background: var(--ck-sky);     color: #fff; text-shadow: 0 1.5px 0 rgba(0,0,0,.25); }
+.tg-pill.tomato  { background: var(--ck-tomato);  color: #fff; text-shadow: 0 1.5px 0 rgba(0,0,0,.25); }
+.tg-pill.sun     { background: var(--ck-sun); }
+.tg-pill.cream   { background: var(--cream); }
+.tg-pill.orange  { background: var(--ck-orange); color: #fff; text-shadow: 0 1.5px 0 rgba(0,0,0,.25); }
+.tg-pill.cloud   { background: var(--ck-cloud); }
+.tg-pill.mint    { background: var(--ck-mint); }
+.tg-pill.rose    { background: var(--ck-rose); }
+.tg-pill.swamp   { background: var(--ck-swamp);   color: var(--ck-decay); text-shadow: 0 1.5px 0 rgba(0,0,0,.4); }
+
+/* ───────── Button ───────── */
+.tg-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 12px 18px;
+  background: var(--ck-sun);
+  color: var(--ink);
+  font-family: var(--font-cartoon);
+  font-size: 15px; letter-spacing:.02em; text-transform: uppercase;
+  border: var(--stroke);
+  border-radius: var(--r-lg);
+  box-shadow: var(--cartoon-shadow);
+  cursor: pointer;
+  transition: transform .12s, box-shadow .12s;
+}
+.tg-btn:hover { transform: translate(-1px,-1px); box-shadow: 5px 5px 0 var(--ink); }
+.tg-btn:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
+.tg-btn.grass  { background: var(--ck-grass);  color:#fff; text-shadow: 0 2px 0 rgba(0,0,0,.3); }
+.tg-btn.sky    { background: var(--ck-sky);    color:#fff; text-shadow: 0 2px 0 rgba(0,0,0,.3); }
+.tg-btn.tomato { background: var(--ck-tomato); color:#fff; text-shadow: 0 2px 0 rgba(0,0,0,.3); }
+.tg-btn.cream  { background: var(--cream); }
+.tg-btn.ghost  { background: transparent; box-shadow:none; border:var(--stroke-sm); }
+.tg-btn.sm     { padding: 8px 14px; font-size: 13px; border-radius: var(--r-md); box-shadow: var(--cartoon-shadow-sm); }
+
+/* ───────── Medallion (icon dot) ───────── */
+.tg-medallion {
+  display:inline-flex; align-items:center; justify-content:center;
+  width: 32px; height: 32px; border-radius: 999px;
+  background: var(--cream);
+  border: var(--stroke-sm);
+  box-shadow: var(--cartoon-shadow-xs);
+  flex-shrink: 0;
+}
+.tg-medallion.lg { width: 44px; height: 44px; border: var(--stroke); box-shadow: var(--cartoon-shadow-sm); }
+.tg-medallion.sm { width: 22px; height: 22px; }
+
+/* ───────── Swatch tile (for color cards) ───────── */
+.tg-swatch {
+  border: var(--stroke);
+  border-radius: var(--r-md);
+  box-shadow: var(--cartoon-shadow-sm);
+  overflow: hidden;
+}
+.tg-swatch-label {
+  font-family: var(--font-cartoon);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--ink);
+  padding: 6px 8px 0;
+  display:flex; justify-content:space-between; align-items:baseline;
+}
+.tg-swatch-hex { font-family: var(--font-mono, ui-monospace); font-size: 10px; opacity: .65; }
+
+/* ───────── Section headings ───────── */
+.tg-h {
+  font-family: var(--font-cartoon);
+  font-size: 28px;
+  font-weight: 400;
+  -webkit-text-stroke: 1px var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 0 2px 0 var(--ink);
+  letter-spacing: .01em;
+  line-height: 1;
+  color: var(--ink);
+  margin: 0;
+}
+.tg-h.shout {
+  color: var(--ck-sun-2);
+  -webkit-text-stroke: 1.5px var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 0 3px 0 var(--ink), 0 5px 0 rgba(0,0,0,.18);
+}
+.tg-eyebrow {
+  font-family: var(--font-cartoon);
+  font-size: 11px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink);
+  opacity: .7;
+}
+
+/* ───────── Layout helpers ───────── */
+.tg-row { display:flex; gap:10px; align-items:center; }
+.tg-col { display:flex; flex-direction:column; gap:8px; }
+.tg-wrap{ display:flex; flex-wrap:wrap; gap:8px; }
+.tg-stretch > * { flex: 1; }
+.tg-mono { font-family: var(--font-mono, ui-monospace); font-variant-numeric: tabular-nums; }
+
+/* ───────── Background scribbles & dots ───────── */
+.tg-dotbg {
+  background-image: radial-gradient(circle, rgba(26,26,26,.12) 1.2px, transparent 1.5px);
+  background-size: 14px 14px;
+  background-position: 0 0;
+}
+.tg-grassbg {
+  background:
+    radial-gradient(ellipse at 50% 100%, rgba(51,179,77,.18), transparent 60%),
+    #E9F7EB;
+}
+.tg-skybg {
+  background:
+    radial-gradient(ellipse 60% 40% at 80% 0%, rgba(51,128,255,.18), transparent 60%),
+    #E5EEFF;
+}

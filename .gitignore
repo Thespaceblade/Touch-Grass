@@ -2,8 +2,11 @@
 build/
 DerivedData/
 
-docs/
+# Design prototypes (HTML/CSS); sync landing page to docs/ via Scripts/sync_docs_site.sh
 DesignSystem/
+
+# Internal engineering notes (not published on GitHub Pages)
+internal-docs/
 
 .cursor/
 .screenshot-results/
