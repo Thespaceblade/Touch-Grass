@@ -1,0 +1,11 @@
+{
+  "name": "touch-grass-rules-tests",
+  "private": true,
+  "scripts": {
+    "test": "node --test manhunt.rules.test.js"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "firebase": "^11.6.0"
+  }
+}

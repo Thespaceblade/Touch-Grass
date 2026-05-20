@@ -89,6 +89,7 @@ struct CTFLobbyView: View {
                             gameStats: gameStats,
                             currentPlayer: viewModel.gameService.currentPlayer,
                             gameService: viewModel.gameService,
+                            canManageNextRound: session.isDeviceHost(viewModel.gameService.currentPlayer),
                             onPlayAgain: {
                                 viewModel.playAgain()
                             },

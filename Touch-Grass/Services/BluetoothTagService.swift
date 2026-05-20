@@ -19,6 +19,7 @@ struct BluetoothMessage: Codable {
         case playerId
         case tagRequest
         case tagConfirmed
+        case tagRejected
     }
 
     let type: MessageType
@@ -35,6 +36,10 @@ struct BluetoothMessage: Codable {
 
     static func tagConfirmed(by id: String) -> BluetoothMessage {
         BluetoothMessage(type: .tagConfirmed, playerId: id, playerName: nil)
+    }
+
+    static func tagRejected(by id: String) -> BluetoothMessage {
+        BluetoothMessage(type: .tagRejected, playerId: id, playerName: nil)
     }
 
     func encoded() -> Data? {
@@ -97,6 +102,7 @@ final class BluetoothTagService: NSObject, ObservableObject {
     // Callbacks
     var onTagRequest: ((String, String) -> Void)? // (fromPlayerId, fromPlayerName)
     var onTagConfirmed: ((String) -> Void)? // (playerId)
+    var onTagRejected: ((String) -> Void)? // (rejector playerId)
     
     struct NearbyPlayer: Identifiable {
         let id: String
@@ -219,8 +225,33 @@ final class BluetoothTagService: NSObject, ObservableObject {
         onTagConfirmed?(confirmerId)
     }
     
-    func rejectTag() {
+    func rejectTag(toTaggerPlayerId: String? = nil) {
+        if let taggerId = toTaggerPlayerId ?? tagRequestReceived?.fromPlayerId {
+            sendTagRejected(toTaggerPlayerId: taggerId)
+        }
         tagRequestReceived = nil
+    }
+
+    private func sendTagRejected(toTaggerPlayerId taggerId: String) {
+        let peripheralId = peripheralToPlayerId.first(where: { $0.value == taggerId })?.key ?? taggerId
+        guard let peripheral = nearbyPlayers.first(where: { $0.id == taggerId })?.peripheral ?? connectedPeripherals[peripheralId],
+              let characteristic = characteristics[peripheralId] ?? characteristics[taggerId] else {
+            print("❌ Cannot reject tag: tagger not connected (Player ID: \(taggerId))")
+            return
+        }
+
+        guard let rejectorId = playerId, !rejectorId.isEmpty else {
+            print("❌ Cannot reject tag: local player id is missing")
+            return
+        }
+
+        let message = BluetoothMessage.tagRejected(by: rejectorId)
+        guard let data = message.encoded() else {
+            print("❌ Cannot reject tag: failed to encode rejection")
+            return
+        }
+        peripheral.writeValue(data, for: characteristic, type: .withResponse)
+        print("📤 Sent tag rejection to \(taggerId) as \(rejectorId)")
     }
     
     private func disconnectAll() {
@@ -348,6 +379,12 @@ extension BluetoothTagService {
                 let id = components[1]
                 handleIncomingTagConfirmation(playerId: id)
             }
+        } else if message.hasPrefix("TAG_REJECTED:") {
+            let components = message.components(separatedBy: ":")
+            if components.count >= 2 {
+                let id = components[1]
+                handleIncomingTagRejection(playerId: id)
+            }
         }
     }
     
@@ -364,6 +401,10 @@ extension BluetoothTagService {
         case .tagConfirmed:
             if let id = envelope.playerId {
                 handleIncomingTagConfirmation(playerId: id)
+            }
+        case .tagRejected:
+            if let id = envelope.playerId {
+                handleIncomingTagRejection(playerId: id)
             }
         }
     }
@@ -398,6 +439,11 @@ extension BluetoothTagService {
     private func handleIncomingTagConfirmation(playerId: String) {
         onTagConfirmed?(playerId)
         print("✅ Tag confirmed by \(playerId)")
+    }
+
+    private func handleIncomingTagRejection(playerId: String) {
+        onTagRejected?(playerId)
+        print("🚫 Tag rejected by \(playerId)")
     }
 }
 

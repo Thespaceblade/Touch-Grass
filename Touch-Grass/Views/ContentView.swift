@@ -72,19 +72,7 @@ struct ContentView: View {
             headerSubtitle: "You're out",
             title: "Game Over",
             message: viewModel.gameOverMessage,
-            buttons: [
-                ThemedNoticeButton(title: "OK", icon: "checkmark", role: .secondary) {
-                    Task { @MainActor in
-                        let gameService = viewModel.gameService
-                        if gameService.gameState == .ended {
-                            gameService.endGame()
-                        }
-                    }
-                },
-                ThemedNoticeButton(title: "Play Again", icon: "arrow.clockwise", role: .primary) {
-                    viewModel.playAgain()
-                }
-            ]
+            buttons: gameOverNoticeButtons
         )
         .themedNotice(
             isPresented: sessionEndedNoticeBinding,
@@ -105,6 +93,28 @@ struct ContentView: View {
                 }
             ]
         )
+    }
+
+    private var gameOverNoticeButtons: [ThemedNoticeButton] {
+        var buttons = [
+            ThemedNoticeButton(title: "OK", icon: "checkmark", role: .secondary) {
+                Task { @MainActor in
+                    let gameService = viewModel.gameService
+                    if gameService.gameState == .ended {
+                        gameService.endGame()
+                    }
+                }
+            }
+        ]
+
+        if let session = viewModel.gameService.session,
+           session.isDeviceHost(viewModel.gameService.currentPlayer) {
+            buttons.append(ThemedNoticeButton(title: "Play Again", icon: "arrow.clockwise", role: .primary) {
+                viewModel.playAgain()
+            })
+        }
+
+        return buttons
     }
     
     // MARK: - Home View

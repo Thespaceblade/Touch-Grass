@@ -30,6 +30,29 @@ final class FirestoreService: ObservableObject {
         encoder.dateEncodingStrategy = .secondsSince1970
         decoder.dateDecodingStrategy = .secondsSince1970
     }
+
+    private static func isCoordinateOutsideActiveZone(
+        _ coordinate: CLLocationCoordinate2D,
+        bubble: Bubble,
+        now: Date
+    ) -> Bool {
+        let distanceToEdge: Double
+
+        if bubble.usesNewZoneSystem {
+            let runtimeState = ZoneService.deriveRuntimeZoneState(for: bubble, now: now)
+            let radius = runtimeState.currentActiveZone.radiusMeters
+            guard radius.isFinite && radius > 0 else { return false }
+            distanceToEdge = runtimeState.distanceToEdge(from: coordinate)
+            guard distanceToEdge.isFinite else { return false }
+            return distanceToEdge - ZoneService.enforcementToleranceMeters > 0
+        }
+
+        let radius = bubble.currentRadius(at: now)
+        guard radius.isFinite && radius > 0 else { return false }
+        distanceToEdge = bubble.distanceToEdge(from: coordinate, at: now)
+        guard distanceToEdge.isFinite else { return false }
+        return distanceToEdge > 0
+    }
     
     // MARK: - Helper Methods
     
@@ -44,10 +67,25 @@ final class FirestoreService: ObservableObject {
         // collapses to one entry per Firebase account.
         dict["playerIds"] = session.players.map(\.id)
         dict["memberAuthUids"] = session.memberAuthUserIds
+        dict["playerAuthByPlayerId"] = FirestoreService.playerAuthMap(for: session.players)
         dict["hostPlayerId"] = session.hostPlayerId
         dict["hostAuthUid"] = session.hostAuthUid
         dict["endReason"] = session.endReason?.rawValue ?? NSNull()
         return dict
+    }
+
+    /// Top-level `playerId -> authUserId` map mirrored from the roster.
+    /// Used by Firestore security rules to verify that a member update is
+    /// actually being performed by the owner of the affected player row
+    /// (rules can't iterate the `players` array, but they can index this
+    /// map by the caller's `request.auth.uid` after a lookup-by-id check).
+    static func playerAuthMap(for players: [Player]) -> [String: String] {
+        var map: [String: String] = [:]
+        map.reserveCapacity(players.count)
+        for player in players {
+            map[player.id] = player.authUserId
+        }
+        return map
     }
     
     private func dictionaryToSession(_ dict: [String: Any], id: String) throws -> GameSession {
@@ -332,7 +370,8 @@ final class FirestoreService: ObservableObject {
                         [
                             "players": try self.encodeToFirestoreValue(session.players),
                             "playerIds": session.players.map(\.id),
-                            "memberAuthUids": session.memberAuthUserIds
+                            "memberAuthUids": session.memberAuthUserIds,
+                            "playerAuthByPlayerId": FirestoreService.playerAuthMap(for: session.players)
                         ],
                         forDocument: sessionRef
                     )
@@ -449,7 +488,8 @@ final class FirestoreService: ObservableObject {
                             [
                                 "players": try self.encodeToFirestoreValue(session.players),
                                 "playerIds": session.players.map(\.id),
-                                "memberAuthUids": session.memberAuthUserIds
+                                "memberAuthUids": session.memberAuthUserIds,
+                                "playerAuthByPlayerId": FirestoreService.playerAuthMap(for: session.players)
                             ],
                             forDocument: sessionRef
                         )
@@ -636,9 +676,21 @@ final class FirestoreService: ObservableObject {
                             return nil
                         }
                     }
+
+                    if Self.isCoordinateOutsideActiveZone(actorLocation.coordinate, bubble: bubble, now: now) {
+                        errorPointer?.pointee = NSError(
+                            domain: "FirestoreService",
+                            code: -15,
+                            userInfo: [
+                                NSLocalizedDescriptionKey: "Predator is outside the active zone",
+                                "compassPulseErrorKind": "outsideZone"
+                            ]
+                        )
+                        return nil
+                    }
                 }
 
-                let eligible = session.eligibleCompassPrey(firedBy: actorId)
+                let eligible = session.eligibleCompassPrey(firedBy: actorId, now: now)
                 guard let target = eligible.randomElement() else {
                     errorPointer?.pointee = NSError(
                         domain: "FirestoreService",
@@ -764,6 +816,331 @@ final class FirestoreService: ObservableObject {
         }
         
         try await sessionRef.setData(data, merge: true)
+    }
+
+    // MARK: - Manhunt Catch
+
+    /// How a Manhunt catch was initiated. The transaction validates caller
+    /// eligibility against the snapshot per source kind, so the field is
+    /// authoritative even if the optimistic local state was wrong.
+    enum ManhuntCatchKind {
+        /// BLE-confirmed proximity tag. Caller must be an alive hunter in
+        /// the snapshot and the target must be an alive hider.
+        case bluetooth
+        /// Hider self-reports they were tagged when BLE missed. Caller must
+        /// be the target (same `playerId`) and an alive hider.
+        case honor
+        /// Zone / out-of-bounds elimination of a hider. Caller is any
+        /// member; the transaction still requires the target to be an
+        /// alive hider.
+        case zone
+    }
+
+    enum ManhuntCatchError: LocalizedError {
+        case sessionMissing
+        case decodeFailed
+        case notManhunt
+        case targetMissing
+        case targetAlreadyDead
+        case targetNotHider
+        case callerNotMember
+        case callerNotHunter
+        case callerNotTarget
+        case gameNotActive
+
+        var errorDescription: String? {
+            switch self {
+            case .sessionMissing: return "Session not found."
+            case .decodeFailed: return "Session data could not be read."
+            case .notManhunt: return "This game type does not support manhunt catches."
+            case .targetMissing: return "Target player not in roster."
+            case .targetAlreadyDead: return "Target player is already eliminated."
+            case .targetNotHider: return "Target player is not a hider."
+            case .callerNotMember: return "Caller is not a session member."
+            case .callerNotHunter: return "Only an alive hunter can confirm a tag."
+            case .callerNotTarget: return "Only the target player can self-report a tag."
+            case .gameNotActive: return "Game is not active."
+            }
+        }
+    }
+
+    /// Result returned to the calling device after a successful commit.
+    /// Reflects the authoritative server-side state so the caller can
+    /// reconcile local UI without re-reading the session.
+    struct ManhuntCatchCommit {
+        let firstTaggedPlayerId: String?
+        let players: [Player]
+    }
+
+    /// Atomically marks the target hider dead and (if previously unset)
+    /// records them as `firstTaggedPlayerId`. Used by every Manhunt catch
+    /// path so non-host hunters and self-reporting hiders no longer rely
+    /// on broad host-only `updateSession` writes that Firestore rules
+    /// reject. The transaction is the authoritative source of truth for
+    /// catch state, and the security rule is a belt-and-suspenders gate
+    /// on the diff shape.
+    func commitManhuntCatch(
+        sessionId: String,
+        callerPlayerId: String,
+        targetPlayerId: String,
+        kind: ManhuntCatchKind
+    ) async throws -> ManhuntCatchCommit {
+        let sessionRef = db.collection("sessions").document(sessionId)
+
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ManhuntCatchCommit, Error>) in
+            db.runTransaction({ [self] transaction, errorPointer -> Any? in
+                let snapshot: DocumentSnapshot
+                do {
+                    snapshot = try transaction.getDocument(sessionRef)
+                } catch let fetchError as NSError {
+                    errorPointer?.pointee = fetchError
+                    return nil
+                }
+
+                guard snapshot.exists, let raw = snapshot.data() else {
+                    errorPointer?.pointee = NSError(
+                        domain: "FirestoreService",
+                        code: -50,
+                        userInfo: [NSLocalizedDescriptionKey: ManhuntCatchError.sessionMissing.localizedDescription]
+                    )
+                    return nil
+                }
+
+                var session: GameSession
+                do {
+                    session = try self.dictionaryToSession(raw, id: sessionId)
+                } catch {
+                    errorPointer?.pointee = NSError(
+                        domain: "FirestoreService",
+                        code: -51,
+                        userInfo: [NSLocalizedDescriptionKey: ManhuntCatchError.decodeFailed.localizedDescription]
+                    )
+                    return nil
+                }
+
+                guard session.gameType == .manhunt else {
+                    errorPointer?.pointee = NSError(
+                        domain: "FirestoreService",
+                        code: -52,
+                        userInfo: [NSLocalizedDescriptionKey: ManhuntCatchError.notManhunt.localizedDescription]
+                    )
+                    return nil
+                }
+
+                guard session.gameState == .active else {
+                    errorPointer?.pointee = NSError(
+                        domain: "FirestoreService",
+                        code: -53,
+                        userInfo: [NSLocalizedDescriptionKey: ManhuntCatchError.gameNotActive.localizedDescription]
+                    )
+                    return nil
+                }
+
+                guard let targetIndex = session.players.firstIndex(where: { $0.id == targetPlayerId }) else {
+                    errorPointer?.pointee = NSError(
+                        domain: "FirestoreService",
+                        code: -54,
+                        userInfo: [NSLocalizedDescriptionKey: ManhuntCatchError.targetMissing.localizedDescription]
+                    )
+                    return nil
+                }
+
+                let target = session.players[targetIndex]
+                guard target.role == .hider else {
+                    errorPointer?.pointee = NSError(
+                        domain: "FirestoreService",
+                        code: -55,
+                        userInfo: [NSLocalizedDescriptionKey: ManhuntCatchError.targetNotHider.localizedDescription]
+                    )
+                    return nil
+                }
+
+                guard target.isAlive else {
+                    // Race-safe no-op: target was already caught by another
+                    // client. Treat as success and return the snapshot so
+                    // the caller's UI converges without an error.
+                    let commit = ManhuntCatchCommit(
+                        firstTaggedPlayerId: session.firstTaggedPlayerId,
+                        players: session.players
+                    )
+                    return commit
+                }
+
+                guard let caller = session.players.first(where: { $0.id == callerPlayerId }) else {
+                    errorPointer?.pointee = NSError(
+                        domain: "FirestoreService",
+                        code: -56,
+                        userInfo: [NSLocalizedDescriptionKey: ManhuntCatchError.callerNotMember.localizedDescription]
+                    )
+                    return nil
+                }
+
+                // Per-kind eligibility. Belt-and-suspenders: the local UI
+                // should already have gated these, but the transaction
+                // re-validates against the authoritative snapshot.
+                switch kind {
+                case .bluetooth:
+                    guard caller.role == .hunter, caller.isAlive else {
+                        errorPointer?.pointee = NSError(
+                            domain: "FirestoreService",
+                            code: -57,
+                            userInfo: [NSLocalizedDescriptionKey: ManhuntCatchError.callerNotHunter.localizedDescription]
+                        )
+                        return nil
+                    }
+                case .honor:
+                    guard caller.id == target.id else {
+                        errorPointer?.pointee = NSError(
+                            domain: "FirestoreService",
+                            code: -58,
+                            userInfo: [NSLocalizedDescriptionKey: ManhuntCatchError.callerNotTarget.localizedDescription]
+                        )
+                        return nil
+                    }
+                case .zone:
+                    // Any member can flag a hider as out-of-bounds; the
+                    // role/alive checks above already guarded against
+                    // eliminating non-hiders.
+                    break
+                }
+
+                session.players[targetIndex].isAlive = false
+
+                var updates: [String: Any] = [:]
+                do {
+                    updates["players"] = try self.encodeToFirestoreValue(session.players)
+                } catch {
+                    errorPointer?.pointee = error as NSError
+                    return nil
+                }
+
+                if session.firstTaggedPlayerId == nil {
+                    session.firstTaggedPlayerId = target.id
+                    updates["firstTaggedPlayerId"] = target.id
+                }
+
+                transaction.updateData(updates, forDocument: sessionRef)
+
+                return ManhuntCatchCommit(
+                    firstTaggedPlayerId: session.firstTaggedPlayerId,
+                    players: session.players
+                )
+            }) { value, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let commit = value as? ManhuntCatchCommit {
+                    continuation.resume(returning: commit)
+                } else {
+                    continuation.resume(throwing: NSError(
+                        domain: "FirestoreService",
+                        code: -59,
+                        userInfo: [NSLocalizedDescriptionKey: "Manhunt catch returned unexpected value"]
+                    ))
+                }
+            }
+        }
+    }
+
+    // MARK: - Presence Heartbeat
+
+    enum PlayerPresenceError: LocalizedError {
+        case sessionMissing
+        case playerMissing
+        case decodeFailed
+
+        var errorDescription: String? {
+            switch self {
+            case .sessionMissing: return "Session not found."
+            case .playerMissing: return "Player not in session."
+            case .decodeFailed: return "Session data could not be read."
+            }
+        }
+    }
+
+    /// Bumps the caller's own `lastUpdated` so other clients see them as
+    /// connected even when their GPS coordinates haven't changed.
+    ///
+    /// Uses a transaction to avoid clobbering other players' rows on a
+    /// stale local copy. Writes only the `players` array (no mirror or
+    /// `gameState` mutation), keeping the diff inside what the member
+    /// presence rule permits.
+    /// Updates the caller's roster row inside a transaction.
+    /// - `includeCoordinates: false` — heartbeat-only `lastUpdated` bump.
+    /// - `includeCoordinates: true` — also writes `latitude` / `longitude`.
+    func commitPlayerPresence(
+        sessionId: String,
+        player: Player,
+        includeCoordinates: Bool = false
+    ) async throws {
+        let sessionRef = db.collection("sessions").document(sessionId)
+
+        _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
+            db.runTransaction({ [self] transaction, errorPointer -> Any? in
+                let snapshot: DocumentSnapshot
+                do {
+                    snapshot = try transaction.getDocument(sessionRef)
+                } catch let fetchError as NSError {
+                    errorPointer?.pointee = fetchError
+                    return nil
+                }
+
+                guard snapshot.exists, let raw = snapshot.data() else {
+                    errorPointer?.pointee = NSError(
+                        domain: "FirestoreService",
+                        code: -40,
+                        userInfo: [NSLocalizedDescriptionKey: PlayerPresenceError.sessionMissing.localizedDescription]
+                    )
+                    return nil
+                }
+
+                var session: GameSession
+                do {
+                    session = try self.dictionaryToSession(raw, id: sessionId)
+                } catch {
+                    errorPointer?.pointee = NSError(
+                        domain: "FirestoreService",
+                        code: -41,
+                        userInfo: [NSLocalizedDescriptionKey: PlayerPresenceError.decodeFailed.localizedDescription]
+                    )
+                    return nil
+                }
+
+                guard let index = session.players.firstIndex(where: { $0.id == player.id }) else {
+                    errorPointer?.pointee = NSError(
+                        domain: "FirestoreService",
+                        code: -42,
+                        userInfo: [NSLocalizedDescriptionKey: PlayerPresenceError.playerMissing.localizedDescription]
+                    )
+                    return nil
+                }
+
+                session.players[index].lastUpdated = player.lastUpdated
+                if includeCoordinates {
+                    session.players[index].latitude = player.latitude
+                    session.players[index].longitude = player.longitude
+                }
+
+                do {
+                    transaction.updateData(
+                        [
+                            "players": try self.encodeToFirestoreValue(session.players)
+                        ],
+                        forDocument: sessionRef
+                    )
+                } catch {
+                    errorPointer?.pointee = error as NSError
+                    return nil
+                }
+
+                return true
+            }) { _, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: true)
+                }
+            }
+        }
     }
     
     // MARK: - Listen to Session Changes

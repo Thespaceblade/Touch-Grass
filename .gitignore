@@ -16,6 +16,7 @@ docs/private/
 firebase-debug.log
 firestore-debug.log
 .firebase-tools-local/
+rules-tests/node_modules/
 
 # Firebase iOS config (contains API key; never commit real file, use GoogleService-Info.plist.example)
 Touch-Grass/GoogleService-Info.plist

@@ -12,6 +12,7 @@ struct CTFGameEndView: View {
     let gameStats: GameStats
     let currentPlayer: Player?
     let gameService: GameService
+    let canManageNextRound: Bool
     let onPlayAgain: () -> Void
     let onBackToLobby: () -> Void
     
@@ -250,13 +251,15 @@ struct CTFGameEndView: View {
 
     private var actionButtons: some View {
         VStack(spacing: AppSpacing.sm) {
-            Button(action: { HapticFeedbackManager.shared.selection(); onPlayAgain() }) {
-                HStack(spacing: AppSpacing.sm) {
-                    Image(systemName: "arrow.clockwise").font(.title3)
-                    Text("Play Again")
+            if canManageNextRound {
+                Button(action: { HapticFeedbackManager.shared.selection(); onPlayAgain() }) {
+                    HStack(spacing: AppSpacing.sm) {
+                        Image(systemName: "arrow.clockwise").font(.title3)
+                        Text("Play Again")
+                    }
                 }
+                .buttonStyle(CartoonButtonStyle(accent: AppColors.cartoonSun, textColor: AppColors.cartoonInkOnSunFill, borderColor: AppColors.cartoonInkOnSunFill))
             }
-            .buttonStyle(CartoonButtonStyle(accent: AppColors.cartoonSun, textColor: AppColors.cartoonInkOnSunFill, borderColor: AppColors.cartoonInkOnSunFill))
 
             Button(action: { HapticFeedbackManager.shared.selection(); showShareSheet = true }) {
                 HStack(spacing: AppSpacing.sm) {
@@ -266,13 +269,15 @@ struct CTFGameEndView: View {
             }
             .buttonStyle(CartoonSecondaryButtonStyle())
 
-            Button(action: { HapticFeedbackManager.shared.selection(); onBackToLobby() }) {
-                HStack(spacing: AppSpacing.sm) {
-                    Image(systemName: "house.fill").font(.title3)
-                    Text("Back to Lobby")
+            if canManageNextRound {
+                Button(action: { HapticFeedbackManager.shared.selection(); onBackToLobby() }) {
+                    HStack(spacing: AppSpacing.sm) {
+                        Image(systemName: "house.fill").font(.title3)
+                        Text("Back to Lobby")
+                    }
                 }
+                .buttonStyle(CartoonSecondaryButtonStyle())
             }
-            .buttonStyle(CartoonSecondaryButtonStyle())
         }
         .frame(maxWidth: .infinity)
         .sheet(isPresented: $showShareSheet) {

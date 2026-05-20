@@ -592,25 +592,40 @@ final class GameViewModel: ObservableObject {
             ))
             print("❌ Begin game error: \(error)")
         } else {
-            // Give a small delay for state to update (Firestore operations are async)
             Task { @MainActor in
-                // Wait a brief moment for state to propagate
-                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-                
-                print("   After beginGame, gameState: \(gameService.gameState)")
-                // Verify game actually started
-                // Note: CTF can go to .flagPlacement instead of .active
                 let expectedStates: [GameState] = [.active, .flagPlacement]
+
+                for _ in 0..<100 {
+                    if let error = gameService.beginGameError {
+                        isBeginningGame = false
+                        presentLobbyNotice(LobbyNotice(
+                            title: "Can't begin game",
+                            message: error,
+                            primaryAction: lobbyAction(from: gameService.beginGameErrorAction)
+                        ))
+                        print("❌ Begin game error: \(error)")
+                        return
+                    }
+
+                    if expectedStates.contains(gameService.gameState) {
+                        print("   After beginGame, gameState: \(gameService.gameState)")
+                        print("✅ Game started successfully - state: \(gameService.gameState)")
+                        // Reset flag after successful start (with additional delay to prevent rapid re-clicks)
+                        try? await Task.sleep(nanoseconds: 400_000_000) // 0.4 seconds
+                        isBeginningGame = false
+                        return
+                    }
+
+                    try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+                }
+
+                isBeginningGame = false
                 if !expectedStates.contains(gameService.gameState) {
-                    isBeginningGame = false
-                    let error = "Game failed to start. Current state: \(gameService.gameState). Please try again."
+                    let error = "Game start is still pending. Check your connection and try again."
                     presentLobbyMessage(error, title: "Can't begin game")
-                    print("❌ \(error)")
+                    print("❌ \(error) Current state: \(gameService.gameState)")
                 } else {
                     print("✅ Game started successfully - state: \(gameService.gameState)")
-                    // Reset flag after successful start (with additional delay to prevent rapid re-clicks)
-                    try? await Task.sleep(nanoseconds: 400_000_000) // 0.4 more seconds
-                    isBeginningGame = false
                 }
             }
         }

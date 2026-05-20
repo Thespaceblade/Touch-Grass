@@ -26,6 +26,14 @@ final class GameService: ObservableObject {
     @Published var session: GameSession?
     @Published var currentPlayer: Player?
     @Published var isOutOfBounds: Bool = false
+    /// When a Manhunt hider first leaves the zone, grace starts; UI shows countdown until elimination.
+    @Published private(set) var outOfBoundsGraceStartedAt: Date?
+    static let outOfBoundsGraceDuration: TimeInterval = 12
+    var outOfBoundsGraceRemaining: TimeInterval? {
+        guard let started = outOfBoundsGraceStartedAt else { return nil }
+        let remaining = Self.outOfBoundsGraceDuration - Date().timeIntervalSince(started)
+        return remaining > 0 ? remaining : nil
+    }
     @Published var distanceToEdge: Double?
     @Published var warningLevel: WarningLevel = .none
     @Published var caughtPlayers: [String] = [] // IDs of caught players
@@ -36,8 +44,17 @@ final class GameService: ObservableObject {
     /// surface this as a toast or banner. Auto-clears 4s after assignment.
     @Published var tagRequestRejectedMessage: String?
     private var tagRequestRejectedClearTask: Task<Void, Never>?
+    /// Hunter-facing toast when a hider rejects a BLE tag request.
+    @Published var tagDeniedByTargetMessage: String?
+    private var tagDeniedByTargetClearTask: Task<Void, Never>?
     let announcementManager = GameAnnouncementManager()
     @Published var shouldEndGame: Bool = false // Game over condition
+    /// Non-host devices set this when their local `checkGameOver` decides
+    /// the game is over but the authoritative `.ended` transition has not
+    /// yet arrived from Firestore. The host owns the terminal write; this
+    /// flag lets non-host UI show a "waiting for host" hint without
+    /// locally diverging from the server session state.
+    @Published var awaitingServerGameEnd: Bool = false
     @Published var winningTeam: Flag.Team? = nil // CTF: Which team won (if game ended)
     
     // Explicit game state tracking for reliable SwiftUI observation
@@ -75,6 +92,11 @@ final class GameService: ObservableObject {
                 self?.handleTagConfirmed(playerId: playerId)
             }
         }
+        service.onTagRejected = { [weak self] rejectorId in
+            Task { @MainActor in
+                self?.handleTagRejected(byPlayerId: rejectorId)
+            }
+        }
         _bluetoothTagService = service
         return service
     }
@@ -85,7 +107,15 @@ final class GameService: ObservableObject {
     private var pendingLocationUpdate: CLLocationCoordinate2D?
     private var lastUpdateCoordinate: CLLocationCoordinate2D?
     private let minUpdateDistance: Double = 5.0 // Only update if moved 5+ meters (battery optimization)
+    private let bleConfirmedTagGpsGraceDistance: Double = 40.0
     private var remoteReadySessionId: String?
+
+    /// Active-game heartbeat timer. Bumps the local player's `lastUpdated`
+    /// in Firestore on a fixed interval so a stationary hider (or any
+    /// player whose coordinates haven't changed enough to trigger a
+    /// location sync) doesn't look offline to the rest of the lobby.
+    private var presenceHeartbeatTimer: Timer?
+    private let presenceHeartbeatInterval: TimeInterval = 15.0
     
     private func print(_ message: String) {
         if message.hasPrefix("❌") {
@@ -899,6 +929,7 @@ final class GameService: ObservableObject {
         
         // Reset game state
         shouldEndGame = false
+        awaitingServerGameEnd = false
         winningTeam = nil
         lastEliminationMessage = nil
         lastCatchMessage = nil
@@ -1155,10 +1186,37 @@ final class GameService: ObservableObject {
             }
             return
         }
-        
+
+        if currentHunterCount > 0 {
+            let hunterIdsToKeep = Set(currentHunters.prefix(count).map(\.id))
+            print("🎯 Preserving \(hunterIdsToKeep.count) manually assigned hunter(s), then filling to requested count")
+
+            for i in 0..<session.players.count {
+                session.players[i].isAlive = true
+                session.players[i].role = hunterIdsToKeep.contains(session.players[i].id) ? .hunter : .hider
+            }
+
+            let additionalHuntersNeeded = max(0, count - hunterIdsToKeep.count)
+            if additionalHuntersNeeded > 0 {
+                let candidates = session.players.filter { $0.role == .hider }.shuffled()
+                let huntersToAssign = min(additionalHuntersNeeded, candidates.count)
+                print("   🎯 Assigning \(huntersToAssign) additional hunter(s) from \(candidates.count) candidates")
+                for i in 0..<huntersToAssign {
+                    if let index = session.players.firstIndex(where: { $0.id == candidates[i].id }) {
+                        session.players[index].role = .hunter
+                        print("   ✅ Assigned additional hunter \(i + 1)/\(huntersToAssign): \(session.players[index].displayName)")
+                    }
+                }
+            }
+
+            let actualHunterCount = session.players.filter { $0.role == .hunter }.count
+            print("   ✅ Total hunters assigned: \(actualHunterCount) (requested: \(count))")
+            return
+        }
+
         // Otherwise, reset all players to hiders and randomly assign
-        print("🎯 Current hunter count (\(currentHunterCount)) doesn't match requested (\(count)), reassigning randomly")
-        
+        print("🎯 No manually assigned hunters found, assigning randomly")
+
         // Reset all players to hiders first
         for i in 0..<session.players.count {
             session.players[i].role = .hider
@@ -1458,40 +1516,85 @@ final class GameService: ObservableObject {
     }
     
     func endGame() {
-        guard var session = session else {
+        guard let currentSession = session else {
             print("❌ Cannot end game: no session")
             return
         }
-        
-        print("🏁 Ending game - current gameState: \(gameState)")
-        
-        // Sync any pending location update before ending
+
+        // Host-only authoritative end. Non-hosts can no longer flip the
+        // local session to `.ended` ahead of Firestore, because the
+        // matching Firestore write is rejected by rules and was the
+        // source of split-state bugs where some devices finished the
+        // game while others kept playing.
+        guard isCurrentPlayerSessionHost() else {
+            print("🏁 Non-host endGame: deferring to host write (will finalize on listener)")
+            awaitingServerGameEnd = true
+            return
+        }
+
+        print("🏁 Ending game - current gameState: \(gameState) (host write)")
+
+        var session = finalizeLocalGameEnd(session: currentSession)
+        session.endReason = .completed
+
+        // Sync to Firestore
+        Task {
+            do {
+                try await firestoreService.updateSession(session)
+            } catch {
+                print("❌ Error updating session in Firestore: \(error)")
+            }
+        }
+
+        // Schedule session cleanup after 5 minutes (allows "Play Again" functionality)
+        // This prevents Firestore storage bloat from old sessions
+        let sessionId = session.id
+        Task {
+            try? await Task.sleep(nanoseconds: 5 * 60 * 1_000_000_000)
+
+            if self.session?.id == sessionId,
+               self.session?.gameState == .ended {
+                do {
+                    try await firestoreService.deleteSession(sessionId)
+                    print("🗑️ Session cleaned up from Firestore: \(sessionId)")
+                } catch {
+                    print("❌ Error deleting session: \(error)")
+                }
+            } else {
+                print("⚠️ Session \(sessionId) was reused (Play Again), skipping cleanup")
+            }
+        }
+    }
+
+    /// Local-only end-game finalization: stats, local `.ended` transition,
+    /// timers, and location cleanup. Returns the session with `gameState`
+    /// already set to `.ended` so the host caller can pass it straight to
+    /// Firestore. Non-host devices invoke this from the session listener
+    /// once the host's authoritative `.ended` write lands, so every
+    /// player's local UI lands on the same end state from the same
+    /// computation.
+    @discardableResult
+    private func finalizeLocalGameEnd(session existingSession: GameSession) -> GameSession {
+        var session = existingSession
+
         syncPendingLocationUpdate()
-        
-        // Stop BLE service
         bluetoothTagService.stop()
-        
-        // Finalize game stats - create if it doesn't exist
-        // Use bubble startTime if available, otherwise use current time
+
         let gameStartTime: Date
         if let bubble = session.bubble {
             gameStartTime = bubble.startTime
         } else {
-            // Fallback: use current time if no bubble (shouldn't happen, but safety check)
             gameStartTime = Date()
             print("⚠️ Warning: No bubble found when ending game, using current time as start time")
         }
-        
+
         var stats = gameStats ?? GameStats(gameStartTime: gameStartTime)
         stats.gameEndTime = Date()
-        
-        // Determine winner based on game type
+
         if session.gameType == .captureTheFlag {
-            // CTF: Use winning team from win condition check
             if let team = winningTeam {
                 stats.winner = team == .teamA ? .teamA : .teamB
             } else if let bubble = session.bubble {
-                // Time's up - determine winner by score (only if duration is finite)
                 if bubble.duration.isFinite {
                     let elapsed = Date().timeIntervalSince(bubble.startTime)
                     if elapsed >= bubble.duration {
@@ -1506,12 +1609,10 @@ final class GameService: ObservableObject {
                 }
             }
         } else {
-            // Manhunt/ZombieTag: Determine winner
             let hiders = session.players.filter { $0.role == .hider }
             let aliveHiders = hiders.filter { $0.isAlive }
-            
+
             if let bubble = session.bubble {
-                // Match `checkGameOver`: ignore elapsed until host commits `bubble.startTime`.
                 let elapsed = elapsedSinceMatchStart(for: bubble)
                 if bubble.duration.isFinite,
                    let elapsed,
@@ -1523,7 +1624,6 @@ final class GameService: ObservableObject {
                     stats.winner = .hiders
                 }
             } else {
-                // Fallback: determine winner without bubble
                 if hiders.count > 0 && aliveHiders.isEmpty {
                     stats.winner = .hunters
                 } else if aliveHiders.count > 0 {
@@ -1531,49 +1631,19 @@ final class GameService: ObservableObject {
                 }
             }
         }
-        
-        // Ensure stats are always set (even if winner couldn't be determined)
+
         gameStats = stats
         print("✅ Game stats finalized - Winner: \(stats.winner?.rawValue ?? "none"), Catches: \(stats.catches.count)")
-        
+
         session.gameState = .ended
-        session.endReason = .completed
         self.session = session
-        self.gameState = .ended  // Update explicit state
+        self.gameState = .ended
         shouldEndGame = false
+        awaitingServerGameEnd = false
         stopUpdateTimer()
-        // Don't stop session listener - we need it for "Play Again"
         locationService.stop()
-        
-        // Sync to Firestore
-        Task {
-            do {
-                try await firestoreService.updateSession(session)
-            } catch {
-                print("❌ Error updating session in Firestore: \(error)")
-            }
-        }
-        
-        // Schedule session cleanup after 5 minutes (allows "Play Again" functionality)
-        // This prevents Firestore storage bloat from old sessions
-        let sessionId = session.id
-        Task {
-            // Wait 5 minutes before cleanup
-            try? await Task.sleep(nanoseconds: 5 * 60 * 1_000_000_000)
-            
-            // Double-check session is still ended before deleting
-            if self.session?.id == sessionId,
-               self.session?.gameState == .ended {
-                do {
-                    try await firestoreService.deleteSession(sessionId)
-                    print("🗑️ Session cleaned up from Firestore: \(sessionId)")
-                } catch {
-                    print("❌ Error deleting session: \(error)")
-                }
-            } else {
-                print("⚠️ Session \(sessionId) was reused (Play Again), skipping cleanup")
-            }
-        }
+
+        return session
     }
     
     // MARK: - Session teardown
@@ -1680,12 +1750,18 @@ final class GameService: ObservableObject {
         gameState = .lobby
         gameStats = nil
         isOutOfBounds = false
+        clearOutOfBoundsGrace()
         distanceToEdge = nil
         warningLevel = .none
         caughtPlayers = []
         lastEliminationMessage = nil
         lastCatchMessage = nil
+        tagRequestRejectedMessage = nil
+        tagRequestRejectedClearTask?.cancel()
+        tagDeniedByTargetMessage = nil
+        tagDeniedByTargetClearTask?.cancel()
         shouldEndGame = false
+        awaitingServerGameEnd = false
         winningTeam = nil
         nearestHunterDistance = nil
         nearestHiderDistance = nil
@@ -1729,6 +1805,11 @@ final class GameService: ObservableObject {
             print("❌ Cannot play again: no session")
             return
         }
+
+        guard isCurrentPlayerSessionHost() else {
+            print("🔄 Non-host playAgain ignored; waiting for host to start next round")
+            return
+        }
         
         print("🔄 Play Again called - current gameState: \(gameState)")
         
@@ -1753,6 +1834,7 @@ final class GameService: ObservableObject {
         lastCatchMessage = nil
         caughtPlayers = []
         isOutOfBounds = false
+        clearOutOfBoundsGrace()
         distanceToEdge = nil
         warningLevel = .none
         nearestHunterDistance = nil
@@ -1763,6 +1845,10 @@ final class GameService: ObservableObject {
         nearestHiderId = nil
         canTagPlayerId = nil
         pendingTagRequest = nil
+        tagRequestRejectedMessage = nil
+        tagRequestRejectedClearTask?.cancel()
+        tagDeniedByTargetMessage = nil
+        tagDeniedByTargetClearTask?.cancel()
         gameStats = nil
         
         // Reset CTF-specific state
@@ -1808,6 +1894,11 @@ final class GameService: ObservableObject {
             print("❌ Cannot reset to lobby: no session")
             return
         }
+
+        guard isCurrentPlayerSessionHost() else {
+            print("🔄 Non-host resetToLobby ignored; waiting for host")
+            return
+        }
         
         print("🔄 Reset to Lobby called - current gameState: \(gameState)")
         
@@ -1822,6 +1913,7 @@ final class GameService: ObservableObject {
         lastCatchMessage = nil
         caughtPlayers = []
         isOutOfBounds = false
+        clearOutOfBoundsGrace()
         distanceToEdge = nil
         warningLevel = .none
         nearestHunterDistance = nil
@@ -1832,6 +1924,10 @@ final class GameService: ObservableObject {
         nearestHiderId = nil
         canTagPlayerId = nil
         pendingTagRequest = nil
+        tagRequestRejectedMessage = nil
+        tagRequestRejectedClearTask?.cancel()
+        tagDeniedByTargetMessage = nil
+        tagDeniedByTargetClearTask?.cancel()
         // Keep gameStats for reference, but can be cleared if needed
         // gameStats = nil
         
@@ -2084,9 +2180,10 @@ final class GameService: ObservableObject {
             return false
         }
 
-        // BLE confirms physical proximity, but GPS can lag. Keep a small grace
-        // distance while still preventing obvious remote/forged tag completions.
-        let allowedDistance = max(session.catchDistance * 1.5, 15.0)
+        // BLE confirms physical proximity, but GPS can lag badly under trees,
+        // buildings, or lock-screen handoffs. Keep enough GPS grace for real
+        // close-range BLE tags while still rejecting obvious remote completions.
+        let allowedDistance = max(session.catchDistance * 1.5, bleConfirmedTagGpsGraceDistance)
         guard distance <= allowedDistance else {
             print("⚠️ Rejected tag attempt: \(Int(distance))m away, allowed \(Int(allowedDistance))m")
             return false
@@ -2185,11 +2282,19 @@ final class GameService: ObservableObject {
         
         Task {
             do {
-                try await firestoreService.updatePlayerLocation(
-                    sessionId: session.id,
-                    player: player,
-                    flags: session.gameType == .captureTheFlag ? session.flags : nil
-                )
+                if session.gameType == .manhunt || session.gameType == .zombieTag {
+                    try await firestoreService.commitPlayerPresence(
+                        sessionId: session.id,
+                        player: player,
+                        includeCoordinates: true
+                    )
+                } else {
+                    try await firestoreService.updatePlayerLocation(
+                        sessionId: session.id,
+                        player: player,
+                        flags: session.gameType == .captureTheFlag ? session.flags : nil
+                    )
+                }
                 // Clear network error on successful sync
                 if networkError != nil {
                     networkError = nil
@@ -2364,26 +2469,36 @@ final class GameService: ObservableObject {
         
         for player in session.players where player.isAlive {
             let timeSinceUpdate = now.timeIntervalSince(player.lastUpdated)
-            
+
             // Check if player is disconnected
             if timeSinceUpdate > disconnectTimeout {
                 print("⚠️ Player \(player.displayName) disconnected (no location update for \(Int(timeSinceUpdate))s)")
-                
+
                 // Handle flag player leaving (CTF-specific)
                 if session.gameType == .captureTheFlag {
                     handleFlagPlayerLeaving(leavingPlayerId: player.id, session: &session)
-                    
+
                     // Also check if this is a team leader
                     if player.isTeamLeader {
                         handleTeamLeaderDisconnection(disconnectedPlayerId: player.id, session: &session)
                     }
-                    
+
                     sessionNeedsUpdate = true
                 }
-                
-                // If disconnected for too long (beyond reconnection window), eliminate
+
+                // Manhunt/Zombie Tag: never auto-eliminate hiders or humans
+                // based on stale `lastUpdated`. Hiding still is normal play,
+                // and the new active-game heartbeat handles real presence.
+                // Disconnect remains a UI signal only.
+                if session.gameType == .manhunt || session.gameType == .zombieTag {
+                    continue
+                }
+
+                // If disconnected for too long (beyond reconnection window), eliminate.
+                // CTF-only at this point: hider/human roles do not exist in CTF, so
+                // this branch is effectively dormant. Kept as defense-in-depth in case
+                // additional game types are added later.
                 if timeSinceUpdate > reconnectionWindow {
-                    // Only eliminate hiders/humans (hunters/zombies can't be eliminated)
                     if player.role == .hider || player.role == .human {
                         eliminatePlayer(player.id)
                     }
@@ -2426,7 +2541,7 @@ final class GameService: ObservableObject {
                 } else {
                     // No other players - end the game
                     print("⚠️ Host disconnected and no other players - ending game")
-                    shouldEndGame = true
+                    signalGameOverDetected()
                     return
                 }
             }
@@ -2447,12 +2562,75 @@ final class GameService: ObservableObject {
     }
     
     // MARK: - Game Rules
+
+    private func activeZoneMetrics(
+        for coordinate: CLLocationCoordinate2D,
+        bubble: Bubble,
+        now: Date = Date(),
+        logFailures: Bool = true
+    ) -> (distanceToEdge: Double, radius: Double)? {
+        let distance: Double
+        let radius: Double
+
+        if bubble.usesNewZoneSystem {
+            let runtimeState = ZoneService.deriveRuntimeZoneState(for: bubble, now: now)
+            radius = runtimeState.currentActiveZone.radiusMeters
+            guard radius.isFinite && radius > 0 else {
+                if logFailures {
+                    print("⚠️ Invalid boundary radius: \(radius) - skipping zone check")
+                }
+                return nil
+            }
+            distance = runtimeState.distanceToEdge(from: coordinate)
+        } else {
+            radius = bubble.currentRadius(at: now)
+            guard radius.isFinite && radius > 0 else {
+                if logFailures {
+                    print("⚠️ Invalid bubble radius: \(radius) - skipping zone check")
+                }
+                return nil
+            }
+            distance = bubble.distanceToEdge(from: coordinate, at: now)
+        }
+
+        guard distance.isFinite else {
+            if logFailures {
+                print("⚠️ Invalid distance calculation - skipping zone check")
+            }
+            return nil
+        }
+
+        return (distance, radius)
+    }
+
+    private func isCoordinateOutsideActiveZone(
+        _ coordinate: CLLocationCoordinate2D,
+        bubble: Bubble,
+        now: Date = Date(),
+        logFailures: Bool = true
+    ) -> Bool {
+        guard let metrics = activeZoneMetrics(
+            for: coordinate,
+            bubble: bubble,
+            now: now,
+            logFailures: logFailures
+        ) else {
+            return false
+        }
+
+        let outOfBoundsDistance = bubble.usesNewZoneSystem
+            ? metrics.distanceToEdge - ZoneService.enforcementToleranceMeters
+            : metrics.distanceToEdge
+        return outOfBoundsDistance > 0
+    }
     
     private func checkOutOfBounds() {
-        guard let bubble = session?.bubble,
+        guard let session = session,
+              let bubble = session.bubble,
               let player = currentPlayer,
               player.isAlive else {
             isOutOfBounds = false
+            clearOutOfBoundsGrace()
             distanceToEdge = nil
             return
         }
@@ -2462,61 +2640,48 @@ final class GameService: ObservableObject {
             print("⚠️ Invalid player coordinate in checkOutOfBounds - skipping")
             return
         }
-        
-        // Edge case: Hunters and zombies cannot be eliminated for being out of bounds
-        // They can only be caught if tagged by another player
-        if player.role == .hunter || player.role == .zombie {
-            // Hunters and zombies are immune to zone elimination
-            isOutOfBounds = false
-            distanceToEdge = nil
-            warningLevel = .none
+
+        guard let metrics = activeZoneMetrics(for: player.coordinate, bubble: bubble) else {
             return
         }
-        
-        // Use new zone system if enabled, otherwise use legacy
-        let distance: Double
-        let radius: Double
-        
-        if bubble.usesNewZoneSystem {
-            let runtimeState = ZoneService.deriveRuntimeZoneState(for: bubble, now: Date())
-            radius = runtimeState.currentActiveZone.radiusMeters
-            guard radius.isFinite && radius > 0 else {
-                print("⚠️ Invalid boundary radius: \(radius) - skipping out of bounds check")
-                return
-            }
-            
-            distance = runtimeState.distanceToEdge(from: player.coordinate)
-        } else {
-            // Legacy system: use currentCenter and currentRadius
-            let currentRadius = bubble.currentRadius(at: Date())
-            guard currentRadius.isFinite && currentRadius > 0 else {
-                print("⚠️ Invalid bubble radius: \(currentRadius) - skipping out of bounds check")
-                return
-            }
-            radius = currentRadius
-            distance = bubble.distanceToEdge(from: player.coordinate, at: Date())
-        }
-        
-        guard distance.isFinite else {
-            print("⚠️ Invalid distance calculation - skipping")
-            return
-        }
-        
-        distanceToEdge = distance
-        
-        let eliminationDistance = bubble.usesNewZoneSystem ? distance - ZoneService.enforcementToleranceMeters : distance
-        
-        if eliminationDistance > 0 {
-            // Out of bounds - only eliminate hiders/humans (not hunters/zombies)
-            if !isOutOfBounds {
-                eliminatePlayer(player.id)
-            }
+
+        distanceToEdge = metrics.distanceToEdge
+
+        let outOfBoundsDistance = bubble.usesNewZoneSystem
+            ? metrics.distanceToEdge - ZoneService.enforcementToleranceMeters
+            : metrics.distanceToEdge
+
+        if outOfBoundsDistance > 0 {
+            let firstOOBTransition = !isOutOfBounds
             isOutOfBounds = true
             warningLevel = .danger
+
+            if player.role == .hunter || player.role == .zombie {
+                clearOutOfBoundsGrace()
+            } else if session.gameType == .manhunt, player.role == .hider {
+                if outOfBoundsGraceStartedAt == nil {
+                    outOfBoundsGraceStartedAt = Date()
+                    HapticFeedbackManager.shared.warning()
+                }
+                if let started = outOfBoundsGraceStartedAt,
+                   Date().timeIntervalSince(started) >= Self.outOfBoundsGraceDuration,
+                   player.isAlive {
+                    clearOutOfBoundsGrace()
+                    eliminatePlayer(player.id)
+                }
+            } else if firstOOBTransition {
+                clearOutOfBoundsGrace()
+                eliminatePlayer(player.id)
+            }
         } else {
+            clearOutOfBoundsGrace()
             isOutOfBounds = false
-            updateWarningLevel(distance: abs(distance), radius: radius)
+            updateWarningLevel(distance: abs(metrics.distanceToEdge), radius: metrics.radius)
         }
+    }
+
+    private func clearOutOfBoundsGrace() {
+        outOfBoundsGraceStartedAt = nil
     }
     
     private func updateWarningLevel(distance: Double, radius: Double? = nil) {
@@ -2553,9 +2718,9 @@ final class GameService: ObservableObject {
         // This method is kept for GPS-based proximity checking (for UI indicators)
         
         guard let session = session,
+              let bubble = session.bubble,
               let player = currentPlayer,
-              player.isAlive,
-              session.bubble != nil else { return }
+              player.isAlive else { return }
         
         // Validate current player location
         guard isValidCoordinate(player.coordinate) else {
@@ -2580,6 +2745,12 @@ final class GameService: ObservableObject {
         } else {
             // Manhunt: Hunters can tag hiders
             canTag = (player.role == .hunter)
+        }
+
+        if canTag,
+           isCoordinateOutsideActiveZone(player.coordinate, bubble: bubble, logFailures: false) {
+            canTagPlayerId = nil
+            return
         }
         
         if canTag {
@@ -3546,8 +3717,50 @@ final class GameService: ObservableObject {
     }
     
     func rejectTag() {
-        bluetoothTagService.rejectTag()
+        let taggerId = pendingTagRequest?.fromPlayerId
+        bluetoothTagService.rejectTag(toTaggerPlayerId: taggerId)
         pendingTagRequest = nil
+    }
+
+    private func handleTagRejected(byPlayerId rejectorId: String) {
+        guard let session = session,
+              let currentPlayer = currentPlayer,
+              currentPlayer.role == .hunter,
+              currentPlayer.isAlive else { return }
+        guard session.players.contains(where: { $0.id == rejectorId && $0.role == .hider }) else { return }
+        surfaceTagDeniedByTarget("Target denied the tag.")
+    }
+
+    /// Publish a short-lived message for hunters when a hider rejects their tag.
+    private func surfaceTagDeniedByTarget(_ message: String) {
+        tagDeniedByTargetMessage = message
+        tagDeniedByTargetClearTask?.cancel()
+        tagDeniedByTargetClearTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 4 * 1_000_000_000)
+            if Task.isCancelled { return }
+            await MainActor.run { [weak self] in
+                self?.tagDeniedByTargetMessage = nil
+            }
+        }
+    }
+
+    /// Host removes an alive hider (disconnect ghost) via the zone catch transaction.
+    func hostEliminatePlayer(playerId: String) {
+        guard isCurrentPlayerSessionHost(),
+              let session = session,
+              session.gameState == .active,
+              session.gameType == .manhunt,
+              let target = session.players.first(where: { $0.id == playerId }),
+              target.role == .hider,
+              target.isAlive else {
+            print("⚠️ hostEliminatePlayer ignored: invalid host, session, or target")
+            return
+        }
+
+        let displayName = target.displayName
+        eliminatePlayer(playerId)
+        announcementManager.post("Host removed \(displayName) from the game.", type: .playerEliminated)
+        checkGameOver()
     }
     
     private func handleTagRequest(fromPlayerId: String, fromPlayerName: String) {
@@ -3641,7 +3854,7 @@ final class GameService: ObservableObject {
     private func eliminatePlayer(_ playerId: String) {
         guard var session = session,
               var player = session.players.first(where: { $0.id == playerId }) else { return }
-        
+
         // CTF: Players cannot be eliminated
         if session.gameType == .captureTheFlag {
             // Handle flag player leaving
@@ -3650,26 +3863,26 @@ final class GameService: ObservableObject {
             print("⚠️ CTF: Players cannot be eliminated - only handling flag state")
             return
         }
-        
+
         // Edge case: Hunters and zombies cannot be eliminated (they can only be caught/tagged)
         guard player.role != .hunter && player.role != .zombie else {
             print("⚠️ Attempted to eliminate \(player.role == .hunter ? "hunter" : "zombie") \(player.displayName) - cannot be eliminated")
             return
         }
-        
-        if session.gameType == .manhunt,
-           player.role == .hider,
-           session.firstTaggedPlayerId == nil {
+
+        let isManhuntHider = session.gameType == .manhunt && player.role == .hider
+
+        if isManhuntHider, session.firstTaggedPlayerId == nil {
             session.firstTaggedPlayerId = playerId
             print("🏷️ First tagged player (zone elimination): \(player.displayName) (will be hunter next game)")
         }
-        
+
         player.isAlive = false
-        
+
         if let index = session.players.firstIndex(where: { $0.id == playerId }) {
             session.players[index] = player
         }
-        
+
         // Haptic feedback for elimination
         if playerId == currentPlayer?.id {
             HapticFeedbackManager.shared.playerEliminated()
@@ -3679,7 +3892,7 @@ final class GameService: ObservableObject {
                 self?.eliminationAnimationTrigger = false
             }
         }
-        
+
         // Set elimination message for UI feedback
         if playerId == currentPlayer?.id {
             lastEliminationMessage = "You were eliminated! You left the bubble."
@@ -3690,8 +3903,32 @@ final class GameService: ObservableObject {
             lastEliminationMessage = "\(player.displayName) was eliminated!"
             announcementManager.post("\(player.displayName) was eliminated!", type: .playerEliminated)
         }
-        
+
         self.session = session
+
+        // Manhunt OOB / zone elimination of a hider goes through the
+        // same narrow catch transaction as a BLE/honor tag so non-hosts
+        // (the common case once the host is a hider) don't have their
+        // write rejected by Firestore rules.
+        if isManhuntHider,
+           !isRunningUnitTests,
+           let callerId = currentPlayer?.id {
+            let sessionId = session.id
+            Task { [weak self] in
+                guard let self = self else { return }
+                do {
+                    _ = try await self.firestoreService.commitManhuntCatch(
+                        sessionId: sessionId,
+                        callerPlayerId: callerId,
+                        targetPlayerId: playerId,
+                        kind: .zone
+                    )
+                } catch {
+                    self.print("❌ Error syncing elimination to Firestore: \(error.localizedDescription)")
+                }
+            }
+            return
+        }
 
         Task {
             do {
@@ -3916,26 +4153,30 @@ final class GameService: ObservableObject {
         guard session.gameType == .manhunt else { return }
         guard player.role == .hider else { return }
         guard player.isAlive else { return }
-        
+
+        // Local optimistic update so the tagger's own UI updates without
+        // waiting for the round-trip. The authoritative Firestore write
+        // happens through `commitManhuntCatch`, which Firestore rules let
+        // non-hosts perform (unlike a broad `updateSession`).
         player.isAlive = false
         if let index = session.players.firstIndex(where: { $0.id == playerId }) {
             session.players[index] = player
         }
-        
+
         caughtPlayers.append(playerId)
-        
+
         if session.firstTaggedPlayerId == nil {
             session.firstTaggedPlayerId = playerId
             print("🏷️ First tagged player: \(player.displayName) (will be hunter next game)")
         }
-        
+
         HapticFeedbackManager.shared.playerCaught()
-        
+
         catchAnimationTrigger = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.catchAnimationTrigger = false
         }
-        
+
         // Stats. BLE writes a normal CatchRecord with hunter attribution.
         // Manual confirm (honor) records survival time only, no fake hunter row.
         if var stats = gameStats {
@@ -3957,7 +4198,7 @@ final class GameService: ObservableObject {
             stats.survivalTimes[playerId] = survivalTime
             gameStats = stats
         }
-        
+
         // Message + announcement, branched by source so the feed reads
         // naturally for both flows.
         switch source {
@@ -3981,14 +4222,32 @@ final class GameService: ObservableObject {
                 announcementManager.post("\(player.displayName) was tagged.", type: .playerTagged)
             }
         }
-        
+
         self.session = session
-        
-        Task {
+
+        guard !isRunningUnitTests,
+              let callerId = currentPlayer?.id else {
+            return
+        }
+
+        let kind: FirestoreService.ManhuntCatchKind = {
+            switch source {
+            case .bluetooth: return .bluetooth
+            case .honor: return .honor
+            }
+        }()
+
+        Task { [weak self] in
+            guard let self = self else { return }
             do {
-                try await firestoreService.updateSession(session)
+                _ = try await self.firestoreService.commitManhuntCatch(
+                    sessionId: session.id,
+                    callerPlayerId: callerId,
+                    targetPlayerId: playerId,
+                    kind: kind
+                )
             } catch {
-                print("❌ Error syncing catch to Firestore: \(error)")
+                self.print("❌ Error syncing catch to Firestore: \(error.localizedDescription)")
             }
         }
     }
@@ -4018,6 +4277,42 @@ final class GameService: ObservableObject {
     /// Detach Firestore listener so unit tests are not overwritten by async snapshots.
     func testing_stopSessionListener() {
         stopSessionListener()
+    }
+
+    /// Unit-test hook for the active-game presence heartbeat.
+    func testing_sendPresenceHeartbeat() {
+        sendPresenceHeartbeat()
+    }
+
+    /// Unit-test hook for disconnect / presence policy.
+    func testing_checkForDisconnectedPlayers() {
+        guard let session = session else { return }
+        checkForDisconnectedPlayers(session: session)
+    }
+
+    /// Unit-test hook for local zone status.
+    func testing_checkOutOfBounds() {
+        checkOutOfBounds()
+    }
+
+    func testing_advanceOutOfBoundsGrace(by seconds: TimeInterval) {
+        guard let started = outOfBoundsGraceStartedAt else { return }
+        outOfBoundsGraceStartedAt = started.addingTimeInterval(-seconds)
+    }
+
+    /// Unit-test hook for BLE tag GPS sanity validation.
+    func testing_isValidTagAttempt(taggerId: String, targetId: String) -> Bool {
+        guard let session = session,
+              let tagger = session.players.first(where: { $0.id == taggerId }),
+              let target = session.players.first(where: { $0.id == targetId }) else {
+            return false
+        }
+        return isValidTagAttempt(tagger: tagger, target: target, session: session)
+    }
+
+    /// Unit-test hook for host-only game-over signaling.
+    func testing_signalGameOverDetected() {
+        signalGameOverDetected()
     }
 
     /// Runs the same hunter assignment branch as `beginGame()` without starting the match.
@@ -4084,6 +4379,17 @@ final class GameService: ObservableObject {
         // Add timer to main run loop
         if let timer = updateTimer {
             RunLoop.main.add(timer, forMode: .common)
+        }
+
+        // Manhunt / Zombie Tag: keep GPS alive even when the player is
+        // standing still, and start the presence heartbeat so stationary
+        // hiders stay visibly connected to other clients.
+        if let session = session,
+           session.gameState == .active,
+           session.gameType == .manhunt || session.gameType == .zombieTag {
+            locationService.setGameplayKeepAlive(true)
+            startPresenceHeartbeat()
+            ScreenWakeLock.setEnabled(true)
         }
     }
     
@@ -4196,6 +4502,18 @@ final class GameService: ObservableObject {
     }
     
     // MARK: - Game Over Detection
+
+    /// Host sets `shouldEndGame` so `handleGameOver` → `endGame()` writes
+    /// Firestore. Non-hosts only set `awaitingServerGameEnd` and wait for
+    /// the listener — avoids local `.ended` ahead of the authoritative write.
+    private func signalGameOverDetected() {
+        if isCurrentPlayerSessionHost() {
+            shouldEndGame = true
+        } else {
+            awaitingServerGameEnd = true
+            print("🏁 Game over detected locally; waiting for host to end session")
+        }
+    }
     
     func checkGameOver() {
         guard let session = session,
@@ -4237,7 +4555,7 @@ final class GameService: ObservableObject {
             // Zombies win if all humans are infected
             if humans.isEmpty {
                 print("🧟 All humans infected - zombies win!")
-                shouldEndGame = true
+                signalGameOverDetected()
                 return
             }
             
@@ -4246,7 +4564,7 @@ final class GameService: ObservableObject {
                let elapsed = elapsedSinceMatchStart,
                elapsed >= bubble.duration {
                 print("⏰ Time's up - humans win!")
-                shouldEndGame = true
+                signalGameOverDetected()
                 return
             }
         } else if session.gameType == .captureTheFlag {
@@ -4311,13 +4629,13 @@ final class GameService: ObservableObject {
                     // Team A safe zone was confirmed first - Team A wins
                     print("🚩 TIEBREAKER: Team A wins (safe zone confirmed first)")
                     winningTeam = .teamA
-                    shouldEndGame = true
+                    signalGameOverDetected()
                     return
                 } else if teamBSafeZoneTime < teamASafeZoneTime {
                     // Team B safe zone was confirmed first - Team B wins
                     print("🚩 TIEBREAKER: Team B wins (safe zone confirmed first)")
                     winningTeam = .teamB
-                    shouldEndGame = true
+                    signalGameOverDetected()
                     return
                 } else {
                     // Same confirmation time - use current timestamp (first to check wins)
@@ -4329,19 +4647,19 @@ final class GameService: ObservableObject {
                             print("🚩 TIEBREAKER: Team B wins (first to check win condition)")
                             winningTeam = .teamB
                         }
-                        shouldEndGame = true
+                        signalGameOverDetected()
                         return
                     }
                 }
             } else if teamAWins {
                 print("🚩 Team A wins! Both flags are in Team A safe zone")
                 winningTeam = .teamA
-                shouldEndGame = true
+                signalGameOverDetected()
                 return
             } else if teamBWins {
                 print("🚩 Team B wins! Both flags are in Team B safe zone")
                 winningTeam = .teamB
-                shouldEndGame = true
+                signalGameOverDetected()
                 return
             }
             
@@ -4353,7 +4671,7 @@ final class GameService: ObservableObject {
             if bubble.duration.isFinite,
                let elapsed = elapsedSinceMatchStart,
                elapsed >= bubble.duration {
-                shouldEndGame = true
+                signalGameOverDetected()
                 return
             }
         
@@ -4361,7 +4679,7 @@ final class GameService: ObservableObject {
         let hiders = session.players.filter { $0.role == .hider }
         let aliveHiders = hiders.filter { $0.isAlive }
         if hiders.count > 0 && aliveHiders.isEmpty {
-            shouldEndGame = true
+            signalGameOverDetected()
             return
         }
         
@@ -4370,7 +4688,7 @@ final class GameService: ObservableObject {
         let aliveHunters = hunters.filter { $0.isAlive }
         if hunters.count > 0 && aliveHunters.isEmpty {
             print("⚠️ All hunters eliminated - ending game (hiders win)")
-            shouldEndGame = true
+            signalGameOverDetected()
             return
             }
         }
@@ -4379,7 +4697,7 @@ final class GameService: ObservableObject {
         let alivePlayers = session.players.filter { $0.isAlive }
         if alivePlayers.isEmpty {
             print("⚠️ All players eliminated - ending game")
-            shouldEndGame = true
+            signalGameOverDetected()
             return
         }
         
@@ -4387,7 +4705,7 @@ final class GameService: ObservableObject {
         let remainingHiders = session.players.filter { $0.role == .hider && $0.isAlive }
         let aliveHunters = session.players.filter { $0.role == .hunter && $0.isAlive }
         if remainingHiders.isEmpty && aliveHunters.count > 0 {
-            shouldEndGame = true
+            signalGameOverDetected()
             return
         }
         
@@ -4395,7 +4713,7 @@ final class GameService: ObservableObject {
         if let currentPlayer = currentPlayer,
            !currentPlayer.isAlive,
            session.players.count == 1 {
-            shouldEndGame = true
+            signalGameOverDetected()
             return
         }
     }
@@ -4403,6 +4721,85 @@ final class GameService: ObservableObject {
     private func stopUpdateTimer() {
         updateTimer?.invalidate()
         updateTimer = nil
+        stopPresenceHeartbeat()
+        locationService.setGameplayKeepAlive(false)
+        ScreenWakeLock.setEnabled(false)
+    }
+
+    // MARK: - Presence Heartbeat (Manhunt/Zombie)
+
+    /// Starts the active-game heartbeat. Each tick writes the local
+    /// player's `lastUpdated` to Firestore even when their coordinates
+    /// haven't changed, so other clients can distinguish a hider standing
+    /// still from a player who has actually disconnected.
+    ///
+    /// Safe to call multiple times; restarts the timer if already running.
+    /// No-op for CTF (CTF presence is tracked via flag-phone updates).
+    private func startPresenceHeartbeat() {
+        stopPresenceHeartbeat()
+
+        guard let session = session,
+              session.gameType == .manhunt || session.gameType == .zombieTag else {
+            return
+        }
+
+        // Skip in unit tests; timers there add noise and the heartbeat
+        // requires Firestore which the unit test rig does not provide.
+        guard !isRunningUnitTests else { return }
+
+        let timer = Timer.scheduledTimer(withTimeInterval: presenceHeartbeatInterval, repeats: true) { [weak self] timer in
+            guard let self = self else {
+                timer.invalidate()
+                return
+            }
+            Task { @MainActor in
+                self.sendPresenceHeartbeat()
+            }
+        }
+        presenceHeartbeatTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopPresenceHeartbeat() {
+        presenceHeartbeatTimer?.invalidate()
+        presenceHeartbeatTimer = nil
+    }
+
+    /// Push a heartbeat write for the local player. Only writes when the
+    /// player is alive, the match is active, and remote sync is ready.
+    /// Uses the dedicated `commitPlayerPresence` path so security rules
+    /// can permit it as a self-only `lastUpdated` bump even after the
+    /// member presence rule is tightened.
+    private func sendPresenceHeartbeat() {
+        guard let session = session,
+              session.gameState == .active,
+              session.gameType == .manhunt || session.gameType == .zombieTag,
+              let player = currentPlayer,
+              player.isAlive,
+              remoteReadySessionId == session.id else {
+            return
+        }
+
+        var heartbeatPlayer = player
+        heartbeatPlayer.lastUpdated = Date()
+
+        // Reflect the bump locally so disconnect checks on this device
+        // also see fresh presence without waiting for the round trip.
+        if let index = self.session?.players.firstIndex(where: { $0.id == player.id }) {
+            self.session?.players[index].lastUpdated = heartbeatPlayer.lastUpdated
+        }
+        self.currentPlayer = heartbeatPlayer
+
+        Task {
+            do {
+                try await firestoreService.commitPlayerPresence(
+                    sessionId: session.id,
+                    player: heartbeatPlayer
+                )
+            } catch {
+                print("⚠️ Presence heartbeat failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     // MARK: - Predator Compass Pulse Ability
@@ -4479,6 +4876,12 @@ final class GameService: ObservableObject {
     var canUseCompassPulse: Bool {
         guard canShowCompassAbility else { return false }
         guard !compassPulseInFlight else { return false }
+        guard let session = session,
+              let bubble = session.bubble,
+              let player = currentPlayer,
+              !isCoordinateOutsideActiveZone(player.coordinate, bubble: bubble, logFailures: false) else {
+            return false
+        }
         return compassCooldownRemaining() <= 0.0001
     }
 
@@ -4518,11 +4921,21 @@ final class GameService: ObservableObject {
             scheduleCompassResultClear()
             return
         }
-        let locationAge = Date().timeIntervalSince(location.timestamp)
+        let now = Date()
+        let locationAge = now.timeIntervalSince(location.timestamp)
         if locationAge.isFinite, locationAge > CompassAbilityConfig.maxActorLocationAge {
             print("⚠️ Compass pulse aborted, GPS stale (\(Int(locationAge))s)")
             compassPulseLastResult = .failed
             announcementManager.post("Pulse failed.", type: .warning)
+            scheduleCompassResultClear()
+            return
+        }
+        if let bubble = session.bubble,
+           isCoordinateOutsideActiveZone(location.coordinate, bubble: bubble, now: now, logFailures: false) {
+            print("⚠️ Compass pulse aborted, predator is outside the active zone")
+            compassPulseLastResult = .failed
+            announcementManager.post("Return to the zone.", type: .warning)
+            HapticFeedbackManager.shared.warning()
             scheduleCompassResultClear()
             return
         }
@@ -4531,7 +4944,6 @@ final class GameService: ObservableObject {
         defer { compassPulseInFlight = false }
 
         do {
-            let now = Date()
             let commit = try await firestoreService.commitCompassPulse(
                 sessionId: session.id,
                 actorId: player.id,
@@ -4566,6 +4978,10 @@ final class GameService: ObservableObject {
                 // is a tie-breaker against fast double-tap or stale local
                 // cooldown.
                 compassPulseLastResult = nil
+            case "outsideZone":
+                compassPulseLastResult = .failed
+                announcementManager.post("Return to the zone.", type: .warning)
+                HapticFeedbackManager.shared.warning()
             case "notEligible":
                 compassPulseLastResult = nil
             default:
@@ -4795,11 +5211,23 @@ final class GameService: ObservableObject {
                         self.print("✅ BLE started for \(playerName)")
                     }
                 }
-                
+
                 // Stop BLE if game ended
                 if previousGameState == .active && session.gameState != .active {
                     self.print("🛑 Game ended - stopping BLE")
                     self.bluetoothTagService.stop()
+                }
+
+                // Non-host finalization: when the host's authoritative
+                // `.ended` write lands, every other device runs the same
+                // local finalize path (stats, BLE/location cleanup, end
+                // UI) so all players see the end screen with consistent
+                // stats. The host already ran `finalizeLocalGameEnd`
+                // inside `endGame()`, so this is a no-op there.
+                if previousGameState == .active,
+                   session.gameState == .ended,
+                   !self.isCurrentPlayerSessionHost() {
+                    self.finalizeLocalGameEnd(session: session)
                 }
             }
         },

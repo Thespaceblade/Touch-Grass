@@ -12,6 +12,7 @@ struct ZombieTagGameEndView: View {
     let gameStats: GameStats
     let currentPlayer: Player?
     let gameService: GameService
+    let canManageNextRound: Bool
     let onPlayAgain: () -> Void
     let onBackToLobby: () -> Void
     
@@ -279,21 +280,23 @@ struct ZombieTagGameEndView: View {
     private var actionButtons: some View {
         VStack(spacing: AppSpacing.md) {
             // Play Again button
-            Button(action: {
-                HapticFeedbackManager.shared.selection()
-                onPlayAgain()
-            }) {
-                HStack(spacing: AppSpacing.sm) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.title3)
-                    Text("Play Again")
-                        .font(AppTypography.labelLarge())
-                        .fontWeight(.semibold)
+            if canManageNextRound {
+                Button(action: {
+                    HapticFeedbackManager.shared.selection()
+                    onPlayAgain()
+                }) {
+                    HStack(spacing: AppSpacing.sm) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.title3)
+                        Text("Play Again")
+                            .font(AppTypography.labelLarge())
+                            .fontWeight(.semibold)
+                    }
                 }
+                .buttonStyle(CartoonButtonStyle(accent: AppColors.zombiePrimary))
+                .accessibilityLabel("Play again")
+                .accessibilityHint("Starts a new game with the same settings")
             }
-            .buttonStyle(CartoonButtonStyle(accent: AppColors.zombiePrimary))
-            .accessibilityLabel("Play again")
-            .accessibilityHint("Starts a new game with the same settings")
             
             // Share button
             Button(action: {
@@ -313,21 +316,23 @@ struct ZombieTagGameEndView: View {
             .accessibilityHint("Share your game results")
             
             // Back to Lobby button
-            Button(action: {
-                HapticFeedbackManager.shared.selection()
-                onBackToLobby()
-            }) {
-                HStack(spacing: AppSpacing.sm) {
-                    Image(systemName: "house.fill")
-                        .font(.title3)
-                    Text("Back to Lobby")
-                        .font(AppTypography.labelLarge())
-                        .fontWeight(.semibold)
+            if canManageNextRound {
+                Button(action: {
+                    HapticFeedbackManager.shared.selection()
+                    onBackToLobby()
+                }) {
+                    HStack(spacing: AppSpacing.sm) {
+                        Image(systemName: "house.fill")
+                            .font(.title3)
+                        Text("Back to Lobby")
+                            .font(AppTypography.labelLarge())
+                            .fontWeight(.semibold)
+                    }
                 }
+                .buttonStyle(CartoonSecondaryButtonStyle())
+                .accessibilityLabel("Back to lobby")
+                .accessibilityHint("Returns to the game lobby")
             }
-            .buttonStyle(CartoonSecondaryButtonStyle())
-            .accessibilityLabel("Back to lobby")
-            .accessibilityHint("Returns to the game lobby")
         }
         .frame(maxWidth: .infinity)
         .sheet(isPresented: $showShareSheet) {

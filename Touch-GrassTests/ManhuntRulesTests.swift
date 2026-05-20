@@ -104,6 +104,20 @@ final class ManhuntRulesTests: XCTestCase {
         gameService.currentPlayer = player
     }
 
+    private func setPlayerCoordinate(_ coordinate: CLLocationCoordinate2D, playerId: String) {
+        guard var session = gameService.session,
+              let index = session.players.firstIndex(where: { $0.id == playerId }) else {
+            XCTFail("Player \(playerId) not in session")
+            return
+        }
+        session.players[index].latitude = coordinate.latitude
+        session.players[index].longitude = coordinate.longitude
+        gameService.session = session
+        if gameService.currentPlayer?.id == playerId {
+            gameService.currentPlayer = session.players[index]
+        }
+    }
+
     private func commitMatchStart(secondsAgo: TimeInterval = 0) {
         guard var session = gameService.session, var bubble = session.bubble else {
             XCTFail("No bubble")
@@ -144,6 +158,58 @@ final class ManhuntRulesTests: XCTestCase {
         XCTAssertNotNil(gameService.gameStats?.survivalTimes[targetId])
     }
 
+    func testBleTagValidationAllowsReasonableGpsDrift() {
+        _ = makeLobby(extraPlayerNames: ["Hider A"])
+        beginActiveMatch()
+        commitMatchStart()
+
+        guard var session = gameService.session,
+              let hunterIndex = session.players.firstIndex(where: { $0.role == .hunter }),
+              let hiderIndex = session.players.firstIndex(where: { $0.role == .hider }) else {
+            XCTFail("Expected hunter and hider after beginGame")
+            return
+        }
+
+        let hunterId = session.players[hunterIndex].id
+        let hiderId = session.players[hiderIndex].id
+        session.players[hunterIndex].latitude = hostLocation.latitude
+        session.players[hunterIndex].longitude = hostLocation.longitude
+        session.players[hiderIndex].latitude = hostLocation.latitude + 0.0003
+        session.players[hiderIndex].longitude = hostLocation.longitude
+        gameService.session = session
+
+        XCTAssertTrue(
+            gameService.testing_isValidTagAttempt(taggerId: hunterId, targetId: hiderId),
+            "BLE-confirmed tags should tolerate normal GPS drift"
+        )
+    }
+
+    func testBleTagValidationRejectsRemoteGpsMismatch() {
+        _ = makeLobby(extraPlayerNames: ["Hider A"])
+        beginActiveMatch()
+        commitMatchStart()
+
+        guard var session = gameService.session,
+              let hunterIndex = session.players.firstIndex(where: { $0.role == .hunter }),
+              let hiderIndex = session.players.firstIndex(where: { $0.role == .hider }) else {
+            XCTFail("Expected hunter and hider after beginGame")
+            return
+        }
+
+        let hunterId = session.players[hunterIndex].id
+        let hiderId = session.players[hiderIndex].id
+        session.players[hunterIndex].latitude = hostLocation.latitude
+        session.players[hunterIndex].longitude = hostLocation.longitude
+        session.players[hiderIndex].latitude = hostLocation.latitude + 0.0007
+        session.players[hiderIndex].longitude = hostLocation.longitude
+        gameService.session = session
+
+        XCTAssertFalse(
+            gameService.testing_isValidTagAttempt(taggerId: hunterId, targetId: hiderId),
+            "BLE tag GPS grace should still reject obvious remote mismatches"
+        )
+    }
+
     func testHonorReportTagged() {
         let (_, hiderIds) = makeLobby(extraPlayerNames: ["Hider A"])
         beginActiveMatch()
@@ -172,7 +238,7 @@ final class ManhuntRulesTests: XCTestCase {
 
     func testZoneEliminationEndsGameForHunters() {
         let bubble = defaultBubble(startRadius: 80, enableShrinking: false)
-        _ = makeLobby(extraPlayerNames: ["Solo Hider"], bubble: bubble)
+        let (hostId, _) = makeLobby(extraPlayerNames: ["Solo Hider"], bubble: bubble)
         beginActiveMatch()
         commitMatchStart()
 
@@ -186,16 +252,121 @@ final class ManhuntRulesTests: XCTestCase {
             latitude: hostLocation.latitude + 0.01,
             longitude: hostLocation.longitude
         )
-        gameService.updatePlayerLocation(outside)
+        setPlayerCoordinate(outside, playerId: hiderId)
+        gameService.testing_checkOutOfBounds()
+
+        XCTAssertTrue(player(withId: hiderId)?.isAlive ?? false, "First OOB sample should start grace, not eliminate")
+        XCTAssertNotNil(gameService.outOfBoundsGraceRemaining)
+
+        gameService.testing_advanceOutOfBoundsGrace(by: 13)
+        gameService.testing_checkOutOfBounds()
 
         XCTAssertFalse(player(withId: hiderId)?.isAlive ?? true)
         XCTAssertEqual(gameService.session?.firstTaggedPlayerId, hiderId)
 
+        setCurrentPlayer(id: hostId)
         gameService.checkGameOver()
         XCTAssertTrue(gameService.shouldEndGame)
 
         gameService.endGame()
         XCTAssertEqual(gameService.gameStats?.winner, .hunters)
+    }
+
+    func testOOBGraceClearsWhenReturningInside() {
+        let bubble = defaultBubble(startRadius: 80, enableShrinking: false)
+        _ = makeLobby(extraPlayerNames: ["Grace Hider"], bubble: bubble)
+        beginActiveMatch()
+        commitMatchStart()
+
+        guard let hiderId = gameService.session?.players.first(where: { $0.role == .hider })?.id else {
+            XCTFail("Expected at least one hider after beginGame")
+            return
+        }
+        setCurrentPlayer(id: hiderId)
+
+        let outside = CLLocationCoordinate2D(
+            latitude: hostLocation.latitude + 0.01,
+            longitude: hostLocation.longitude
+        )
+        setPlayerCoordinate(outside, playerId: hiderId)
+        gameService.testing_checkOutOfBounds()
+
+        XCTAssertNotNil(gameService.outOfBoundsGraceRemaining)
+        XCTAssertTrue(player(withId: hiderId)?.isAlive ?? false)
+
+        setPlayerCoordinate(hostLocation, playerId: hiderId)
+        gameService.testing_checkOutOfBounds()
+
+        XCTAssertNil(gameService.outOfBoundsGraceRemaining)
+        XCTAssertFalse(gameService.isOutOfBounds)
+        XCTAssertTrue(player(withId: hiderId)?.isAlive ?? false)
+    }
+
+    func testHostEliminatePlayerRemovesHider() {
+        _ = makeLobby(extraPlayerNames: ["Ghost Hider", "Other Hider"])
+        beginActiveMatch()
+        commitMatchStart()
+
+        guard let session = gameService.session,
+              let targetId = session.players.first(where: { $0.role == .hider })?.id else {
+            XCTFail("Expected at least one hider after beginGame")
+            return
+        }
+        setCurrentPlayer(id: session.hostPlayerId)
+        gameService.hostEliminatePlayer(playerId: targetId)
+
+        XCTAssertFalse(player(withId: targetId)?.isAlive ?? true)
+    }
+
+    func testHostEliminatePlayerRemovesOfflineHunter() {
+        _ = makeLobby(extraPlayerNames: ["Hider A"])
+        beginActiveMatch()
+        commitMatchStart()
+
+        guard let session = gameService.session,
+              let hunterId = session.players.first(where: { $0.role == .hunter })?.id else {
+            XCTFail("Expected hunter after beginGame")
+            return
+        }
+        setCurrentPlayer(id: session.hostPlayerId)
+        gameService.hostEliminatePlayer(playerId: hunterId)
+
+        XCTAssertFalse(player(withId: hunterId)?.isAlive ?? true)
+    }
+
+    func testBluetoothTagRejectedMessageRoundTrip() {
+        let message = BluetoothMessage.tagRejected(by: "hider-1")
+        guard let data = message.encoded() else {
+            XCTFail("Failed to encode tagRejected")
+            return
+        }
+        let decoded = BluetoothMessage.decode(data)
+        XCTAssertEqual(decoded?.type, .tagRejected)
+        XCTAssertEqual(decoded?.playerId, "hider-1")
+    }
+
+    func testHunterOutsideZoneIsFlaggedButNotEliminated() {
+        let bubble = defaultBubble(startRadius: 80, enableShrinking: false)
+        _ = makeLobby(extraPlayerNames: ["Hider A"], bubble: bubble)
+        beginActiveMatch()
+        commitMatchStart()
+
+        guard var session = gameService.session,
+              let hunterIndex = session.players.firstIndex(where: { $0.role == .hunter }) else {
+            XCTFail("Expected hunter after beginGame")
+            return
+        }
+
+        let hunterId = session.players[hunterIndex].id
+        session.players[hunterIndex].latitude = hostLocation.latitude + 0.01
+        session.players[hunterIndex].longitude = hostLocation.longitude
+        gameService.session = session
+        setCurrentPlayer(id: hunterId)
+
+        gameService.testing_checkOutOfBounds()
+
+        XCTAssertTrue(gameService.isOutOfBounds)
+        XCTAssertTrue(player(withId: hunterId)?.isAlive ?? false)
     }
 
     // MARK: - Timer
@@ -236,7 +407,7 @@ final class ManhuntRulesTests: XCTestCase {
     // MARK: - Hunter rotation
 
     func testAssignHuntersFromFirstTagged() {
-        _ = makeLobby(extraPlayerNames: ["Tagged Hider", "Other Hider"])
+        let (hostId, _) = makeLobby(extraPlayerNames: ["Tagged Hider", "Other Hider"])
         beginActiveMatch()
         commitMatchStart()
 
@@ -252,6 +423,8 @@ final class ManhuntRulesTests: XCTestCase {
         setCurrentPlayer(id: hunter.id)
         gameService.testing_simulateManhuntBleCatch(hiderId: taggedId)
         XCTAssertEqual(gameService.session?.firstTaggedPlayerId, taggedId)
+
+        setCurrentPlayer(id: hostId)
         gameService.endGame()
 
         gameService.playAgain()
@@ -305,5 +478,114 @@ final class ManhuntRulesTests: XCTestCase {
             1
         )
         XCTAssertEqual(player(withId: hostId)?.role, .hider)
+    }
+
+    func testManualHunterAssignmentSurvivesHunterCountMismatch() {
+        let (_, hiderIds) = makeLobby(extraPlayerNames: ["Pick Me", "Other", "Third"], hunterCount: 2)
+        let manualHunterId = hiderIds[0]
+
+        gameService.setHunter(playerId: manualHunterId)
+        XCTAssertEqual(player(withId: manualHunterId)?.role, .hunter)
+
+        gameService.beginGame()
+
+        XCTAssertEqual(player(withId: manualHunterId)?.role, .hunter)
+        XCTAssertEqual(
+            gameService.session?.players.filter { $0.role == .hunter }.count,
+            2
+        )
+    }
+
+    // MARK: - Critical fixes (presence, host-only end)
+
+    func testStationaryHiderNotEliminatedOnStaleLastUpdated() {
+        let (_, hiderIds) = makeLobby(extraPlayerNames: ["Still Hider", "Other Hider"])
+        beginActiveMatch()
+        commitMatchStart()
+
+        let staleId = hiderIds[0]
+        guard var session = gameService.session else {
+            XCTFail("No session")
+            return
+        }
+        let staleDate = Date().addingTimeInterval(-130)
+        guard let idx = session.players.firstIndex(where: { $0.id == staleId }) else {
+            XCTFail("Stale hider missing")
+            return
+        }
+        session.players[idx].lastUpdated = staleDate
+        gameService.session = session
+
+        setCurrentPlayer(id: session.hostPlayerId)
+        gameService.testing_checkForDisconnectedPlayers()
+
+        XCTAssertTrue(player(withId: staleId)?.isAlive ?? false, "Stale lastUpdated must not auto-eliminate Manhunt hiders")
+    }
+
+    func testPresenceHeartbeatRefreshesLocalLastUpdated() {
+        let (_, hiderIds) = makeLobby(extraPlayerNames: ["Hider A"])
+        beginActiveMatch()
+        commitMatchStart()
+
+        let hiderId = hiderIds[0]
+        guard var session = gameService.session,
+              let idx = session.players.firstIndex(where: { $0.id == hiderId }) else {
+            XCTFail("Hider missing")
+            return
+        }
+        session.players[idx].lastUpdated = Date().addingTimeInterval(-130)
+        gameService.session = session
+        setCurrentPlayer(id: hiderId)
+
+        gameService.testing_sendPresenceHeartbeat()
+
+        let updated = player(withId: hiderId)?.lastUpdated ?? .distantPast
+        XCTAssertLessThan(abs(updated.timeIntervalSinceNow), 5)
+    }
+
+    func testNonHostGameOverWaitsForHostEndWrite() {
+        let (hostId, hiderIds) = makeLobby(extraPlayerNames: ["Hunter Guest", "Hider Two"])
+        let hunterId = hiderIds[0]
+        gameService.setHunter(playerId: hunterId)
+        beginActiveMatch()
+        commitMatchStart()
+
+        XCTAssertEqual(player(withId: hostId)?.role, .hider, "Host can be a hider")
+
+        setCurrentPlayer(id: hunterId)
+        for player in gameService.session?.players ?? [] where player.role == .hider && player.isAlive {
+            gameService.testing_simulateManhuntBleCatch(hiderId: player.id)
+        }
+
+        gameService.shouldEndGame = false
+        gameService.awaitingServerGameEnd = false
+        gameService.testing_signalGameOverDetected()
+
+        XCTAssertFalse(gameService.shouldEndGame, "Non-host must not arm shouldEndGame")
+        XCTAssertTrue(gameService.awaitingServerGameEnd)
+        XCTAssertEqual(gameService.gameState, .active, "Non-host must stay active until listener receives .ended")
+
+        setCurrentPlayer(id: hostId)
+        gameService.endGame()
+        XCTAssertEqual(gameService.gameState, .ended)
+    }
+
+    func testNonHostCannotLocallyPlayAgain() {
+        let (hostId, hiderIds) = makeLobby(extraPlayerNames: ["Guest"])
+        let guestId = hiderIds[0]
+        beginActiveMatch()
+        commitMatchStart()
+
+        setCurrentPlayer(id: hostId)
+        gameService.endGame()
+        XCTAssertEqual(gameService.gameState, .ended)
+
+        setCurrentPlayer(id: guestId)
+        let endedSession = gameService.session
+        gameService.playAgain()
+
+        XCTAssertEqual(gameService.gameState, .ended)
+        XCTAssertEqual(gameService.session?.gameNumber, endedSession?.gameNumber)
+        XCTAssertEqual(gameService.session?.gameState, .ended)
     }
 }

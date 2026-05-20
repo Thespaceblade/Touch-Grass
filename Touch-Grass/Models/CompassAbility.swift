@@ -98,6 +98,10 @@ enum CompassAbilityConfig {
     /// does NOT advance cooldown.
     static let maxActorLocationAge: TimeInterval = 15.0
 
+    /// Maximum age (seconds) of a prey player's last known location before
+    /// they are excluded from random pulse targeting.
+    static let maxPreyLocationAge: TimeInterval = 180.0
+
     /// Cooldown duration as a function of how far the match has progressed.
     /// Linearly interpolates from `cooldownStart` down to `cooldownEnd`
     /// over the first `cooldownTaperPoint` fraction of `totalDuration`,
@@ -172,14 +176,22 @@ extension GameSession {
     }
 
     /// Alive prey eligible to be picked by a pulse fired by `predatorId`.
-    /// Excludes the predator themselves, dead players, and (in Manhunt)
-    /// flag-carrier specifics that aren't relevant here.
-    func eligibleCompassPrey(firedBy predatorId: String) -> [Player] {
+    /// Excludes the predator themselves, dead players, and stale/offline
+    /// prey so a pulse does not burn cooldown on a ghost location.
+    func eligibleCompassPrey(
+        firedBy predatorId: String,
+        now: Date = Date(),
+        maxLocationAge: TimeInterval = CompassAbilityConfig.maxPreyLocationAge
+    ) -> [Player] {
         guard let preyRole = compassPreyRole else { return [] }
         return players.filter { player in
-            player.id != predatorId &&
-            player.isAlive &&
-            player.role == preyRole
+            guard player.id != predatorId,
+                  player.isAlive,
+                  player.role == preyRole else {
+                return false
+            }
+            let age = now.timeIntervalSince(player.lastUpdated)
+            return age.isFinite && age >= -5.0 && age <= maxLocationAge
         }
     }
 }

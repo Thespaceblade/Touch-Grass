@@ -28,6 +28,7 @@ struct ManhuntLobbyView: View {
     @State private var showCountdown: Bool = false
     @State private var countdownStartTime: Date?
     @State private var countdownCompleted: Bool = false
+    @StateObject private var preGameCountdown = ManhuntPreGameCountdownModel()
     @State private var hasCopiedJoinCode: Bool = false
     @State private var resetCopiedJoinCodeTask: Task<Void, Never>? = nil
     
@@ -277,10 +278,26 @@ struct ManhuntLobbyView: View {
     private func skipPreGameCountdownIfNeededForDebug() {
         guard DebugRuntimeFlags.skipPreGameCountdown else { return }
         guard viewModel.gameService.gameState == .active, !countdownCompleted else { return }
+        preGameCountdown.stop()
         viewModel.gameService.startGameTimer()
         countdownCompleted = true
         showCountdown = false
         countdownStartTime = nil
+    }
+
+    private func completePreGameCountdown() {
+        viewModel.gameService.startGameTimer()
+        preGameCountdown.stop()
+        withAnimation(.smoothTransition) {
+            countdownCompleted = true
+            showCountdown = false
+        }
+        countdownStartTime = nil
+    }
+
+    private func startPreGameCountdownIfNeeded() {
+        guard showCountdown, !countdownCompleted else { return }
+        preGameCountdown.start(onComplete: completePreGameCountdown)
     }
     
     // MARK: - Main Content View
@@ -310,6 +327,7 @@ struct ManhuntLobbyView: View {
                 gameStats: gameStats,
                 currentPlayer: viewModel.gameService.currentPlayer,
                 gameService: viewModel.gameService,
+                canManageNextRound: session.isDeviceHost(viewModel.gameService.currentPlayer),
                 onPlayAgain: {
                     viewModel.playAgain()
                 },
@@ -327,30 +345,40 @@ struct ManhuntLobbyView: View {
     
     @ViewBuilder
     private var activeGameContentView: some View {
-        if showCountdown && !countdownCompleted {
-            // Show countdown if game just started
-            ManhuntCountdownView(
-                gameService: viewModel.gameService,
-                locationService: viewModel.locationService,
-                onCountdownComplete: {
-                    // Start the game timer when countdown completes
-                    viewModel.gameService.startGameTimer()
-                    // After countdown completes, mark as complete and show active game view
-                    withAnimation(.smoothTransition) {
-                        countdownCompleted = true
-                        showCountdown = false
-                    }
-                }
-            )
-            .transition(.opacity)
-        } else {
-            // Show active game view after countdown completes or if countdown was skipped
+        ZStack {
             ManhuntActiveGameView(
                 gameService: viewModel.gameService,
                 locationService: viewModel.locationService,
                 viewModel: viewModel
             )
-            .transition(.opacity)
+
+            if showCountdown && !countdownCompleted {
+                Group {
+                    if viewModel.gameService.currentPlayer?.role == .hunter {
+                        ManhuntCountdownView(
+                            countdown: preGameCountdown,
+                            gameService: viewModel.gameService,
+                            locationService: viewModel.locationService
+                        )
+                    } else {
+                        ManhuntHiderCountdownBanner(
+                            countdown: preGameCountdown,
+                            gameService: viewModel.gameService
+                        )
+                    }
+                }
+                .transition(.opacity)
+            }
+        }
+        .onAppear {
+            startPreGameCountdownIfNeeded()
+        }
+        .onChange(of: showCountdown) { _, showing in
+            if showing && !countdownCompleted {
+                startPreGameCountdownIfNeeded()
+            } else if !showing {
+                preGameCountdown.stop()
+            }
         }
     }
     

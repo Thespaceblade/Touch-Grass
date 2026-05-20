@@ -24,6 +24,7 @@ struct ZombieTagActiveGameView: View {
     @State private var timerPulseScale: CGFloat = 1.0
     @State private var lastHapticThreshold: Int = -1
     @State private var currentTime: Date = Date()
+    @State private var lastPhaseNumber: Int = -1
     @State private var timer: Timer?
     @StateObject private var obfuscationService = LocationObfuscationService()
     
@@ -258,17 +259,18 @@ struct ZombieTagActiveGameView: View {
         .padding(.horizontal, AppSpacing.md)
         .padding(.vertical, 6)
         .cartoonCard(cornerRadius: 14, shadowOffset: 4, borderWidth: 2)
-        .onChange(of: currentBubbleRadius) { oldValue, newValue in
-            // Trigger pulse animation when zone shrinks
-            if let old = oldValue, let new = newValue, new < old {
-                zoneShrinkPulse = true
-                HapticFeedbackManager.shared.selection()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    zoneShrinkPulse = false
-                }
+        .onChange(of: gameService.session?.bubble?.currentPhaseNumber) { _, newPhase in
+            guard let bubble = gameService.session?.bubble, bubble.enableShrinking,
+                  let newPhase, newPhase != lastPhaseNumber, newPhase > 0 else { return }
+            lastPhaseNumber = newPhase
+            zoneShrinkPulse = true
+            HapticFeedbackManager.shared.selection()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                zoneShrinkPulse = false
             }
         }
         .onAppear {
+            lastPhaseNumber = gameService.session?.bubble?.currentPhaseNumber ?? -1
             // Only start timer if game is active
             if gameService.gameState == .active {
                 startTimer()
@@ -508,16 +510,6 @@ struct ZombieTagActiveGameView: View {
                 .fill(Color(white: 0.18))
                 .offset(x: 3, y: 3)
         )
-        .onChange(of: currentBubbleRadius) { oldValue, newValue in
-            // Trigger pulse animation when zone shrinks
-            if let old = oldValue, let new = newValue, new < old {
-                zoneShrinkPulse = true
-                HapticFeedbackManager.shared.selection()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    zoneShrinkPulse = false
-                }
-            }
-        }
     }
     
     // MARK: - Compact Players Card

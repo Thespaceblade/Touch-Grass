@@ -26,6 +26,12 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
     private var isLocationActive: Bool = false
     private var motionDetectionActive: Bool = false
     private var lastAcceleration: CMAcceleration? // For accelerometer fallback
+
+    /// While true, motion-based GPS pausing is suppressed: GPS stays on even
+    /// when the device is stationary. Set by `GameService` for the duration
+    /// of an active Manhunt/Zombie Tag match so hiders standing still still
+    /// emit location/heartbeat updates and don't appear disconnected.
+    private var gameplayKeepAliveActive: Bool = false
     
     // Motion detection thresholds
     private let motionAccelerationThreshold: Double = 0.15 // m/s² - user acceleration threshold (gravity-filtered)
@@ -96,9 +102,11 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
                         self.startLocationUpdatesIfNeeded()
                     }
                 } else {
-                    // Check if we should stop location updates (after delay)
+                    // Check if we should stop location updates (after delay).
+                    // Skipped during active gameplay so stationary hiders keep
+                    // sending GPS/heartbeat updates.
                     let timeSinceLastMotion = Date().timeIntervalSince(self.lastMotionDetection)
-                    if self.isMoving && timeSinceLastMotion > self.motionStopDelay {
+                    if self.isMoving && timeSinceLastMotion > self.motionStopDelay && !self.gameplayKeepAliveActive {
                         self.isMoving = false
                         self.stopLocationUpdatesIfNeeded()
                     }
@@ -130,7 +138,7 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
                         }
                     } else {
                         let timeSinceLastMotion = Date().timeIntervalSince(self.lastMotionDetection)
-                        if self.isMoving && timeSinceLastMotion > self.motionStopDelay {
+                        if self.isMoving && timeSinceLastMotion > self.motionStopDelay && !self.gameplayKeepAliveActive {
                             self.isMoving = false
                             self.stopLocationUpdatesIfNeeded()
                         }
@@ -235,6 +243,28 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
         isLocationActive = false
         stopHeadingUpdates()
         stopMotionDetection()
+        gameplayKeepAliveActive = false
+    }
+
+    /// Toggle gameplay GPS keep-alive. While active, motion-based GPS pausing
+    /// is suppressed so stationary players still emit location updates that
+    /// other clients can use as a presence signal.
+    ///
+    /// Should be enabled when an active Manhunt/Zombie Tag match begins and
+    /// disabled when the match ends or the player leaves the session.
+    func setGameplayKeepAlive(_ active: Bool) {
+        guard gameplayKeepAliveActive != active else { return }
+        gameplayKeepAliveActive = active
+
+        guard active else { return }
+
+        // Force GPS on immediately so a hider who is already standing still
+        // when the match begins doesn't have to move to trigger the first fix.
+        if authorization == .authorizedWhenInUse || authorization == .authorizedAlways {
+            isMoving = true
+            lastMotionDetection = Date()
+            startLocationUpdatesIfNeeded()
+        }
     }
 
     private func startHeadingUpdatesIfAvailable() {

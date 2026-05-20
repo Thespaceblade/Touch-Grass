@@ -76,16 +76,69 @@ service cloud.firestore {
     }
 
     function onlyPlayersChanged() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['players', 'playerIds', 'memberAuthUids'])
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['players', 'playerIds', 'memberAuthUids', 'playerAuthByPlayerId'])
         && request.resource.data.playerIds.size() <= 12;
     }
 
+    // Member presence/location heartbeat. Caller is in the roster, the
+    // diff is restricted to the `players` array (plus the no-op mirror
+    // keys), the roster size and identity-mirror maps stay identical,
+    // and the session is still in lobby/active (not ended). This is the
+    // path used for both GPS coordinate writes and the active-game
+    // `lastUpdated` heartbeat that proves a stationary hider is alive.
     function existingMemberPresenceUpdate() {
       return isMember()
         && onlyPlayersChanged()
+        && request.resource.data.gameState == resource.data.gameState
         && request.resource.data.playerIds == resource.data.playerIds
         && request.resource.data.players.size() == resource.data.players.size()
-        && request.resource.data.memberAuthUids == resource.data.memberAuthUids;
+        && request.resource.data.memberAuthUids == resource.data.memberAuthUids
+        && (
+          !('playerAuthByPlayerId' in resource.data)
+          || !('playerAuthByPlayerId' in request.resource.data)
+          || request.resource.data.playerAuthByPlayerId == resource.data.playerAuthByPlayerId
+        )
+        && (
+          !('firstTaggedPlayerId' in resource.data)
+          || !('firstTaggedPlayerId' in request.resource.data)
+          || request.resource.data.firstTaggedPlayerId == resource.data.firstTaggedPlayerId
+        );
+    }
+
+    // Manhunt catch transaction. Allows a member to mark a single hider
+    // dead and set `firstTaggedPlayerId` (once) without going through
+    // the host. The Swift transaction is the authoritative validator
+    // (alive-hider target, hunter/self caller, etc.); the rule is a
+    // belt-and-suspenders gate that prevents the rule diff from leaking
+    // out into host-only fields.
+    function memberManhuntCatchUpdate() {
+      return isMember()
+        && resource.data.gameState == 'active'
+        && request.resource.data.gameState == 'active'
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['players', 'firstTaggedPlayerId'])
+        && request.resource.data.playerIds == resource.data.playerIds
+        && request.resource.data.players.size() == resource.data.players.size()
+        && request.resource.data.memberAuthUids == resource.data.memberAuthUids
+        && (
+          !('playerAuthByPlayerId' in resource.data)
+          || !('playerAuthByPlayerId' in request.resource.data)
+          || request.resource.data.playerAuthByPlayerId == resource.data.playerAuthByPlayerId
+        )
+        && (
+          // `firstTaggedPlayerId` is either unchanged, or it was unset and
+          // is now a non-empty string (the new "first tagged" hider id).
+          (('firstTaggedPlayerId' in resource.data)
+            && ('firstTaggedPlayerId' in request.resource.data)
+            && request.resource.data.firstTaggedPlayerId == resource.data.firstTaggedPlayerId)
+          || (!('firstTaggedPlayerId' in resource.data)
+            && request.resource.data.firstTaggedPlayerId is string
+            && request.resource.data.firstTaggedPlayerId.size() > 0)
+          || (('firstTaggedPlayerId' in resource.data)
+            && resource.data.firstTaggedPlayerId == null
+            && request.resource.data.firstTaggedPlayerId is string
+            && request.resource.data.firstTaggedPlayerId.size() > 0)
+        );
     }
 
     // A new device-scoped player joining a lobby. The joiner's Firebase
@@ -140,6 +193,10 @@ service cloud.firestore {
             .hasOnly(['compassPulse', 'compassLastUsedAtByPlayerId'])
         && pulse.eventId is string
         && pulse.usedByPlayerId in resource.data.playerIds
+        && (
+          !('playerAuthByPlayerId' in resource.data)
+          || resource.data.playerAuthByPlayerId[pulse.usedByPlayerId] == request.auth.uid
+        )
         && pulse.targetPlayerId is string
         && pulse.targetPlayerId != pulse.usedByPlayerId
         && pulse.distanceMeters is number
@@ -156,6 +213,7 @@ service cloud.firestore {
         || authenticatedSelfJoin()
         || authenticatedSelfLeave()
         || existingMemberPresenceUpdate()
+        || memberManhuntCatchUpdate()
         || existingMemberCompassOnlyUpdate();
 
       allow delete: if isHost();

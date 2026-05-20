@@ -507,6 +507,39 @@ final class GameSessionTests: XCTestCase {
         XCTAssertEqual(eligible.map(\.id), [hiderAlive.id])
     }
 
+    func testEligibleCompassPreyExcludesStaleLocations() {
+        let now = Date()
+        let hunter = Player(
+            displayName: "Hunter",
+            latitude: 0, longitude: 0,
+            role: .hunter, isAlive: true,
+            lastUpdated: now
+        )
+        let freshHider = Player(
+            displayName: "FreshHider",
+            latitude: 0, longitude: 0,
+            role: .hider, isAlive: true,
+            lastUpdated: now.addingTimeInterval(-30)
+        )
+        let staleHider = Player(
+            displayName: "StaleHider",
+            latitude: 0, longitude: 0,
+            role: .hider, isAlive: true,
+            lastUpdated: now.addingTimeInterval(-(CompassAbilityConfig.maxPreyLocationAge + 1))
+        )
+
+        let session = GameSession(
+            hostId: hunter.id,
+            gameState: .active,
+            gameType: .manhunt,
+            players: [hunter, freshHider, staleHider],
+            hunterCount: 1
+        )
+
+        let eligible = session.eligibleCompassPrey(firedBy: hunter.id, now: now)
+        XCTAssertEqual(eligible.map(\.id), [freshHider.id])
+    }
+
     func testEligibleCompassPreyForZombieTag() {
         let zombie = Player(
             displayName: "Zombie",
