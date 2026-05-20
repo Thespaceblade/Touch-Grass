@@ -141,9 +141,11 @@ struct ManhuntHunterManagementView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
-                        dismiss()
-                    }
+                    CartoonSheetToolbarButton(
+                        title: "Done",
+                        systemImage: "checkmark.circle.fill",
+                        action: { dismiss() }
+                    )
                 }
             }
         }

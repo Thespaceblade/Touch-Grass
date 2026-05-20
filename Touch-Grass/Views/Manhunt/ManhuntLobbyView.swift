@@ -210,7 +210,8 @@ struct ManhuntLobbyView: View {
             isPresented: $showExitConfirmation,
             primaryColor: primaryColor,
             secondaryColor: secondaryColor,
-            iconName: "figure.run"
+            iconName: "figure.run",
+            isHost: viewModel.gameService.session?.isDeviceHost(viewModel.gameService.currentPlayer) ?? false
         ) {
             Task { @MainActor in
                 if await viewModel.leaveCurrentSessionFromUserAction() {
@@ -817,7 +818,7 @@ struct ManhuntLobbyView: View {
                     }) {
                         CartoonLobbyActionCard(
                             iconName: showJoinGameInput ? "xmark.circle.fill" : "person.2.circle.fill",
-                            title: showJoinGameInput ? "Cancel" : "Join Game",
+                            title: showJoinGameInput ? "Close" : "Join Game",
                             subtitle: showJoinGameInput ? "Close join code input" : "Enter a game code to join",
                             accent: secondaryColor,
                             trailingIconName: showJoinGameInput ? "xmark" : "chevron.right"
@@ -950,11 +951,19 @@ struct ManhuntLobbyView: View {
                                             .font(.title3)
                                             .symbolEffect(.bounce, value: viewModel.gameService.gameState)
                                     }
-                                    Text(viewModel.isBeginningGame ? "Starting..." : "Begin Game")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.semibold)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.8)
+                                    Group {
+                                        if viewModel.isBeginningGame {
+                                            Text("Starting...")
+                                        } else if !isHost {
+                                            AnimatedEllipsisText("Waiting for host")
+                                        } else {
+                                            Text("Begin Game")
+                                        }
+                                    }
+                                    .font(AppTypography.labelLarge())
+                                    .fontWeight(.semibold)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
                                 }
                                 .frame(maxWidth: .infinity)
                                 .padding(.horizontal, AppSpacing.md)

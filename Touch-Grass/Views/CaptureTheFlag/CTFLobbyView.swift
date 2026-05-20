@@ -266,7 +266,8 @@ struct CTFLobbyView: View {
             isPresented: $showExitConfirmation,
             primaryColor: primaryColor,
             secondaryColor: AppColors.ctfTeamBSecondary,
-            iconName: "flag.fill"
+            iconName: "flag.fill",
+            isHost: viewModel.gameService.session?.isDeviceHost(viewModel.gameService.currentPlayer) ?? false
         ) {
             Task { @MainActor in
                 if await viewModel.leaveCurrentSessionFromUserAction() {
@@ -974,9 +975,17 @@ struct CTFLobbyView: View {
                                         Image(systemName: "play.circle.fill")
                                             .font(.title3)
                                     }
-                                    Text(viewModel.isBeginningGame ? "Starting..." : "Begin Game")
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.8)
+                                    Group {
+                                        if viewModel.isBeginningGame {
+                                            Text("Starting...")
+                                        } else if !isHost {
+                                            AnimatedEllipsisText("Waiting for host")
+                                        } else {
+                                            Text("Begin Game")
+                                        }
+                                    }
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
                                 }
                             }
                             .buttonStyle(CartoonButtonStyle(accent: primaryColor, isDisabled: !isEnabled))

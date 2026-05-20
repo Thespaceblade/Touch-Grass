@@ -99,6 +99,29 @@ struct CartoonCard<Content: View>: View {
     }
 }
 
+// MARK: - AnimatedEllipsisText
+
+/// Inline label that cycles a trailing ellipsis (`.` → `..` → `...`) on a
+/// short cadence to communicate ongoing waiting. Inherits `font`,
+/// `foregroundColor`, and other Text-environment modifiers from the
+/// enclosing view, so it drops in wherever a `Text` would.
+struct AnimatedEllipsisText: View {
+    let text: String
+    let period: TimeInterval
+
+    init(_ text: String, period: TimeInterval = 0.45) {
+        self.text = text
+        self.period = period
+    }
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: period)) { context in
+            let step = Int(context.date.timeIntervalSinceReferenceDate / period) % 3
+            Text(text + String(repeating: ".", count: step + 1))
+        }
+    }
+}
+
 // MARK: - Themed Exit Lobby Confirmation
 
 struct ThemedExitLobbyConfirmationOverlay: View {
@@ -106,7 +129,21 @@ struct ThemedExitLobbyConfirmationOverlay: View {
     let primaryColor: Color
     let secondaryColor: Color
     let iconName: String
+    /// When true, copy warns that leaving will end the session for
+    /// everyone (host path). Non-hosts get reassuring "you're just
+    /// leaving" copy and the lobby continues for the rest of the players.
+    var isHost: Bool = false
     let onConfirm: () -> Void
+
+    private var bodyMessage: String {
+        isHost
+            ? "Leaving will end the game for everyone in this lobby."
+            : "You'll leave this lobby and head back to the game picker."
+    }
+
+    private var confirmTitle: String {
+        isHost ? "End Game" : "Leave Lobby"
+    }
 
     var body: some View {
         ZStack {
@@ -126,7 +163,7 @@ struct ThemedExitLobbyConfirmationOverlay: View {
                             .foregroundColor(AppColors.cartoonInk)
                             .multilineTextAlignment(.center)
 
-                        Text("Going back to the main menu will close this lobby.")
+                        Text(bodyMessage)
                             .font(.system(size: 16, weight: .bold, design: .rounded))
                             .foregroundColor(AppColors.cartoonInk.opacity(0.78))
                             .multilineTextAlignment(.center)
@@ -145,7 +182,7 @@ struct ThemedExitLobbyConfirmationOverlay: View {
                                 HapticFeedbackManager.shared.warning()
                                 onConfirm()
                             } label: {
-                                Label("Leave Lobby", systemImage: "rectangle.portrait.and.arrow.right")
+                                Label(confirmTitle, systemImage: "rectangle.portrait.and.arrow.right")
                             }
                             .buttonStyle(PrimaryButtonStyle(accentColor: primaryColor))
                         }
@@ -155,9 +192,7 @@ struct ThemedExitLobbyConfirmationOverlay: View {
             }
             .frame(maxWidth: 340)
             .padding(.horizontal, AppSpacing.lg)
-            .transition(.scale(scale: 0.94).combined(with: .opacity))
         }
-        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isPresented)
     }
 
     private var header: some View {
@@ -272,9 +307,7 @@ struct ThemedInGameConfirmationOverlay: View {
             }
             .frame(maxWidth: 340)
             .padding(.horizontal, AppSpacing.lg)
-            .transition(.scale(scale: 0.94).combined(with: .opacity))
         }
-        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isPresented)
     }
 
     private var header: some View {
@@ -331,19 +364,18 @@ extension View {
         primaryColor: Color,
         secondaryColor: Color,
         iconName: String,
+        isHost: Bool = false,
         onConfirm: @escaping () -> Void
     ) -> some View {
-        overlay {
-            if isPresented.wrappedValue {
-                ThemedExitLobbyConfirmationOverlay(
-                    isPresented: isPresented,
-                    primaryColor: primaryColor,
-                    secondaryColor: secondaryColor,
-                    iconName: iconName,
-                    onConfirm: onConfirm
-                )
-                .zIndex(1000)
-            }
+        cartoonPopupOverlay(isPresented: isPresented) {
+            ThemedExitLobbyConfirmationOverlay(
+                isPresented: isPresented,
+                primaryColor: primaryColor,
+                secondaryColor: secondaryColor,
+                iconName: iconName,
+                isHost: isHost,
+                onConfirm: onConfirm
+            )
         }
     }
 
@@ -361,24 +393,21 @@ extension View {
         confirmAccentColor: Color,
         onConfirm: @escaping () -> Void
     ) -> some View {
-        overlay {
-            if isPresented.wrappedValue {
-                ThemedInGameConfirmationOverlay(
-                    isPresented: isPresented,
-                    primaryColor: primaryColor,
-                    secondaryColor: secondaryColor,
-                    iconName: iconName,
-                    headerTitle: headerTitle,
-                    headerSubtitle: headerSubtitle,
-                    title: title,
-                    message: message,
-                    cancelTitle: cancelTitle,
-                    confirmTitle: confirmTitle,
-                    confirmAccentColor: confirmAccentColor,
-                    onConfirm: onConfirm
-                )
-                .zIndex(1000)
-            }
+        cartoonPopupOverlay(isPresented: isPresented) {
+            ThemedInGameConfirmationOverlay(
+                isPresented: isPresented,
+                primaryColor: primaryColor,
+                secondaryColor: secondaryColor,
+                iconName: iconName,
+                headerTitle: headerTitle,
+                headerSubtitle: headerSubtitle,
+                title: title,
+                message: message,
+                cancelTitle: cancelTitle,
+                confirmTitle: confirmTitle,
+                confirmAccentColor: confirmAccentColor,
+                onConfirm: onConfirm
+            )
         }
     }
 }
@@ -469,6 +498,28 @@ struct CartoonSecondaryButtonStyle: ButtonStyle {
                     }
                 }
         }
+    }
+}
+
+// MARK: - CartoonSheetToolbarButton
+
+/// Compact cartoon-styled toolbar button for sheet dismissal (Cancel /
+/// Done). Mirrors the inline pattern already used in
+/// `ZombieTagRoleManagementView` so every themed sheet across the app
+/// can share one component instead of duplicating the HStack + style.
+struct CartoonSheetToolbarButton: View {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                Text(title)
+            }
+        }
+        .buttonStyle(CartoonSecondaryButtonStyle(cornerRadius: 12))
     }
 }
 

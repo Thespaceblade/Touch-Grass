@@ -193,7 +193,8 @@ struct ZombieTagLobbyView: View {
             isPresented: $showExitConfirmation,
             primaryColor: primaryColor,
             secondaryColor: secondaryColor,
-            iconName: "allergens"
+            iconName: "allergens",
+            isHost: viewModel.gameService.session?.isDeviceHost(viewModel.gameService.currentPlayer) ?? false
         ) {
             Task { @MainActor in
                 if await viewModel.leaveCurrentSessionFromUserAction() {
@@ -915,11 +916,19 @@ struct ZombieTagLobbyView: View {
                                             .font(.title3)
                                             .symbolEffect(.bounce, value: viewModel.gameService.gameState)
                                     }
-                                    Text(viewModel.isBeginningGame ? "Starting..." : "Begin Game")
-                                        .font(AppTypography.labelLarge())
-                                        .fontWeight(.semibold)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.8)
+                                    Group {
+                                        if viewModel.isBeginningGame {
+                                            Text("Starting...")
+                                        } else if !isHost {
+                                            AnimatedEllipsisText("Waiting for host")
+                                        } else {
+                                            Text("Begin Game")
+                                        }
+                                    }
+                                    .font(AppTypography.labelLarge())
+                                    .fontWeight(.semibold)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
                                 }
                                 .frame(maxWidth: .infinity)
                                 .padding(.horizontal, AppSpacing.md)

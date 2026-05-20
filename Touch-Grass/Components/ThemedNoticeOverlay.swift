@@ -94,9 +94,7 @@ struct ThemedNoticeOverlay: View {
             }
             .frame(maxWidth: 340)
             .padding(.horizontal, AppSpacing.lg)
-            .transition(.scale(scale: 0.94).combined(with: .opacity))
         }
-        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isPresented)
     }
 
     @ViewBuilder
@@ -200,21 +198,57 @@ extension View {
         message: String,
         buttons: [ThemedNoticeButton]
     ) -> some View {
+        cartoonPopupOverlay(isPresented: isPresented) {
+            ThemedNoticeOverlay(
+                isPresented: isPresented,
+                primaryColor: primaryColor,
+                secondaryColor: secondaryColor,
+                iconName: iconName,
+                headerTitle: headerTitle,
+                headerSubtitle: headerSubtitle,
+                title: title,
+                message: message,
+                buttons: buttons
+            )
+        }
+    }
+}
+
+// MARK: - Shared cartoon popup presentation
+
+extension AnyTransition {
+    /// Cartoon pop-in / pop-out: card scales up from below with a quick
+    /// rise on insert, then shrinks and fades on dismiss. The bouncy
+    /// spring is supplied by `cartoonPopupOverlay`.
+    static var cartoonPopup: AnyTransition {
+        .asymmetric(
+            insertion: .scale(scale: 0.65, anchor: .center)
+                .combined(with: .opacity)
+                .combined(with: .offset(y: 24)),
+            removal: .scale(scale: 0.9, anchor: .center)
+                .combined(with: .opacity)
+        )
+    }
+}
+
+extension View {
+    /// Hosts a themed popup inside an overlay with the shared cartoon
+    /// in/out animation. The popup view is responsible for its own
+    /// backdrop (dim layer) and tap-to-dismiss behavior; this helper
+    /// only owns the conditional rendering and transition.
+    func cartoonPopupOverlay<Popup: View>(
+        isPresented: Binding<Bool>,
+        @ViewBuilder popup: () -> Popup
+    ) -> some View {
         overlay {
-            if isPresented.wrappedValue {
-                ThemedNoticeOverlay(
-                    isPresented: isPresented,
-                    primaryColor: primaryColor,
-                    secondaryColor: secondaryColor,
-                    iconName: iconName,
-                    headerTitle: headerTitle,
-                    headerSubtitle: headerSubtitle,
-                    title: title,
-                    message: message,
-                    buttons: buttons
-                )
-                .zIndex(1000)
+            ZStack {
+                if isPresented.wrappedValue {
+                    popup()
+                        .transition(.cartoonPopup)
+                        .zIndex(1000)
+                }
             }
+            .animation(.spring(response: 0.42, dampingFraction: 0.68), value: isPresented.wrappedValue)
         }
     }
 }

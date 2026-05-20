@@ -17,7 +17,8 @@ struct ManhuntInfoView: View {
             accent: AppColors.manhuntPrimary,
             secondary: AppColors.manhuntSecondary,
             sections: sections,
-            onDone: { dismiss() }
+            onDone: { dismiss() },
+            useCartoonToolbarDismiss: true
         )
     }
 

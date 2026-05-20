@@ -16,6 +16,11 @@ struct GameGuidePage: View {
     let secondary: Color
     let sections: [GuideSection]
     let onDone: () -> Void
+    /// When `true`, the dismiss button in the navigation bar uses the
+    /// app's cartoon secondary chip instead of the default text button.
+    /// Defaults to `false` so existing guides (CTF, Zombie Tag) keep
+    /// their current presentation until they opt in.
+    var useCartoonToolbarDismiss: Bool = false
 
     var body: some View {
         NavigationView {
@@ -47,10 +52,20 @@ struct GameGuidePage: View {
             .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done", action: onDone)
-                        .font(.system(size: 16, weight: .black, design: .rounded))
-                        .foregroundColor(accent)
+                if useCartoonToolbarDismiss {
+                    ToolbarItem(placement: .cancellationAction) {
+                        CartoonSheetToolbarButton(
+                            title: "Done",
+                            systemImage: "checkmark.circle.fill",
+                            action: onDone
+                        )
+                    }
+                } else {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Done", action: onDone)
+                            .font(.system(size: 16, weight: .black, design: .rounded))
+                            .foregroundColor(accent)
+                    }
                 }
             }
         }

@@ -138,6 +138,9 @@ final class GameViewModel: ObservableObject {
         let sessionId = currentSession?.id
 
         if wasHost, let sessionId {
+            // Mark this session as already handled so the host's own
+            // Firestore `hostLeft` echo doesn't trigger the remote
+            // "Host Left" notice that's meant for non-hosts.
             handledHostLeftSessionIds.insert(sessionId)
         }
 
@@ -150,15 +153,9 @@ final class GameViewModel: ObservableObject {
             return false
         }
 
-        guard wasHost else {
-            return true
+        if wasHost {
+            selectedGameType = gameType
         }
-        selectedGameType = gameType
-        sessionEndedNotice = SessionEndedNotice(
-            gameType: gameType,
-            title: "Game Closed",
-            message: "You left as host, so the game ended for everyone."
-        )
         return true
     }
 

@@ -257,9 +257,11 @@ struct ManhuntBubbleSettingsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .font(.system(size: 16, weight: .black, design: .rounded))
-                        .foregroundColor(primaryColor)
+                    CartoonSheetToolbarButton(
+                        title: "Cancel",
+                        systemImage: "xmark.circle.fill",
+                        action: { dismiss() }
+                    )
                 }
             }
             .onAppear {
