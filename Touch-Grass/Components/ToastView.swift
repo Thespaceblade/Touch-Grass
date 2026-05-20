@@ -32,6 +32,15 @@ enum ToastType {
     }
 }
 
+/// Identifiable payload for the global toast channel on `GameViewModel`.
+/// A new id forces SwiftUI to dismiss-and-re-show when the same message
+/// is reported back-to-back (rare, but harmless).
+struct AppToastMessage: Identifiable, Equatable {
+    let id = UUID()
+    let message: String
+    let type: ToastType
+}
+
 struct ToastView: View {
     let message: String
     let type: ToastType
@@ -84,6 +93,42 @@ extension View {
                 ToastView(message: message, type: type, isVisible: isVisible)
                 Spacer()
             }
+        }
+    }
+
+    /// Drives the toast from an optional `AppToastMessage`. The toast is
+    /// shown whenever the binding is non-nil and clears itself after the
+    /// auto-dismiss window. Use this at the app root so every transient
+    /// failure surfaces in one place.
+    func appToast(_ toast: Binding<AppToastMessage?>) -> some View {
+        modifier(AppToastModifier(toast: toast))
+    }
+}
+
+private struct AppToastModifier: ViewModifier {
+    @Binding var toast: AppToastMessage?
+    @State private var isVisible: Bool = false
+
+    func body(content: Content) -> some View {
+        ZStack(alignment: .top) {
+            content
+            if let active = toast {
+                VStack {
+                    ToastView(message: active.message, type: active.type, isVisible: $isVisible)
+                        .id(active.id)
+                    Spacer()
+                }
+                .padding(.top, AppSpacing.sm)
+            }
+        }
+        .onChange(of: toast?.id) { _, newId in
+            isVisible = newId != nil
+        }
+        .onChange(of: isVisible) { _, newValue in
+            if !newValue { toast = nil }
+        }
+        .onAppear {
+            isVisible = toast != nil
         }
     }
 }

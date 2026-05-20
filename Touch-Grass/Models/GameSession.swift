@@ -11,7 +11,17 @@ import CoreLocation
 
 struct GameSession: Identifiable {
     let id: String
+    /// Legacy: Firebase auth uid of the host. Equal to `hostAuthUid` for
+    /// new sessions. Kept as a top-level field so existing Firestore rules
+    /// and join-code documents that key on `hostId` keep working.
     var hostId: String
+    /// Per-device player id of the host (matches `players[i].id` for the
+    /// host's roster entry). This is what the app uses to decide whether
+    /// the local device is the host.
+    var hostPlayerId: String
+    /// Firebase auth uid of the host at lobby-creation time. Authoritative
+    /// for security rules; equal to `hostId` for new sessions.
+    var hostAuthUid: String
     var gameState: GameState
     var gameType: GameType // Type of game being played
     var bubble: Bubble?
@@ -21,6 +31,7 @@ struct GameSession: Identifiable {
     var hunterCount: Int // Number of hunters in the game
     var firstTaggedPlayerId: String? // ID of first player tagged (becomes hunter next game)
     var gameNumber: Int // Track which game in the session (1, 2, 3, etc.)
+    var endReason: GameEndReason? = nil // Why the session entered `.ended`
     
     // Capture The Flag specific
     var flags: [Flag] = [] // Flags for CTF (legacy - kept for compatibility)
@@ -93,8 +104,10 @@ struct GameSession: Identifiable {
     
     // Codable keys for custom encoding/decoding
     enum CodingKeys: String, CodingKey {
-        case id, hostId, gameState, gameType, bubble, players, catchDistance, joinCode
+        case id, hostId, hostPlayerId, hostAuthUid
+        case gameState, gameType, bubble, players, catchDistance, joinCode
         case hunterCount, firstTaggedPlayerId, gameNumber, flags
+        case endReason
         case teamAScore, teamBScore, scoreLimit
         case teamABaseLat, teamABaseLon, teamBBaseLat, teamBBaseLon
         case teamAFlagPlaced, teamBFlagPlaced
@@ -105,6 +118,8 @@ struct GameSession: Identifiable {
     
     init(id: String = UUID().uuidString,
          hostId: String,
+         hostPlayerId: String? = nil,
+         hostAuthUid: String? = nil,
          gameState: GameState = .lobby,
          gameType: GameType = .manhunt,
          bubble: Bubble? = nil,
@@ -122,6 +137,8 @@ struct GameSession: Identifiable {
          scoreLimit: Int = 3) {
         self.id = id
         self.hostId = hostId
+        self.hostPlayerId = hostPlayerId ?? players.first?.id ?? hostId
+        self.hostAuthUid = hostAuthUid ?? hostId
         self.gameState = gameState
         self.gameType = gameType
         self.bubble = bubble
@@ -153,6 +170,11 @@ extension GameSession: Codable {
         id = try container.decode(String.self, forKey: .id)
         hostId = try container.decode(String.self, forKey: .hostId)
         gameState = try container.decode(GameState.self, forKey: .gameState)
+        // hostAuthUid / hostPlayerId may be missing on legacy sessions.
+        // Fall back to hostId (which historically held the Firebase auth
+        // uid) and to the first roster entry's id respectively.
+        let decodedHostAuthUid = try container.decodeIfPresent(String.self, forKey: .hostAuthUid)
+        let decodedHostPlayerId = try container.decodeIfPresent(String.self, forKey: .hostPlayerId)
         gameType = try container.decode(GameType.self, forKey: .gameType)
         bubble = try container.decodeIfPresent(Bubble.self, forKey: .bubble)
         players = try container.decode([Player].self, forKey: .players)
@@ -189,12 +211,30 @@ extension GameSession: Codable {
 
         compassPulse = try container.decodeIfPresent(CompassPulse.self, forKey: .compassPulse)
         compassLastUsedAtByPlayerId = try container.decodeIfPresent([String: Date].self, forKey: .compassLastUsedAtByPlayerId) ?? [:]
+        endReason = try container.decodeIfPresent(GameEndReason.self, forKey: .endReason)
+
+        // Resolve host identity. New sessions set both fields explicitly;
+        // legacy sessions inferred them from `hostId` plus the first player.
+        hostAuthUid = decodedHostAuthUid ?? hostId
+        let resolvedHostPlayerId: String
+        if let decodedHostPlayerId {
+            resolvedHostPlayerId = decodedHostPlayerId
+        } else {
+            let legacyHostUid = hostId
+            let legacyHost = players.first { player in
+                player.authUserId == legacyHostUid
+            }
+            resolvedHostPlayerId = legacyHost?.id ?? players.first?.id ?? legacyHostUid
+        }
+        hostPlayerId = resolvedHostPlayerId
     }
     
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(hostId, forKey: .hostId)
+        try container.encode(hostPlayerId, forKey: .hostPlayerId)
+        try container.encode(hostAuthUid, forKey: .hostAuthUid)
         try container.encode(gameState, forKey: .gameState)
         try container.encode(gameType, forKey: .gameType)
         try container.encodeIfPresent(bubble, forKey: .bubble)
@@ -204,6 +244,7 @@ extension GameSession: Codable {
         try container.encode(hunterCount, forKey: .hunterCount)
         try container.encodeIfPresent(firstTaggedPlayerId, forKey: .firstTaggedPlayerId)
         try container.encode(gameNumber, forKey: .gameNumber)
+        try container.encodeIfPresent(endReason, forKey: .endReason)
         try container.encode(flags, forKey: .flags)
         try container.encode(teamAScore, forKey: .teamAScore)
         try container.encode(teamBScore, forKey: .teamBScore)
@@ -232,11 +273,54 @@ extension GameSession: Codable {
     }
 }
 
+extension GameSession {
+    /// True when the given Firebase auth uid created the lobby. Used by
+    /// Firestore-side checks; the app uses `isDeviceHost` for local
+    /// "who is host on this device" decisions.
+    func isAuthUserHost(_ authUserId: String) -> Bool {
+        hostAuthUid == authUserId
+    }
+
+    func isAuthUserHost(_ player: Player?) -> Bool {
+        guard let player else { return false }
+        return isAuthUserHost(player.authUserId)
+    }
+
+    /// True when this device's guest player owns the host seat. Two
+    /// devices on the same Apple ID share `hostAuthUid` but only the
+    /// originating device's guest id matches `hostPlayerId`.
+    func isDeviceHost(playerId: String) -> Bool {
+        hostPlayerId == playerId
+    }
+
+    func isDeviceHost(_ player: Player?) -> Bool {
+        guard let player else { return false }
+        return isDeviceHost(playerId: player.id)
+    }
+
+    var memberAuthUserIds: [String] {
+        var seen = Set<String>()
+        var ids: [String] = []
+        ids.reserveCapacity(players.count)
+
+        for player in players {
+            let authUserId = player.authUserId
+            guard !seen.contains(authUserId) else { continue }
+            seen.insert(authUserId)
+            ids.append(authUserId)
+        }
+
+        return ids
+    }
+}
+
 // MARK: - Equatable Conformance
 extension GameSession: Equatable {
     static func == (lhs: GameSession, rhs: GameSession) -> Bool {
         guard lhs.id == rhs.id,
               lhs.hostId == rhs.hostId,
+              lhs.hostPlayerId == rhs.hostPlayerId,
+              lhs.hostAuthUid == rhs.hostAuthUid,
               lhs.gameState == rhs.gameState,
               lhs.gameType == rhs.gameType,
               lhs.bubble == rhs.bubble,
@@ -246,6 +330,7 @@ extension GameSession: Equatable {
               lhs.hunterCount == rhs.hunterCount,
               lhs.firstTaggedPlayerId == rhs.firstTaggedPlayerId,
               lhs.gameNumber == rhs.gameNumber,
+              lhs.endReason == rhs.endReason,
               lhs.flags == rhs.flags,
               lhs.teamAScore == rhs.teamAScore,
               lhs.teamBScore == rhs.teamBScore,
@@ -282,4 +367,9 @@ enum GameState: String, Codable {
     case flagPlacement // CTF: Waiting for flags to be placed
     case active
     case ended
+}
+
+enum GameEndReason: String, Codable {
+    case completed
+    case hostLeft
 }

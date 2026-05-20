@@ -6,24 +6,47 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Top-level shape required for new lobby docs. `hostId` is the Firebase
+    // auth uid of the creator (legacy alias kept for join-code lookups and
+    // existing rules). `hostAuthUid` and `hostPlayerId` carry the
+    // device-scoped identity used by the app since the guest-device
+    // identity migration.
     function hasExpectedSessionShape(data) {
       return data.keys().hasAll([
         'id',
         'hostId',
+        'hostAuthUid',
+        'hostPlayerId',
         'gameState',
         'gameType',
         'joinCode',
         'players',
-        'playerIds'
+        'playerIds',
+        'memberAuthUids'
       ]);
     }
 
     function isHost() {
-      return signedIn() && resource.data.hostId == request.auth.uid;
+      return signedIn() && (
+        resource.data.hostAuthUid == request.auth.uid
+        || resource.data.hostId == request.auth.uid
+      );
+    }
+
+    // Belt-and-suspenders for the lobby-roster-sync fix. Host lobby writes
+    // may change roles/settings/state, but they must not add, drop, or
+    // resurrect roster entries. New joins/leaves go through their own
+    // transactions below.
+    function hostUpdateIsAllowed() {
+      return resource.data.gameState != 'lobby'
+        || request.resource.data.playerIds == resource.data.playerIds;
     }
 
     function isMember() {
-      return signedIn() && request.auth.uid in resource.data.playerIds;
+      return signedIn() && (
+        request.auth.uid in resource.data.memberAuthUids
+        || request.auth.uid in resource.data.playerIds
+      );
     }
 
     function hasJoinCodeLookup() {
@@ -34,18 +57,26 @@ service cloud.firestore {
     }
 
     function createsOwnLobby() {
+      let hostPlayer = request.resource.data.players[0];
       return signedIn()
         && hasExpectedSessionShape(request.resource.data)
         && request.resource.data.hostId == request.auth.uid
+        && request.resource.data.hostAuthUid == request.auth.uid
         && request.resource.data.gameState == 'lobby'
+        && request.resource.data.players.size() == 1
         && request.resource.data.playerIds.size() == 1
-        && request.resource.data.playerIds[0] == request.auth.uid
+        && request.resource.data.memberAuthUids.size() == 1
+        && request.resource.data.memberAuthUids[0] == request.auth.uid
+        && hostPlayer.id is string
+        && hostPlayer.authUserId == request.auth.uid
+        && request.resource.data.hostPlayerId == hostPlayer.id
+        && request.resource.data.playerIds[0] == hostPlayer.id
         && request.resource.data.joinCode is string
         && request.resource.data.joinCode.matches('^[0-9]{6}$');
     }
 
     function onlyPlayersChanged() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['players', 'playerIds'])
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['players', 'playerIds', 'memberAuthUids'])
         && request.resource.data.playerIds.size() <= 12;
     }
 
@@ -53,57 +84,77 @@ service cloud.firestore {
       return isMember()
         && onlyPlayersChanged()
         && request.resource.data.playerIds == resource.data.playerIds
-        && request.resource.data.players.size() == resource.data.players.size();
+        && request.resource.data.players.size() == resource.data.players.size()
+        && request.resource.data.memberAuthUids == resource.data.memberAuthUids;
     }
 
+    // A new device-scoped player joining a lobby. The joiner's Firebase
+    // uid is the request auth, but two devices on the same Apple ID can
+    // share that uid, so we key the roster by the per-device player id
+    // and only require the auth uid to be present in `memberAuthUids`.
     function authenticatedSelfJoin() {
+      let newPlayer = request.resource.data.players[request.resource.data.players.size() - 1];
+      let newPlayerId = newPlayer.id;
       return signedIn()
-        && !(request.auth.uid in resource.data.playerIds)
         && resource.data.gameState == 'lobby'
         && request.resource.data.gameState == resource.data.gameState
         && onlyPlayersChanged()
-        && request.resource.data.playerIds.hasAll(resource.data.playerIds)
-        && request.resource.data.playerIds.hasAll([request.auth.uid])
         && request.resource.data.playerIds.size() == resource.data.playerIds.size() + 1
-        && request.resource.data.players.size() == resource.data.players.size() + 1;
+        && request.resource.data.players.size() == resource.data.players.size() + 1
+        && request.resource.data.playerIds.hasAll(resource.data.playerIds)
+        && request.resource.data.players.hasAll(resource.data.players)
+        && !(newPlayerId in resource.data.playerIds)
+        && newPlayer.authUserId == request.auth.uid
+        && newPlayer.id is string
+        && request.resource.data.memberAuthUids.hasAll(resource.data.memberAuthUids)
+        && request.auth.uid in request.resource.data.memberAuthUids;
     }
 
-    // Narrow predator compass pulse write: an alive predator member commits
-    // their own pulse atomically. Affected keys are restricted to the pair
-    // (compassPulse, compassLastUsedAtByPlayerId) so this rule cannot be
-    // used to mutate roster, zone, or scoring fields. The cooldown map
-    // entry under the actor's uid must equal `compassPulse.usedAt` so the
-    // pulse and the cooldown can't drift apart.
+    // A non-host member explicitly leaving. This is intentionally separate
+    // from host leave: host leave marks the full session as ended so every
+    // listener gets a terminal event instead of silently migrating host.
+    function authenticatedSelfLeave() {
+      return isMember()
+        && resource.data.gameState != 'ended'
+        && onlyPlayersChanged()
+        && request.resource.data.playerIds.size() == resource.data.playerIds.size() - 1
+        && request.resource.data.players.size() == resource.data.players.size() - 1
+        && resource.data.playerIds.hasAll(request.resource.data.playerIds)
+        && resource.data.players.hasAll(request.resource.data.players)
+        && resource.data.memberAuthUids.hasAll(request.resource.data.memberAuthUids)
+        && resource.data.hostPlayerId in request.resource.data.playerIds;
+    }
+
+    // A predator firing a compass pulse. The pulse's `usedByPlayerId`
+    // must be a roster entry owned by the calling Firebase account, and
+    // the target must be someone else. We can't look up `players[i]` by
+    // id directly in rules, so we compare the auth uid against the
+    // `memberAuthUids` list and require the pulse author to be in the
+    // current roster (`playerIds`).
     function existingMemberCompassOnlyUpdate() {
+      let pulse = request.resource.data.compassPulse;
       return isMember()
         && resource.data.gameState == 'active'
         && request.resource.data.gameState == 'active'
         && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['compassPulse', 'compassLastUsedAtByPlayerId'])
-        && request.resource.data.compassPulse.usedByPlayerId == request.auth.uid
-        && request.resource.data.compassPulse.eventId is string
-        && request.resource.data.compassPulse.targetPlayerId is string
-        && request.resource.data.compassPulse.targetPlayerId != request.auth.uid
-        && request.resource.data.compassPulse.distanceMeters is number
-        && request.resource.data.compassLastUsedAtByPlayerId[request.auth.uid]
-             == request.resource.data.compassPulse.usedAt;
+        && pulse.eventId is string
+        && pulse.usedByPlayerId in resource.data.playerIds
+        && pulse.targetPlayerId is string
+        && pulse.targetPlayerId != pulse.usedByPlayerId
+        && pulse.distanceMeters is number
+        && request.resource.data.compassLastUsedAtByPlayerId[pulse.usedByPlayerId] == pulse.usedAt;
     }
 
     match /sessions/{sessionId} {
-      // Session data includes live locations. Do not allow collection listing;
-      // users get a single session through its join-code lookup document.
       allow get: if isHost() || isMember() || hasJoinCodeLookup();
       allow list: if false;
 
-      // The creator must be the host and first player.
       allow create: if createsOwnLobby();
 
-      // Hosts can configure/start/end/reset the session. Players can join as their
-      // authenticated user and existing members can only perform presence-style
-      // top-level updates; server-side anti-cheat should move players into a
-      // subcollection before this becomes a high-stakes production game.
-      allow update: if isHost()
+      allow update: if (isHost() && hostUpdateIsAllowed())
         || authenticatedSelfJoin()
+        || authenticatedSelfLeave()
         || existingMemberPresenceUpdate()
         || existingMemberCompassOnlyUpdate();
 
@@ -111,8 +162,6 @@ service cloud.firestore {
     }
 
     match /joinCodes/{joinCode} {
-      // Small lookup documents let players resolve a 6-digit code without
-      // querying/listing live session documents that contain player locations.
       allow get: if signedIn() && joinCode.matches('^[0-9]{6}$');
       allow list: if false;
 

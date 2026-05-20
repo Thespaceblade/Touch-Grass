@@ -2,6 +2,10 @@ import Foundation
 import CoreLocation
 
 struct Player: Identifiable, Codable, Equatable {
+    /// Per-physical-device guest id (`GuestDeviceIdentity.id`). New rosters
+    /// use this directly; legacy rosters used either the Firebase uid or a
+    /// `{uid}#{installationId}` composite. `authUserId` carries the
+    /// Firebase uid in new rosters.
     let id: String
     var displayName: String
     var latitude: Double
@@ -12,6 +16,15 @@ struct Player: Identifiable, Codable, Equatable {
     var profilePictureBase64: String? // Profile picture as base64 string (for Firestore)
     var isFlag: Bool = false // CTF: True if this player is designated as their team's flag
     var isTeamLeader: Bool = false // CTF: True if this player is designated as their team's leader
+    /// Legacy: `identifierForVendor` snapshot from the original
+    /// composite-id rules. Kept for backward compatibility while older
+    /// lobbies finish migrating; new code reads `id` directly.
+    var deviceInstallationId: String?
+
+    /// Backing storage for `authUserId`. Optional so docs decoded from
+    /// older builds (no `authUserId` field) still load cleanly. Callers
+    /// should read `authUserId` for a non-optional resolved value.
+    private var authUserIdStored: String?
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -19,6 +32,21 @@ struct Player: Identifiable, Codable, Equatable {
 
     var location: CLLocation {
         CLLocation(latitude: latitude, longitude: longitude)
+    }
+
+    /// Firebase Anonymous Auth uid backing this roster seat. Stored
+    /// explicitly so Firestore security rules can match it without
+    /// inspecting the player id format. Falls back to the legacy
+    /// composite/uid-as-id encoding when older sessions are decoded.
+    var authUserId: String {
+        get {
+            if let v = authUserIdStored, !v.isEmpty { return v }
+            if let separator = id.firstIndex(of: "#") {
+                return String(id[..<separator])
+            }
+            return id
+        }
+        set { authUserIdStored = newValue }
     }
 
     init(id: String = UUID().uuidString,
@@ -30,7 +58,9 @@ struct Player: Identifiable, Codable, Equatable {
          lastUpdated: Date = Date(),
          profilePictureBase64: String? = nil,
          isFlag: Bool = false,
-         isTeamLeader: Bool = false) {
+         isTeamLeader: Bool = false,
+         authUserId: String? = nil,
+         deviceInstallationId: String? = nil) {
         self.id = id
         self.displayName = displayName
         self.latitude = latitude
@@ -41,6 +71,15 @@ struct Player: Identifiable, Codable, Equatable {
         self.profilePictureBase64 = profilePictureBase64
         self.isFlag = isFlag
         self.isTeamLeader = isTeamLeader
+        self.authUserIdStored = authUserId
+        self.deviceInstallationId = deviceInstallationId
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, displayName, latitude, longitude, role, isAlive, lastUpdated
+        case profilePictureBase64, isFlag, isTeamLeader
+        case deviceInstallationId
+        case authUserIdStored = "authUserId"
     }
 }
 

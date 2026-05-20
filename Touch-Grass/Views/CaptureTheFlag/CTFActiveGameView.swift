@@ -223,54 +223,91 @@ struct CTFActiveGameView: View {
             #endif
             }
         }
-        .alert("Confirm Flag Capture", isPresented: $showCaptureConfirmation) {
-            Button("Cancel", role: .cancel) {
-                pendingFlagCapture = nil
-                captureConfirmationTeam = nil
-            }
-            Button("Capture") {
-                if let flagPlayerId = pendingFlagCapture {
-                    gameService.capturePlayerFlag(flagPlayerId: flagPlayerId)
-                    // Store for undo window
-                    lastFlagCapture = (flagPlayerId: flagPlayerId, timestamp: Date())
-                    // Start undo timer (5 second window)
-                    captureUndoTimer?.invalidate()
-                    captureUndoTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
-                        lastFlagCapture = nil
+        .themedNotice(
+            isPresented: $showCaptureConfirmation,
+            primaryColor: AppColors.ctfPrimary,
+            secondaryColor: AppColors.ctfTeamBSecondary,
+            iconName: "flag.fill",
+            headerTitle: "Capture The Flag",
+            headerSubtitle: "Confirm capture",
+            title: "Capture this flag?",
+            message: captureConfirmationMessage,
+            buttons: [
+                ThemedNoticeButton(title: "Cancel", icon: nil, role: .secondary) {
+                    pendingFlagCapture = nil
+                    captureConfirmationTeam = nil
+                },
+                ThemedNoticeButton(title: "Capture", icon: "flag.fill", role: .primary) {
+                    if let flagPlayerId = pendingFlagCapture {
+                        gameService.capturePlayerFlag(flagPlayerId: flagPlayerId)
+                        lastFlagCapture = (flagPlayerId: flagPlayerId, timestamp: Date())
+                        captureUndoTimer?.invalidate()
+                        captureUndoTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
+                            withAnimation(.easeOut(duration: 0.25)) {
+                                lastFlagCapture = nil
+                            }
+                        }
                     }
+                    pendingFlagCapture = nil
+                    captureConfirmationTeam = nil
                 }
-                pendingFlagCapture = nil
-                captureConfirmationTeam = nil
-            }
-        } message: {
-            if let team = captureConfirmationTeam {
-                Text("Are you sure you want to capture the \(team.rawValue) flag? This action cannot be undone.")
-            } else {
-                Text("Are you sure you want to capture this flag? This action cannot be undone.")
+            ]
+        )
+        .overlay(alignment: .bottom) {
+            if lastFlagCapture != nil {
+                flagCaptureUndoBanner
+                    .padding(.horizontal, AppSpacing.md)
+                    .padding(.bottom, AppSpacing.xl + 60)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .alert("Undo Flag Capture?", isPresented: Binding(
-            get: { lastFlagCapture != nil && Date().timeIntervalSince(lastFlagCapture!.timestamp) < 5.0 },
-            set: { if !$0 { 
-                lastFlagCapture = nil
-                captureUndoTimer?.invalidate()
-            } }
-        )) {
-            Button("Keep Captured") {
-                lastFlagCapture = nil
-                captureUndoTimer?.invalidate()
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: lastFlagCapture?.flagPlayerId)
+    }
+
+    private var captureConfirmationMessage: String {
+        if let team = captureConfirmationTeam {
+            return "Capturing the \(team.rawValue) flag cannot be undone."
+        }
+        return "Capturing this flag cannot be undone."
+    }
+
+    private var flagCaptureUndoBanner: some View {
+        HStack(spacing: AppSpacing.sm) {
+            CartoonMedallion(background: AppColors.success, size: 34) {
+                Image(systemName: "flag.fill")
+                    .font(.system(size: 14, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
             }
-            Button("Undo", role: .destructive) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Flag captured")
+                    .font(.system(size: 14, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
+                Text("Tap Undo within 5 seconds")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk.opacity(0.68))
+            }
+            Spacer(minLength: AppSpacing.sm)
+            Button("Undo") {
                 if let capture = lastFlagCapture {
-                    // Return the flag
                     gameService.returnPlayerFlag(flagPlayerId: capture.flagPlayerId)
-                    lastFlagCapture = nil
-                    captureUndoTimer?.invalidate()
                 }
+                withAnimation(.easeOut(duration: 0.25)) {
+                    lastFlagCapture = nil
+                }
+                captureUndoTimer?.invalidate()
             }
-        } message: {
-            Text("You just captured a flag. Tap 'Undo' within 5 seconds to return it.")
+            .font(.system(size: 13, weight: .black, design: .rounded))
+            .textCase(.uppercase)
+            .foregroundColor(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(AppColors.error)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(AppColors.cartoonInk, lineWidth: 2))
+            .background(Capsule().fill(AppColors.cartoonShadow).offset(x: 2, y: 2))
         }
+        .padding(AppSpacing.md)
+        .cartoonCard(cornerRadius: 16, shadowOffset: 4, borderWidth: 2.5)
     }
     
     // MARK: - Top HUD

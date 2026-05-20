@@ -37,8 +37,7 @@ struct ManhuntActiveGameView: View {
     @State private var zoneNotificationColor: Color = .orange
     @State private var zoneNotificationTimer: Timer?
     @State private var timer: Timer?
-    @State private var errorMessage: String? = nil
-    @State private var showErrorAlert: Bool = false
+    @State private var toastMessage: AppToastMessage? = nil
     @State private var showHonorConfirm: Bool = false
     @StateObject private var obfuscationService = LocationObfuscationService()
     @State private var showEliminationScreen: Bool = false
@@ -53,9 +52,8 @@ struct ManhuntActiveGameView: View {
     
     /// Host-only: drives hub `onEndGame` and options modal.
     private var isManhuntHost: Bool {
-        guard let session = gameService.session,
-              let id = gameService.currentPlayer?.id else { return false }
-        return id == session.hostId
+        guard let session = gameService.session else { return false }
+        return session.isDeviceHost(gameService.currentPlayer)
     }
     
     @ViewBuilder
@@ -256,25 +254,25 @@ struct ManhuntActiveGameView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .activeGameStatusBarHidden()
         // Note: allowsHitTesting removed - buttons need to be interactive!
-        .alert("Error", isPresented: $showErrorAlert) {
-            Button("OK") {
-                errorMessage = nil
-            }
-        } message: {
-            if let error = errorMessage {
-                Text(error)
-            }
-        }
-        .alert("End game?", isPresented: $showOptionsEndGameConfirm) {
-            Button("Cancel", role: .cancel) { }
-            Button("End Game", role: .destructive) {
-                if performHostEndGameIfAllowed() {
-                    dismissOptionsHub()
+        .appToast($toastMessage)
+        .themedNotice(
+            isPresented: $showOptionsEndGameConfirm,
+            primaryColor: AppColors.manhuntPrimary,
+            secondaryColor: AppColors.manhuntSecondary,
+            iconName: "stop.circle.fill",
+            headerTitle: "Manhunt",
+            headerSubtitle: "Host controls",
+            title: "End game?",
+            message: "This ends the current game for everyone.",
+            buttons: [
+                ThemedNoticeButton(title: "Cancel", icon: nil, role: .secondary, action: {}),
+                ThemedNoticeButton(title: "End Game", icon: "stop.circle.fill", role: .destructive) {
+                    if performHostEndGameIfAllowed() {
+                        dismissOptionsHub()
+                    }
                 }
-            }
-        } message: {
-            Text("This ends the current game for everyone.")
-        }
+            ]
+        )
         .onChange(of: isManhuntHost) { _, isHost in
             if !isHost { showOptionsEndGameConfirm = false }
         }
@@ -562,7 +560,8 @@ struct ManhuntActiveGameView: View {
                     .foregroundColor(zoneNotificationColor)
             }
         } else if gameService.gameState == .active,
-                  let bubble = gameService.session?.bubble, bubble.showTimer {
+                  let bubble = gameService.session?.bubble, bubble.showTimer,
+                  bubble.startTime <= currentTime {
             let elapsed   = currentTime.timeIntervalSince(bubble.startTime)
             let remaining = max(0, bubble.duration - elapsed)
             HStack(spacing: 5) {
@@ -607,38 +606,32 @@ struct ManhuntActiveGameView: View {
         return Button(action: {
             // Verify conditions before tagging
             guard let currentPlayer = gameService.currentPlayer else {
-                errorMessage = "Cannot tag: Player information not available."
-                showErrorAlert = true
+                showTagError("Cannot tag: Player information not available.")
                 return
             }
             
             guard currentPlayer.role == .hunter else {
-                errorMessage = "Only hunters can tag players."
-                showErrorAlert = true
+                showTagError("Only hunters can tag players.")
                 return
             }
             
             guard currentPlayer.isAlive else {
-                errorMessage = "You cannot tag players after being eliminated."
-                showErrorAlert = true
+                showTagError("You cannot tag players after being eliminated.")
                 return
             }
             
             guard player.role == .hider else {
-                errorMessage = "You can only tag hiders, not other hunters."
-                showErrorAlert = true
+                showTagError("You can only tag hiders, not other hunters.")
                 return
             }
             
             guard player.isAlive else {
-                errorMessage = "\(player.displayName) has already been eliminated."
-                showErrorAlert = true
+                showTagError("\(player.displayName) has already been eliminated.")
                 return
             }
             
             guard gameService.canTagPlayerId == player.id else {
-                errorMessage = "Cannot tag \(player.displayName): Not close enough. You need to be within Bluetooth range (about 5 meters)."
-                showErrorAlert = true
+                showTagError("Not close enough to tag \(player.displayName). Stay within Bluetooth range (about 5 meters).")
                 return
             }
             
@@ -804,25 +797,25 @@ struct ManhuntActiveGameView: View {
     
     /// Ends the active session only when the local player is the game host and the game is active.
     @discardableResult
+    private func showTagError(_ message: String) {
+        toastMessage = AppToastMessage(message: message, type: .error)
+    }
+
     private func performHostEndGameIfAllowed() -> Bool {
         guard let session = gameService.session else {
-            errorMessage = "Cannot end game: No active session."
-            showErrorAlert = true
+            showTagError("Cannot end game: No active session.")
             return false
         }
         guard let currentPlayer = gameService.currentPlayer else {
-            errorMessage = "Cannot end game: Player information not available."
-            showErrorAlert = true
+            showTagError("Cannot end game: Player information not available.")
             return false
         }
-        guard currentPlayer.id == session.hostId else {
-            errorMessage = "Only the host can end the game."
-            showErrorAlert = true
+        guard session.isDeviceHost(currentPlayer) else {
+            showTagError("Only the host can end the game.")
             return false
         }
         guard gameService.gameState == .active else {
-            errorMessage = "Game is not currently active."
-            showErrorAlert = true
+            showTagError("Game is not currently active.")
             return false
         }
         gameService.endGame()

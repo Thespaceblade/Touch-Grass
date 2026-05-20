@@ -25,20 +25,20 @@ struct SettingsView: View {
     @State private var clearedItems: [String]    = []
 
     var body: some View {
-        NavigationView {
-            ZStack {
-                // Same landscape background as game selection screen
-                LandscapeBackground()
-                    .drawingGroup()
-                    .ignoresSafeArea(.all)
-                    .zIndex(0)
+        ZStack {
+            // Same landscape background as game selection screen
+            LandscapeBackground()
+                .drawingGroup()
+                .ignoresSafeArea(.all)
+                .zIndex(0)
 
-                AestheticBackground(gradientOffset: 0, pulseScale: 1.0)
-                    .ignoresSafeArea(.all)
-                    .allowsHitTesting(false)
-                    .zIndex(1)
+            AestheticBackground(gradientOffset: 0, pulseScale: 1.0)
+                .ignoresSafeArea(.all)
+                .allowsHitTesting(false)
+                .zIndex(1)
 
-                ScrollView {
+            NavigationStack {
+                ScrollView(showsIndicators: false) {
                     VStack(spacing: AppSpacing.xl) {
                         // Inline title header, matches Profile page style
                         HStack {
@@ -74,47 +74,57 @@ struct SettingsView: View {
                     }
                 }
                 .safeAreaPadding(.bottom, AppSpacing.lg)
-                .zIndex(2)
             }
-            .navigationTitle("")
-            .toolbar(.hidden, for: .navigationBar)
-            .sheet(isPresented: $showImagePicker) {
-                ProfilePicturePicker(selectedImage: $selectedImage)
-            }
-            .onChange(of: selectedImage) { _, newImage in
-                if let image = newImage { uploadProfilePicture(image) }
-            }
-            .onAppear {
-                Task { notificationStatus = await settingsManager.getNotificationPermissionStatus() }
-            }
-            .overlay(alignment: .bottom) {
-                ToastView(
-                    message: "Profile updated",
-                    type: .success,
-                    isVisible: $showSaveToast
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .animation(.spring(response: 0.3), value: showSaveToast)
-            }
-            .alert("Clear All Data", isPresented: $showClearDataConfirmation) {
-                Button("Cancel", role: .cancel) { }
-                Button("Clear", role: .destructive) {
+            .zIndex(2)
+        }
+        .sheet(isPresented: $showImagePicker) {
+            ProfilePicturePicker(selectedImage: $selectedImage)
+        }
+        .onChange(of: selectedImage) { _, newImage in
+            if let image = newImage { uploadProfilePicture(image) }
+        }
+        .onAppear {
+            Task { notificationStatus = await settingsManager.getNotificationPermissionStatus() }
+        }
+        .overlay(alignment: .bottom) {
+            ToastView(
+                message: "Profile updated",
+                type: .success,
+                isVisible: $showSaveToast
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .animation(.spring(response: 0.3), value: showSaveToast)
+        }
+        .themedNotice(
+            isPresented: $showClearDataConfirmation,
+            primaryColor: AppColors.error,
+            secondaryColor: AppColors.error.opacity(0.7),
+            iconName: "exclamationmark.triangle.fill",
+            headerTitle: "Data & Privacy",
+            headerSubtitle: "Destructive action",
+            title: "Clear all data?",
+            message: "This deletes your profile name, profile picture, and game statistics. This action cannot be undone.",
+            buttons: [
+                ThemedNoticeButton(title: "Cancel", icon: nil, role: .secondary, action: {}),
+                ThemedNoticeButton(title: "Clear", icon: "trash.fill", role: .destructive) {
                     clearedItems = settingsManager.clearAllData()
                     showClearDataAlert = true
                 }
-            } message: {
-                Text("This will delete your profile name, profile picture, and game statistics. This action cannot be undone.")
-            }
-            .alert("Data Cleared", isPresented: $showClearDataAlert) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                if clearedItems.isEmpty {
-                    Text("No data was found to clear.")
-                } else {
-                    Text("Cleared: \(clearedItems.joined(separator: ", "))")
-                }
-            }
-        }
+            ]
+        )
+        .themedNotice(
+            isPresented: $showClearDataAlert,
+            primaryColor: AppColors.success,
+            secondaryColor: AppColors.grassPrimary,
+            iconName: "checkmark.circle.fill",
+            headerTitle: "Data & Privacy",
+            headerSubtitle: "All clear",
+            title: "Data cleared",
+            message: clearedItems.isEmpty
+                ? "No data was found to clear."
+                : "Cleared: \(clearedItems.joined(separator: ", "))",
+            buttons: [ThemedNoticeButton.ok()]
+        )
     }
 
     // MARK: - Profile Settings Section
@@ -647,7 +657,7 @@ struct SettingsView: View {
                     isUploading = false
                     showSaveToast = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { showSaveToast = false }
-                    NotificationCenter.default.post(name: NSNotification.Name("ProfilePictureUpdated"), object: nil)
+                    NotificationCenter.default.post(name: .profilePictureUpdated, object: nil)
                 }
             } catch {
                 await MainActor.run {

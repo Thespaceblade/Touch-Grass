@@ -23,8 +23,6 @@ struct ManhuntLobbyView: View {
     @State private var bubbleDuration: Double = 900 // Default 15 minutes
     @State private var hunterCount: Int = 1
     @State private var enableShrinking: Bool = true // Default to shrinking enabled
-    @State private var errorMessage: String? = nil
-    @State private var showErrorAlert: Bool = false
     @State private var showNoProfileNameAlert: Bool = false
     @State private var showExitConfirmation: Bool = false
     @State private var showCountdown: Bool = false
@@ -81,8 +79,6 @@ struct ManhuntLobbyView: View {
             showJoinGameInput = false
             showHunterManagement = false
             showGameInfo = false
-            errorMessage = nil
-            showErrorAlert = false
             // OPTIMIZATION: Cache gameService state on appear
             cachedGameState = viewModel.gameService.gameState
             cachedSession = viewModel.gameService.session
@@ -101,20 +97,15 @@ struct ManhuntLobbyView: View {
                 cachedSession = viewModel.gameService.session
             }
             
-            // SAFETY: Check for stale sessions from previous app launches (async for performance)
-            // If session exists but no bubble is configured, it's likely stale
-            Task { @MainActor in
-                if let session = cachedSession,
-                   session.bubble == nil,
-                   cachedGameState == .lobby {
-                    // This is a stale session from a previous app launch - clear it
-                    print("🧹 Detected stale session on appear, clearing...")
-                    viewModel.gameService.clearSession()
-                }
-            }
         }
-        // OPTIMIZATION: Update cached state only when gameState changes
-        .onChange(of: viewModel.gameService.gameState) { oldValue, newValue in
+        // OPTIMIZATION: Update cached state directly from GameService.
+        // `GameService` is nested inside `GameViewModel`, so relying only
+        // on `onChange(of: viewModel.gameService.session)` can miss
+        // listener-driven roster updates if the parent view is not
+        // invalidated first.
+        .onReceive(viewModel.gameService.$gameState) { newValue in
+            let oldValue = cachedGameState
+            guard oldValue != newValue else { return }
             cachedGameState = newValue
             // When game state changes to active, show countdown
             if oldValue != .active && newValue == .active {
@@ -142,7 +133,7 @@ struct ManhuntLobbyView: View {
             }
         }
         // OPTIMIZATION: Update cached session only when it changes
-        .onChange(of: viewModel.gameService.session) { oldValue, newValue in
+        .onReceive(viewModel.gameService.$session) { newValue in
             cachedSession = newValue
         }
         .onChange(of: viewModel.gameService.session?.gameType) { oldValue, newValue in
@@ -204,24 +195,48 @@ struct ManhuntLobbyView: View {
         .sheet(isPresented: $showGameInfo) {
             ManhuntInfoView()
         }
-        .alert("Profile Name Required", isPresented: $showNoProfileNameAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("Please add your name to start a game. You can set your profile name in Settings.")
-        }
+        .themedNotice(
+            isPresented: $showNoProfileNameAlert,
+            primaryColor: primaryColor,
+            secondaryColor: secondaryColor,
+            iconName: "person.crop.circle.badge.exclamationmark.fill",
+            headerTitle: "Profile",
+            headerSubtitle: "Name required",
+            title: "Add a name first",
+            message: "Add your name to start a game. You can set your profile name in Settings.",
+            buttons: [ThemedNoticeButton.ok()]
+        )
         .themedExitLobbyConfirmation(
             isPresented: $showExitConfirmation,
             primaryColor: primaryColor,
             secondaryColor: secondaryColor,
             iconName: "figure.run"
         ) {
-            viewModel.gameService.clearSession()
-            onBackToMenu()
+            Task { @MainActor in
+                if await viewModel.leaveCurrentSessionFromUserAction() {
+                    onBackToMenu()
+                }
+            }
         }
-        .alert("Error", isPresented: $showErrorAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(errorMessage ?? "An unknown error occurred.")
+        .themedNotice(
+            isPresented: lobbyNoticeBinding,
+            primaryColor: primaryColor,
+            secondaryColor: secondaryColor,
+            iconName: "exclamationmark.triangle.fill",
+            headerTitle: "Manhunt",
+            headerSubtitle: viewModel.lobbyNotice?.title ?? "",
+            title: viewModel.lobbyNotice?.title ?? "",
+            message: viewModel.lobbyNotice?.message ?? "",
+            buttons: lobbyNoticeButtons
+        )
+        .onChange(of: viewModel.gameService.session?.id) { _, newId in
+            if newId != nil && showJoinGameInput {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                    showJoinGameInput = false
+                    gameCode = ""
+                }
+                viewModel.clearJoinCodeError()
+            }
         }
         #if DEBUG
         .debugButton(showDebugTestPanel: $showDebugTestPanel, viewModel: viewModel)
@@ -231,6 +246,32 @@ struct ManhuntLobbyView: View {
         #endif
     }
     
+    private var lobbyNoticeBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.lobbyNotice != nil },
+            set: { newValue in
+                if !newValue { viewModel.lobbyNotice = nil }
+            }
+        )
+    }
+
+    private var lobbyNoticeButtons: [ThemedNoticeButton] {
+        guard let notice = viewModel.lobbyNotice else { return [ThemedNoticeButton.ok()] }
+        switch notice.primaryAction {
+        case .dismiss:
+            return [ThemedNoticeButton.ok()]
+        case .openBubbleSettings:
+            return [
+                ThemedNoticeButton(title: "Not Now", icon: nil, role: .secondary, action: {}),
+                ThemedNoticeButton(title: "Configure", icon: "gearshape.fill", role: .primary) {
+                    showBubbleSettings = true
+                }
+            ]
+        case .openTeamManagement, .openSessionSetup:
+            return [ThemedNoticeButton.ok()]
+        }
+    }
+
     /// When `DebugRuntimeFlags.skipPreGameCountdown` is on, jump straight to active UI and start the game timer (host) like a finished countdown.
     private func skipPreGameCountdownIfNeededForDebug() {
         guard DebugRuntimeFlags.skipPreGameCountdown else { return }
@@ -505,7 +546,7 @@ struct ManhuntLobbyView: View {
 
             // Join Code Section (only show if host)
             if let currentPlayer = viewModel.gameService.currentPlayer,
-               currentPlayer.id == session.hostId {
+               session.isDeviceHost(currentPlayer) {
                 VStack(spacing: AppSpacing.xs) {
                     HStack {
                         Image(systemName: "number")
@@ -678,7 +719,7 @@ struct ManhuntLobbyView: View {
                         // Role switch button (if host)
                         if let currentPlayer = viewModel.gameService.currentPlayer,
                            let session = viewModel.gameService.session,
-                           currentPlayer.id == session.hostId {
+                           session.isDeviceHost(currentPlayer) {
 	                            Button(action: {
 	                                // Simply call setHunter - it handles toggling the role
 	                                viewModel.gameService.setHunter(playerId: player.id)
@@ -796,7 +837,7 @@ struct ManhuntLobbyView: View {
                     // Only show configure button to host
                     if let currentPlayer = viewModel.gameService.currentPlayer,
                        let session = viewModel.gameService.session,
-                       currentPlayer.id == session.hostId,
+                       session.isDeviceHost(currentPlayer),
                        session.bubble == nil {
                         Button(action: { showBubbleSettings = true }) {
                             HStack(spacing: AppSpacing.sm) {
@@ -820,7 +861,7 @@ struct ManhuntLobbyView: View {
                         // Game configured - show checkmark button that can be tapped to reconfigure (host only)
 	                        if let currentPlayer = viewModel.gameService.currentPlayer,
 	                           let session = viewModel.gameService.session,
-	                           currentPlayer.id == session.hostId {
+	                           session.isDeviceHost(currentPlayer) {
 	                            Button(action: { showBubbleSettings = true }) {
 	                                CartoonLobbyActionCard(
 	                                    iconName: "checkmark.circle.fill",
@@ -853,14 +894,13 @@ struct ManhuntLobbyView: View {
                         // Host Controls (only host can see these)
                         if let currentPlayer = viewModel.gameService.currentPlayer,
                            let session = viewModel.gameService.session,
-                           currentPlayer.id == session.hostId {
+                           session.isDeviceHost(currentPlayer) {
                             VStack(spacing: AppSpacing.md) {
                                 // Manage Hunters Button
                                 Button(action: {
                                     if let session = viewModel.gameService.session,
-                                       viewModel.gameService.currentPlayer?.id != session.hostId {
-                                        errorMessage = "Only the host can manage hunters."
-                                        showErrorAlert = true
+                                       !session.isDeviceHost(viewModel.gameService.currentPlayer) {
+                                        viewModel.presentToast("Only the host can manage hunters.", type: .warning)
                                     } else {
 	                                        showHunterManagement = true
 	                                    }
@@ -884,7 +924,7 @@ struct ManhuntLobbyView: View {
                         // Begin Game Button (visible to all, but only host can start)
                         if let currentPlayer = viewModel.gameService.currentPlayer,
                            let session = viewModel.gameService.session {
-                            let isHost = currentPlayer.id == session.hostId
+                            let isHost = session.isDeviceHost(currentPlayer)
                             let playerCount = session.players.count
                             let minimumPlayers = session.gameType.minimumPlayers
                             let hasMinimumPlayers = playerCount >= minimumPlayers
@@ -937,100 +977,25 @@ struct ManhuntLobbyView: View {
     // MARK: - Join Game Input Box
     
     private var joinGameInputBox: some View {
-        VStack(spacing: AppSpacing.md) {
-            HStack(spacing: AppSpacing.sm) {
-                CartoonMedallion(background: AppColors.manhuntPrimary, size: 36) {
-                    Image(systemName: "number")
-                        .font(.system(size: 17, weight: .black, design: .rounded))
-                        .foregroundColor(.white)
+        JoinGameCodeInput(
+            accentColor: AppColors.hiderPrimary,
+            title: "Enter Game Code",
+            code: $gameCode,
+            isLocationReady: viewModel.locationService.isReadyForGameplay,
+            isJoining: viewModel.isJoiningGame,
+            errorState: viewModel.joinCodeError,
+            onSubmit: {
+                guard viewModel.locationService.isReadyForGameplay else {
+                    viewModel.requestRequiredPreGamePermissions()
+                    return
                 }
-                Text("Enter Game Code")
-                    .font(.system(size: 17, weight: .black, design: .rounded))
-                    .foregroundColor(AppColors.cartoonInk)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                print("🔍 Joining game with code: \(gameCode)")
+                viewModel.joinGame(joinCode: gameCode)
+            },
+            onClearError: {
+                viewModel.clearJoinCodeError()
             }
-            
-            HStack(spacing: AppSpacing.sm) {
-                TextField("000000", text: $gameCode)
-                    .font(.system(size: 28, weight: .bold, design: .monospaced))
-                    .foregroundColor(AppColors.cartoonInk)
-                    .multilineTextAlignment(.center)
-                    .keyboardType(.numberPad)
-                    .autocorrectionDisabled()
-                    .padding(.horizontal, AppSpacing.sm)
-                    .padding(.vertical, AppSpacing.sm)
-                    .frame(maxWidth: .infinity)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(AppColors.cartoonCream2)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(
-                                gameCode.isEmpty ? AppColors.cartoonInk.opacity(0.35) : AppColors.hiderPrimary,
-                                lineWidth: 2
-                            )
-                    )
-                    .onChange(of: gameCode) { oldValue, newValue in
-                        // Limit to 6 digits and only numbers
-                        let filtered = newValue.filter { $0.isNumber }
-                        if filtered.count <= 6 {
-                            gameCode = filtered
-                        } else {
-                            gameCode = String(filtered.prefix(6))
-                        }
-                    }
-                
-                Button(action: {
-                    guard viewModel.locationService.isReadyForGameplay else {
-                        errorMessage = "Finish the two-step location setup before joining."
-                        showErrorAlert = true
-                        viewModel.requestRequiredPreGamePermissions()
-                        return
-                    }
-
-                    guard gameCode.count == 6 else {
-                        errorMessage = "Please enter a 6-digit game code."
-                        showErrorAlert = true
-                        return
-                    }
-                    
-                    guard gameCode.allSatisfy({ $0.isNumber }) else {
-                        errorMessage = "Game code must contain only numbers."
-                        showErrorAlert = true
-                        return
-                    }
-                    
-                    print("🔍 Joining game with code: \(gameCode)")
-                    viewModel.joinGame(joinCode: gameCode)
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                        showJoinGameInput = false
-                        gameCode = ""
-                    }
-                }) {
-                    Image(systemName: "arrow.right.circle.fill")
-                        .font(.system(size: 20, weight: .black, design: .rounded))
-                        .foregroundColor(.white)
-                }
-                .buttonStyle(IconButtonStyle(size: 44, color: (gameCode.count == 6 && viewModel.locationService.isReadyForGameplay) ? AppColors.hiderPrimary : AppColors.cartoonInk.opacity(0.45)))
-                .disabled(gameCode.count != 6 || !viewModel.locationService.isReadyForGameplay)
-            }
-            
-            Text("Enter the game code shared by the host")
-                .font(.system(size: 13, weight: .bold, design: .rounded))
-                .foregroundColor(AppColors.cartoonInk.opacity(0.68))
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, AppSpacing.md)
-        .padding(.vertical, AppSpacing.lg)
-        .frame(maxWidth: .infinity)
-        .background(AppColors.cartoonCream)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppColors.cartoonInk, lineWidth: 2))
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(white: 0.18)).offset(x: 4, y: 4))
+        )
     }
 
     // MARK: - Button Style

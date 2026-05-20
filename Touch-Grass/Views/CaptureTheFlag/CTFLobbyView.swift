@@ -20,7 +20,6 @@ struct CTFLobbyView: View {
     @State private var showTeamManagement = false
     @State private var showGameInfo = false
     @State private var showPlayerListInfo = false
-    @State private var pendingAlertAction: GameService.BeginGameErrorAction? = nil
     @State private var showNoProfileNameAlert: Bool = false
     @State private var showExitConfirmation: Bool = false
     @State private var gameCode: String = ""
@@ -158,25 +157,18 @@ struct CTFLobbyView: View {
             // OPTIMIZATION: Cache gameService state on appear
             cachedGameState = viewModel.gameService.gameState
             cachedSession = viewModel.gameService.session
-            
-            // SAFETY: Check for stale sessions from previous app launches (async for performance)
-            // For CTF, check if session exists but no bases are configured
-            Task { @MainActor in
-                if let session = cachedSession,
-                   session.teamABase == nil,
-                   session.teamBBase == nil,
-                   cachedGameState == .lobby {
-                    // This is a stale session from a previous app launch - clear it
-                    print("🧹 Detected stale CTF session on appear, clearing...")
-                    viewModel.gameService.clearSession()
-                }
-            }
         }
-        // OPTIMIZATION: Update cached state only when it changes
-        .onChange(of: viewModel.gameService.gameState) { oldValue, newValue in
+        // OPTIMIZATION: Update cached state directly from GameService.
+        // `GameService` is nested inside `GameViewModel`, so relying only
+        // on `onChange(of: viewModel.gameService.session)` can miss
+        // listener-driven roster updates if the parent view is not
+        // invalidated first.
+        .onReceive(viewModel.gameService.$gameState) { newValue in
+            let oldValue = cachedGameState
+            guard oldValue != newValue else { return }
             cachedGameState = newValue
         }
-        .onChange(of: viewModel.gameService.session) { oldValue, newValue in
+        .onReceive(viewModel.gameService.$session) { newValue in
             cachedSession = newValue
         }
         .onChange(of: viewModel.gameService.session?.gameType) { oldValue, newValue in
@@ -191,60 +183,25 @@ struct CTFLobbyView: View {
                 showTeamManagement = false
             }
         }
-        .alert("Cannot Begin Game", isPresented: $viewModel.showGameOverAlert) {
-            // Primary action button based on error type
-            if let action = pendingAlertAction {
-                switch action {
-                case .openSettings:
-                    Button("Open Settings") {
-                        viewModel.showGameOverAlert = false
-                        showBubbleSettings = true
-                        pendingAlertAction = nil
-                    }
-                    Button("Cancel", role: .cancel) {
-                        viewModel.showGameOverAlert = false
-                        pendingAlertAction = nil
-                    }
-                case .openTeamManagement:
-                    Button("Manage Teams") {
-                        viewModel.showGameOverAlert = false
-                        showTeamManagement = true
-                        pendingAlertAction = nil
-                    }
-                    Button("Cancel", role: .cancel) {
-                        viewModel.showGameOverAlert = false
-                        pendingAlertAction = nil
-                    }
-                case .openSessionSetup:
-                    Button("OK", role: .cancel) {
-                        viewModel.showGameOverAlert = false
-                        pendingAlertAction = nil
-                    }
-                case .dismiss:
-                    Button("OK") {
-                        viewModel.showGameOverAlert = false
-                        pendingAlertAction = nil
-                    }
-                }
-            } else {
-                Button("OK") {
-                    viewModel.showGameOverAlert = false
-                    pendingAlertAction = nil
-                }
-            }
-        } message: {
-            Text(viewModel.gameOverMessage)
-        }
-        .onChange(of: viewModel.gameService.beginGameError) { oldValue, newValue in
+        .themedNotice(
+            isPresented: lobbyNoticeBinding,
+            primaryColor: primaryColor,
+            secondaryColor: AppColors.ctfTeamBSecondary,
+            iconName: "exclamationmark.triangle.fill",
+            headerTitle: "Capture The Flag",
+            headerSubtitle: viewModel.lobbyNotice?.title ?? "",
+            title: viewModel.lobbyNotice?.title ?? "",
+            message: viewModel.lobbyNotice?.message ?? "",
+            buttons: lobbyNoticeButtons
+        )
+        .onChange(of: viewModel.gameService.beginGameError) { _, newValue in
             if let error = newValue {
-                viewModel.gameOverMessage = error
-                pendingAlertAction = viewModel.gameService.beginGameErrorAction
-                viewModel.showGameOverAlert = true
+                viewModel.presentLobbyNotice(LobbyNotice(
+                    title: "Can't begin game",
+                    message: error,
+                    primaryAction: mappedNoticeAction(from: viewModel.gameService.beginGameErrorAction)
+                ))
             }
-        }
-        .onChange(of: viewModel.gameService.beginGameErrorAction) { oldValue, newValue in
-            // Update pending action when it changes
-            pendingAlertAction = newValue
         }
         .sheet(isPresented: $showBubbleSettings) {
             CTFBubbleSettingsView(
@@ -294,23 +251,36 @@ struct CTFLobbyView: View {
         .sheet(isPresented: $showPlayerListInfo) {
             playerListInfoSheet
         }
-        .alert("Profile Name Required", isPresented: $showNoProfileNameAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("Please add your name to start a game. You can set your profile name in Settings.")
-        }
+        .themedNotice(
+            isPresented: $showNoProfileNameAlert,
+            primaryColor: primaryColor,
+            secondaryColor: AppColors.ctfTeamBSecondary,
+            iconName: "person.crop.circle.badge.exclamationmark.fill",
+            headerTitle: "Profile",
+            headerSubtitle: "Name required",
+            title: "Add a name first",
+            message: "Add your name to start a game. You can set your profile name in Settings.",
+            buttons: [ThemedNoticeButton.ok()]
+        )
         .themedExitLobbyConfirmation(
             isPresented: $showExitConfirmation,
             primaryColor: primaryColor,
             secondaryColor: AppColors.ctfTeamBSecondary,
             iconName: "flag.fill"
         ) {
-            // CRASH FIX: Wrap state modifications in Task to avoid "Modifying state during view update"
             Task { @MainActor in
-                // Completely clear and delete the session from Firestore
-                // This ensures the session is deleted immediately
-                viewModel.gameService.clearSession()
-                onBackToMenu()
+                if await viewModel.leaveCurrentSessionFromUserAction() {
+                    onBackToMenu()
+                }
+            }
+        }
+        .onChange(of: viewModel.gameService.session?.id) { _, newId in
+            if newId != nil && showJoinGameInput {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                    showJoinGameInput = false
+                    gameCode = ""
+                }
+                viewModel.clearJoinCodeError()
             }
         }
     }
@@ -390,6 +360,50 @@ struct CTFLobbyView: View {
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: viewModel.gameService.session?.id)
     }
     
+    // MARK: - Themed Notice Helpers
+
+    private var lobbyNoticeBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.lobbyNotice != nil },
+            set: { newValue in
+                if !newValue { viewModel.lobbyNotice = nil }
+            }
+        )
+    }
+
+    private var lobbyNoticeButtons: [ThemedNoticeButton] {
+        guard let notice = viewModel.lobbyNotice else { return [ThemedNoticeButton.ok()] }
+        switch notice.primaryAction {
+        case .dismiss:
+            return [ThemedNoticeButton.ok()]
+        case .openBubbleSettings:
+            return [
+                ThemedNoticeButton(title: "Cancel", icon: nil, role: .secondary, action: {}),
+                ThemedNoticeButton(title: "Open Settings", icon: "gearshape.fill", role: .primary) {
+                    showBubbleSettings = true
+                }
+            ]
+        case .openTeamManagement:
+            return [
+                ThemedNoticeButton(title: "Cancel", icon: nil, role: .secondary, action: {}),
+                ThemedNoticeButton(title: "Manage Teams", icon: "person.2.badge.gearshape.fill", role: .primary) {
+                    showTeamManagement = true
+                }
+            ]
+        case .openSessionSetup:
+            return [ThemedNoticeButton.ok()]
+        }
+    }
+
+    private func mappedNoticeAction(from action: GameService.BeginGameErrorAction?) -> LobbyNotice.Action {
+        switch action {
+        case .openSettings: return .openBubbleSettings
+        case .openTeamManagement: return .openTeamManagement
+        case .openSessionSetup: return .openSessionSetup
+        case .dismiss, .none: return .dismiss
+        }
+    }
+
     private var lobbyHeader: some View {
         let hasSession = viewModel.gameService.session != nil
         return ZStack {
@@ -485,7 +499,7 @@ struct CTFLobbyView: View {
 
             // Join Code Section (only show if host)
             if let currentPlayer = viewModel.gameService.currentPlayer,
-               currentPlayer.id == session.hostId {
+               session.isDeviceHost(currentPlayer) {
                 VStack(spacing: AppSpacing.sm) {
                     HStack {
                         Image(systemName: "number")
@@ -600,7 +614,7 @@ struct CTFLobbyView: View {
             // Player List
             VStack(alignment: .leading, spacing: 6) {
             ForEach(session.players) { player in
-                    let isHost = viewModel.gameService.currentPlayer?.id == session.hostId
+                    let isHost = session.isDeviceHost(viewModel.gameService.currentPlayer)
                     let isSelf = player.id == viewModel.gameService.currentPlayer?.id
                     let canManageFlag = isHost || isSelf // Host or self can set flag
                     let canManageLeader = isHost // Only host can set team leader
@@ -850,7 +864,7 @@ struct CTFLobbyView: View {
                     // Only show configure button to host
                     if let currentPlayer = viewModel.gameService.currentPlayer,
                        let session = viewModel.gameService.session,
-                       currentPlayer.id == session.hostId,
+                       session.isDeviceHost(currentPlayer),
                        session.bubble == nil {
                         Button(action: { showBubbleSettings = true }) {
                             HStack(spacing: AppSpacing.sm) {
@@ -871,7 +885,7 @@ struct CTFLobbyView: View {
                         // Game configured - show checkmark button that can be tapped to reconfigure (host only)
 	                        if let currentPlayer = viewModel.gameService.currentPlayer,
 	                           let session = viewModel.gameService.session,
-	                           currentPlayer.id == session.hostId {
+	                           session.isDeviceHost(currentPlayer) {
 	                            Button(action: { showBubbleSettings = true }) {
 	                                CartoonLobbyActionCard(
 	                                    iconName: "checkmark.circle.fill",
@@ -904,7 +918,7 @@ struct CTFLobbyView: View {
                         // Host Controls (only host can see these)
                         if let currentPlayer = viewModel.gameService.currentPlayer,
                            let session = viewModel.gameService.session,
-                           currentPlayer.id == session.hostId {
+                           session.isDeviceHost(currentPlayer) {
 	                            VStack(spacing: AppSpacing.md) {
 	                                // Manage Teams Button
 	                                Button(action: { showTeamManagement = true }) {
@@ -927,7 +941,7 @@ struct CTFLobbyView: View {
                         // Begin Game Button (visible to all, but only host can start)
                         if let session = viewModel.gameService.session {
                             let currentPlayer = viewModel.gameService.currentPlayer
-                            let isHost = currentPlayer?.id == session.hostId
+                            let isHost = session.isDeviceHost(currentPlayer)
                             let playerCount = session.players.count
                             let minimumPlayers = session.gameType.minimumPlayers
                             let hasMinimumPlayers = playerCount >= minimumPlayers
@@ -982,94 +996,25 @@ struct CTFLobbyView: View {
     // MARK: - Join Game Input Box
     
     private var joinGameInputBox: some View {
-        VStack(spacing: AppSpacing.md) {
-            HStack(spacing: AppSpacing.sm) {
-                CartoonMedallion(background: primaryColor, size: 36) {
-                    Image(systemName: "number")
-                        .font(.system(size: 17, weight: .black, design: .rounded))
-                        .foregroundColor(.white)
+        JoinGameCodeInput(
+            accentColor: primaryColor,
+            title: "Enter Game Code",
+            code: $gameCode,
+            isLocationReady: viewModel.locationService.isReadyForGameplay,
+            isJoining: viewModel.isJoiningGame,
+            errorState: viewModel.joinCodeError,
+            onSubmit: {
+                guard viewModel.locationService.isReadyForGameplay else {
+                    viewModel.locationService.requestPermission()
+                    return
                 }
-                Text("Enter Game Code")
-                    .font(.system(size: 17, weight: .black, design: .rounded))
-                    .foregroundColor(AppColors.cartoonInk)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                print("🔍 Joining game with code: \(gameCode)")
+                viewModel.joinGame(joinCode: gameCode)
+            },
+            onClearError: {
+                viewModel.clearJoinCodeError()
             }
-            
-            HStack(spacing: AppSpacing.sm) {
-                TextField("000000", text: $gameCode)
-                    .font(.system(size: 28, weight: .bold, design: .monospaced))
-                    .foregroundColor(AppColors.cartoonInk)
-                    .multilineTextAlignment(.center)
-                    .keyboardType(.numberPad)
-                    .autocorrectionDisabled()
-                    .padding(.horizontal, AppSpacing.sm)
-                    .padding(.vertical, AppSpacing.sm)
-                    .frame(maxWidth: .infinity)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(AppColors.cartoonCream2)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(
-                                gameCode.isEmpty ? AppColors.cartoonInk.opacity(0.35) : primaryColor,
-                                lineWidth: 2
-                            )
-                    )
-                    .onChange(of: gameCode) { oldValue, newValue in
-                        // Limit to 6 digits and only numbers
-                        let filtered = newValue.filter { $0.isNumber }
-                        if filtered.count <= 6 {
-                            gameCode = filtered
-                        } else {
-                            gameCode = String(filtered.prefix(6))
-                        }
-                    }
-                
-                Button(action: {
-                    guard viewModel.locationService.isReadyForGameplay else {
-                        viewModel.locationService.requestPermission()
-                        return
-                    }
-
-                    guard gameCode.count == 6 else {
-                        return
-                    }
-                    
-                    guard gameCode.allSatisfy({ $0.isNumber }) else {
-                        return
-                    }
-                    
-                    print("🔍 Joining game with code: \(gameCode)")
-                    viewModel.joinGame(joinCode: gameCode)
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                        showJoinGameInput = false
-                        gameCode = ""
-                    }
-                }) {
-                    Image(systemName: "arrow.right.circle.fill")
-                        .font(.system(size: 20, weight: .black, design: .rounded))
-                        .foregroundColor(.white)
-                }
-                .buttonStyle(IconButtonStyle(size: 44, color: (gameCode.count == 6 && viewModel.locationService.isReadyForGameplay) ? primaryColor : AppColors.cartoonInk.opacity(0.45)))
-                .disabled(gameCode.count != 6 || !viewModel.locationService.isReadyForGameplay)
-            }
-            
-            Text("Enter the game code shared by the host")
-                .font(.system(size: 13, weight: .bold, design: .rounded))
-                .foregroundColor(AppColors.cartoonInk.opacity(0.68))
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, AppSpacing.md)
-        .padding(.vertical, AppSpacing.lg)
-        .frame(maxWidth: .infinity)
-        .background(AppColors.cartoonCream)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppColors.cartoonInk, lineWidth: 2))
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(white: 0.18)).offset(x: 4, y: 4))
+        )
     }
     
     // MARK: - Button Style

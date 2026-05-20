@@ -9,6 +9,12 @@ import Foundation
 import Combine
 import UIKit
 
+extension Notification.Name {
+    /// Posted when the on-disk profile photo is saved or finishes loading into the memory cache.
+    /// `ContentView` listens to refresh the Profile tab bar icon.
+    static let profilePictureUpdated = Notification.Name("ProfilePictureUpdated")
+}
+
 @MainActor
 final class ProfileService: ObservableObject {
     static let shared = ProfileService()
@@ -132,6 +138,7 @@ final class ProfileService: ObservableObject {
             
             // Cache the image
             imageCache.setObject(resizedImage, forKey: fileName as NSString)
+            notifyProfilePictureUpdated()
         } catch {
             DebugLogger.error("Failed to save image locally: \(error.localizedDescription)")
             throw ProfileServiceError.uploadFailed("Failed to save image locally: \(error.localizedDescription)")
@@ -178,6 +185,7 @@ final class ProfileService: ObservableObject {
         // Cache the image on main thread after loading
         if let image = image {
             imageCache.setObject(image, forKey: fileNameCopy as NSString)
+            notifyProfilePictureUpdated()
         }
         
         return image
@@ -251,6 +259,11 @@ final class ProfileService: ObservableObject {
     // Clear cache
     func clearCache() {
         imageCache.removeAllObjects()
+        notifyProfilePictureUpdated()
+    }
+
+    private func notifyProfilePictureUpdated() {
+        NotificationCenter.default.post(name: .profilePictureUpdated, object: nil)
     }
     
     // MARK: - Statistics Management

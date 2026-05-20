@@ -23,7 +23,7 @@
     <string>We need access to save your profile picture to your photo library.</string>
     <key>NSCameraUsageDescription</key>
     <string>We need access to your camera to take a profile picture.</string>
-    <key>NSUserNotificationsUsageDescription</key>
-    <string>Notifications are used to alert you when flags are captured, returned, or when important game events occur, even when the app is in the background.</string>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
 </dict>
 </plist>

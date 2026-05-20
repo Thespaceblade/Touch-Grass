@@ -18,8 +18,25 @@ final class GameViewModel: ObservableObject {
     private var _gameService: GameService?
     
     @Published var playerName: String = "Player"
+    /// Drives the in-app "Game Over" alert in ContentView. Set this only for
+    /// genuine end-of-session messaging (elimination, etc.) — inline and
+    /// toast feedback now own everything else.
     @Published var showGameOverAlert = false
     @Published var gameOverMessage = ""
+    /// Lightweight toast surfaced by `ContentView`. Set with `presentToast(...)`
+    /// for transient feedback that doesn't belong inline (sign-in, GPS
+    /// timeouts, generic blocking conditions).
+    @Published var activeToast: AppToastMessage?
+    /// Inline error for the join-code input. The active lobby reads this to
+    /// render the shake / red border / X icon. Cleared by the input on edit.
+    @Published var joinCodeError: JoinCodeError?
+    /// Blocking, themed notice surfaced by the active lobby (or any view that
+    /// opts in). Used in place of native `.alert(...)` for begin-game
+    /// validation, configuration errors, and other lobby-scoped messages.
+    @Published var lobbyNotice: LobbyNotice?
+    /// Blocking top-level notice for terminal session events that should
+    /// return every client to the game picker, such as the host leaving.
+    @Published var sessionEndedNotice: SessionEndedNotice?
     @Published var selectedGameType: GameType = .manhunt // Track selected game type
     @Published var isBeginningGame: Bool = false // Prevent multiple simultaneous beginGame calls
     
@@ -35,6 +52,14 @@ final class GameViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var createSessionCancellable: AnyCancellable?
     private var joinGameCancellable: AnyCancellable?
+    private var handledHostLeftSessionIds = Set<String>()
+
+    struct SessionEndedNotice: Identifiable, Equatable {
+        let id = UUID()
+        let gameType: GameType
+        let title: String
+        let message: String
+    }
     
     // Public accessors that ensure services are initialized when accessed
     var locationService: LocationService {
@@ -69,6 +94,104 @@ final class GameViewModel: ObservableObject {
     init() {
         // PERFORMANCE: Don't create services in init
         // Services will be lazily initialized when first accessed
+    }
+
+    // MARK: - Feedback helpers
+
+    /// Show a transient toast at the top of the app. Use for situational
+    /// failures that aren't tied to a specific control (sign-in, GPS).
+    func presentToast(_ message: String, type: ToastType = .error) {
+        activeToast = AppToastMessage(message: message, type: type)
+    }
+
+    /// Mark a join-code attempt as failed. If the message maps to a known
+    /// inline category the lobby renders it on the field; otherwise it
+    /// surfaces as a toast so the user still gets feedback.
+    func reportJoinFailure(_ message: String) {
+        if let inline = JoinCodeError.from(gameServiceMessage: message) {
+            joinCodeError = inline
+        } else {
+            presentToast(message, type: .error)
+        }
+    }
+
+    func clearJoinCodeError() {
+        if joinCodeError != nil { joinCodeError = nil }
+    }
+
+    /// Surface a blocking lobby notice (themed). Active lobbies observe
+    /// `$lobbyNotice` and render a `ThemedNoticeOverlay`.
+    func presentLobbyNotice(_ notice: LobbyNotice) {
+        lobbyNotice = notice
+    }
+
+    func dismissSessionEndedNotice() {
+        sessionEndedNotice = nil
+    }
+
+    @discardableResult
+    func leaveCurrentSessionFromUserAction() async -> Bool {
+        let currentSession = gameService.session
+        let currentPlayer = gameService.currentPlayer
+        let wasHost = currentSession?.isDeviceHost(currentPlayer) ?? false
+        let gameType = currentSession?.gameType ?? selectedGameType
+        let sessionId = currentSession?.id
+
+        if wasHost, let sessionId {
+            handledHostLeftSessionIds.insert(sessionId)
+        }
+
+        let didLeave = await gameService.leaveSession()
+        guard didLeave else {
+            if wasHost, let sessionId {
+                handledHostLeftSessionIds.remove(sessionId)
+            }
+            presentToast("Couldn't leave the lobby. Check your connection and try again.", type: .error)
+            return false
+        }
+
+        guard wasHost else {
+            return true
+        }
+        selectedGameType = gameType
+        sessionEndedNotice = SessionEndedNotice(
+            gameType: gameType,
+            title: "Game Closed",
+            message: "You left as host, so the game ended for everyone."
+        )
+        return true
+    }
+
+    /// Convenience for the common "Can't do that yet" lobby validation.
+    private func presentLobbyMessage(_ message: String, title: String = "Heads up") {
+        presentLobbyNotice(LobbyNotice(title: title, message: message))
+    }
+
+    /// Map the legacy `GameService.BeginGameErrorAction` to the new
+    /// `LobbyNotice.Action` so the themed notice can offer the right
+    /// follow-up button (e.g. "Manage Teams", "Configure Game").
+    private func lobbyAction(from action: GameService.BeginGameErrorAction?) -> LobbyNotice.Action {
+        switch action {
+        case .openSettings:
+            return .openBubbleSettings
+        case .openTeamManagement:
+            return .openTeamManagement
+        case .openSessionSetup:
+            return .openSessionSetup
+        case .dismiss, .none:
+            return .dismiss
+        }
+    }
+
+    /// Attempt to rehydrate a previously-active lobby on app launch.
+    /// Safe to call multiple times — `GuestSessionStore` only returns a
+    /// fresh snapshot once and clears it on misses.
+    func resumeActiveSessionIfNeeded() async {
+        guard selectedGame == nil, gameService.session == nil else { return }
+        if let restoredType = await gameService.resumeIfPossible() {
+            selectedGameType = restoredType
+            selectedGame = restoredType
+        }
     }
     
     // MARK: - Service Initialization
@@ -173,17 +296,37 @@ final class GameViewModel: ObservableObject {
         // Also forward session changes (which affect UI routing)
         game.$session
             .dropFirst()
-            .sink { [weak self] _ in
+            .sink { [weak self] session in
                 self?.objectWillChange.send()
+                self?.handleHostLeftSessionIfNeeded(session, game: game)
             }
             .store(in: &cancellables)
+    }
+
+    private func handleHostLeftSessionIfNeeded(_ session: GameSession?, game: GameService) {
+        guard let session,
+              session.gameState == .ended,
+              session.endReason == .hostLeft,
+              selectedGame != nil,
+              !handledHostLeftSessionIds.contains(session.id) else {
+            return
+        }
+
+        handledHostLeftSessionIds.insert(session.id)
+        selectedGameType = session.gameType
+        sessionEndedNotice = SessionEndedNotice(
+            gameType: session.gameType,
+            title: "Host Left",
+            message: "The host left the game, so the session ended."
+        )
+        selectedGame = nil
+        game.discardEndedSessionLocally(reason: "host-left-remote")
     }
     
     func createSession() {
         guard locationService.isReadyForGameplay else {
             requestRequiredPreGamePermissions()
-            gameOverMessage = "Finish the two-step location setup before creating a game."
-            showGameOverAlert = true
+            presentToast("Finish the two-step location setup before creating a game.", type: .warning)
             return
         }
         requestBluetoothPermissionIfNeeded()
@@ -203,8 +346,7 @@ final class GameViewModel: ObservableObject {
                 playerId = try await AuthService.shared.ensureSignedIn()
             } catch {
                 self.isCreatingSession = false
-                self.gameOverMessage = "Cannot create game: Sign-in failed. Please check your connection and try again."
-                self.showGameOverAlert = true
+                self.presentToast("Sign-in failed. Check your connection and try again.", type: .error)
                 return
             }
 
@@ -259,8 +401,7 @@ final class GameViewModel: ObservableObject {
                 if isCreatingSession {
                     isCreatingSession = false
                     if location.hasRequiredGamePermission && location.coordinate == nil {
-                        gameOverMessage = "Location is allowed, but GPS has not found you yet. Move somewhere with a clearer signal and try again."
-                        showGameOverAlert = true
+                        presentToast("GPS has not found you yet. Move somewhere with a clearer signal and try again.", type: .warning)
                     }
                 }
             }
@@ -277,8 +418,7 @@ final class GameViewModel: ObservableObject {
         let bubbleCenter = center ?? location.coordinate
         
         guard let center = bubbleCenter else {
-            gameOverMessage = "Cannot configure game: Location not available. Please ensure GPS is enabled."
-            showGameOverAlert = true
+            presentLobbyMessage("Location not available. Make sure GPS is enabled and try again.", title: "Can't configure game")
             return
         }
         
@@ -286,35 +426,30 @@ final class GameViewModel: ObservableObject {
         guard center.latitude.isFinite && center.longitude.isFinite,
               center.latitude >= -90 && center.latitude <= 90,
               center.longitude >= -180 && center.longitude <= 180 else {
-            gameOverMessage = "Invalid location coordinates. Please try again."
-            showGameOverAlert = true
+            presentLobbyMessage("Invalid location coordinates. Please try again.", title: "Can't configure game")
             return
         }
         
         // Validate bubble parameters
         guard bubbleStartRadius > 0 && bubbleStartRadius.isFinite else {
-            gameOverMessage = "Invalid bubble settings: Start radius must be greater than 0."
-            showGameOverAlert = true
+            presentLobbyMessage("Start radius must be greater than 0.", title: "Invalid bubble settings")
             return
         }
         
         guard bubbleStartRadius <= 10000 else {
-            gameOverMessage = "Bubble radius is too large. Maximum is 10,000 meters."
-            showGameOverAlert = true
+            presentLobbyMessage("Bubble radius is too large. Maximum is 10,000 meters.", title: "Invalid bubble settings")
             return
         }
         
         // Validate duration only if provided (CTF doesn't use duration)
         if let duration = duration {
             guard duration > 0 && duration.isFinite else {
-                gameOverMessage = "Invalid game duration: Duration must be greater than 0 seconds."
-                showGameOverAlert = true
+                presentLobbyMessage("Duration must be greater than 0 seconds.", title: "Invalid game duration")
                 return
             }
             
             guard duration <= 7200 else {
-                gameOverMessage = "Game duration is too long. Maximum is 7200 seconds (2 hours)."
-                showGameOverAlert = true
+                presentLobbyMessage("Maximum is 7200 seconds (2 hours).", title: "Game duration too long")
                 return
             }
         }
@@ -326,14 +461,12 @@ final class GameViewModel: ObservableObject {
         let minHunterCount = 1
         #endif
         guard hunterCount >= minHunterCount else {
-            gameOverMessage = "Hunter count must be at least \(minHunterCount)."
-            showGameOverAlert = true
+            presentLobbyMessage("Hunter count must be at least \(minHunterCount).")
             return
         }
         
         guard hunterCount <= maxPlayers else {
-            gameOverMessage = "Hunter count must be less than or equal to the number of players (\(maxPlayers))."
-            showGameOverAlert = true
+            presentLobbyMessage("Hunter count must be less than or equal to the number of players (\(maxPlayers)).")
             return
         }
         
@@ -393,15 +526,17 @@ final class GameViewModel: ObservableObject {
         
         guard let session = gameService.session else {
             isBeginningGame = false
-            gameOverMessage = "Cannot begin game: No session exists."
-            showGameOverAlert = true
+            presentLobbyMessage("No session exists.", title: "Can't begin game")
             return
         }
         
         guard session.bubble != nil else {
             isBeginningGame = false
-            gameOverMessage = "Cannot begin game: Game settings not configured. Please configure the bubble first."
-            showGameOverAlert = true
+            presentLobbyNotice(LobbyNotice(
+                title: "Configure the play zone first",
+                message: "Tap Configure Game to set the bubble before starting.",
+                primaryAction: .openBubbleSettings
+            ))
             return
         }
         
@@ -416,32 +551,28 @@ final class GameViewModel: ObservableObject {
         #endif
         guard session.players.count >= vmMinPlayers else {
             isBeginningGame = false
-            gameOverMessage = "Cannot begin game: Need at least \(vmMinPlayers) player(s) to start. Currently \(session.players.count)."
-            showGameOverAlert = true
+            presentLobbyMessage("Need at least \(vmMinPlayers) player(s) to start. Currently \(session.players.count).", title: "Not enough players")
             return
         }
         
         guard session.hunterCount >= vmMinHunters else {
             isBeginningGame = false
-            gameOverMessage = "Cannot begin game: Need at least \(vmMinHunters) hunter(s)."
-            showGameOverAlert = true
+            presentLobbyMessage("Need at least \(vmMinHunters) hunter(s).", title: "Not enough hunters")
             return
         }
         
         let hiderCount = session.players.count - session.hunterCount
         guard hiderCount >= vmMinHiders else {
             isBeginningGame = false
-            gameOverMessage = "Cannot begin game: Need at least \(vmMinHiders) hider(s). Currently \(hiderCount)."
-            showGameOverAlert = true
+            presentLobbyMessage("Need at least \(vmMinHiders) hider(s). Currently \(hiderCount).", title: "Not enough hiders")
             return
         }
         
         // Check if current player is the host
         guard let currentPlayer = gameService.currentPlayer,
-              currentPlayer.id == session.hostId else {
+              session.isDeviceHost(currentPlayer) else {
             isBeginningGame = false
-            gameOverMessage = "Only the host can begin the game."
-            showGameOverAlert = true
+            presentLobbyMessage("Only the host can begin the game.")
             return
         }
         
@@ -449,7 +580,7 @@ final class GameViewModel: ObservableObject {
         print("🎮 GameViewModel.beginGame called")
         print("   Session exists: \(gameService.session != nil)")
         print("   Bubble exists: \(gameService.session?.bubble != nil)")
-        print("   Current player is host: \(gameService.currentPlayer?.id == session.hostId)")
+        print("   Current player is host: \(session.isDeviceHost(gameService.currentPlayer))")
         print("   Current gameState: \(gameService.gameState)")
         
         gameService.beginGame()
@@ -457,8 +588,11 @@ final class GameViewModel: ObservableObject {
         // Check for errors from GameService
         if let error = gameService.beginGameError {
             isBeginningGame = false
-            gameOverMessage = error
-            showGameOverAlert = true
+            presentLobbyNotice(LobbyNotice(
+                title: "Can't begin game",
+                message: error,
+                primaryAction: lobbyAction(from: gameService.beginGameErrorAction)
+            ))
             print("❌ Begin game error: \(error)")
         } else {
             // Give a small delay for state to update (Firestore operations are async)
@@ -473,8 +607,7 @@ final class GameViewModel: ObservableObject {
                 if !expectedStates.contains(gameService.gameState) {
                     isBeginningGame = false
                     let error = "Game failed to start. Current state: \(gameService.gameState). Please try again."
-                    gameOverMessage = error
-                    showGameOverAlert = true
+                    presentLobbyMessage(error, title: "Can't begin game")
                     print("❌ \(error)")
                 } else {
                     print("✅ Game started successfully - state: \(gameService.gameState)")
@@ -512,8 +645,7 @@ final class GameViewModel: ObservableObject {
 
         guard locationService.isReadyForGameplay else {
             requestRequiredPreGamePermissions()
-            gameOverMessage = "Finish the two-step location setup before joining a game."
-            showGameOverAlert = true
+            presentToast("Finish the two-step location setup before joining a game.", type: .warning)
             return
         }
         requestBluetoothPermissionIfNeeded()
@@ -521,12 +653,12 @@ final class GameViewModel: ObservableObject {
         // Validate join code format (6 digits)
         let cleanedCode = joinCode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard cleanedCode.count == 6, cleanedCode.allSatisfy({ $0.isNumber }) else {
-            gameOverMessage = "Invalid join code. Please enter a 6-digit code."
-            showGameOverAlert = true
+            joinCodeError = .invalidFormat
             return
         }
 
-        // Set loading state
+        // Clear any previous inline error and set loading state
+        joinCodeError = nil
         isJoiningGame = true
 
         // Request location and wait briefly if permission is already granted but GPS is still warming up.
@@ -543,8 +675,7 @@ final class GameViewModel: ObservableObject {
                 } catch {
                     await MainActor.run {
                         self.isJoiningGame = false
-                        self.gameOverMessage = "Cannot join game: Sign-in failed. Please check your connection and try again."
-                        self.showGameOverAlert = true
+                        self.presentToast("Sign-in failed. Check your connection and try again.", type: .error)
                     }
                     return
                 }
@@ -564,8 +695,8 @@ final class GameViewModel: ObservableObject {
                     self.isJoiningGame = false
 
                     if !success {
-                        self.gameOverMessage = errorMessage ?? "Could not join game. Make sure the join code is correct and the game hasn't started yet."
-                        self.showGameOverAlert = true
+                        let raw = errorMessage ?? "Could not join game. Make sure the join code is correct and the game hasn't started yet."
+                        self.reportJoinFailure(raw)
                     }
                 }
             }
@@ -592,8 +723,7 @@ final class GameViewModel: ObservableObject {
                 joinGameCancellable?.cancel()
                 joinGameCancellable = nil
                 isJoiningGame = false
-                gameOverMessage = "Location is allowed, but GPS has not found you yet. Move somewhere with a clearer signal and try again."
-                showGameOverAlert = true
+                presentToast("GPS has not found you yet. Move somewhere with a clearer signal and try again.", type: .warning)
             }
         }
     }

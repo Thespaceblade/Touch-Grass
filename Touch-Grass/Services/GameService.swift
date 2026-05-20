@@ -14,6 +14,14 @@ import UserNotifications
 final class GameService: ObservableObject {
     // Maximum number of players per session (for testing with friends)
     static let maxPlayersPerSession: Int = 12
+
+    /// True when the local guest device created the lobby. Two devices on
+    /// the same Apple ID share a Firebase auth uid; only the device that
+    /// originally created the session is the local host.
+    func isCurrentPlayerSessionHost() -> Bool {
+        guard let session, let currentPlayer else { return false }
+        return session.isDeviceHost(currentPlayer)
+    }
     
     @Published var session: GameSession?
     @Published var currentPlayer: Player?
@@ -77,6 +85,7 @@ final class GameService: ObservableObject {
     private var pendingLocationUpdate: CLLocationCoordinate2D?
     private var lastUpdateCoordinate: CLLocationCoordinate2D?
     private let minUpdateDistance: Double = 5.0 // Only update if moved 5+ meters (battery optimization)
+    private var remoteReadySessionId: String?
     
     private func print(_ message: String) {
         if message.hasPrefix("❌") {
@@ -88,6 +97,13 @@ final class GameService: ObservableObject {
     
     // Prevent listener from overwriting our local updates
     private var isUpdatingSession: Bool = false
+    private var isStartingGameFromServerSnapshot: Bool = false
+    private var isBeginGameRefreshInFlight: Bool = false
+    private var isRunningUnitTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil ||
+        NSClassFromString("XCTestCase") != nil ||
+        NSClassFromString("XCTest.XCTestCase") != nil
+    }
     
     // Game statistics
     @Published var gameStats: GameStats?
@@ -221,9 +237,149 @@ final class GameService: ObservableObject {
         firestoreService
     }
     
+    // MARK: - Session Commit Pipeline
+    //
+    // Every lobby mutation (role flip, team change, flag toggle, bubble
+    // configure, etc.) goes through `commitLobbySession` so we never push
+    // a stale local roster back to Firestore. Without this, the host's
+    // local `session.players` (often 1) would overwrite a server roster
+    // that already contains the joiner, deleting them - this is the
+    // "flip wipe" bug.
+    //
+    // Active-game callers that need the same protection (notifications,
+    // scoreboard updates, etc.) can opt in by passing
+    // `requireState: nil`. The roster merge is identical to lobby; only
+    // the precondition relaxes.
+
+    enum LobbyCommitError: Error {
+        case noSession
+        case notHost
+        case wrongState
+        case serverSessionMissing
+    }
+
+    /// Read the latest session from Firestore, let the caller mutate it,
+    /// merge the resulting roster against the server snapshot so no
+    /// player is ever dropped, then write the merged session back.
+    ///
+    /// `mutation` is called on a `var` copy of the **server** session.
+    /// Callers should change roles/bubble/etc. on the players or fields
+    /// of that copy; they should not rebuild `players` from local state.
+    ///
+    /// On success, `self.session` and `self.currentPlayer` are updated
+    /// from the committed result so the UI reflects the same source of
+    /// truth Firestore now has.
+    @discardableResult
+    func commitLobbySession(
+        requireHost: Bool = true,
+        requireState: GameState? = .lobby,
+        _ mutation: (inout GameSession) -> Void
+    ) async throws -> GameSession {
+        guard let localSession = session else {
+            throw LobbyCommitError.noSession
+        }
+        if requireHost, !isCurrentPlayerSessionHost() {
+            throw LobbyCommitError.notHost
+        }
+
+        let serverSession: GameSession
+        do {
+            guard let fetched = try await firestoreService.fetchSession(sessionId: localSession.id) else {
+                throw LobbyCommitError.serverSessionMissing
+            }
+            serverSession = fetched
+        } catch let error as LobbyCommitError {
+            throw error
+        } catch {
+            // Network/decode error: bubble up so callers can surface it.
+            throw error
+        }
+
+        if let requiredState = requireState, serverSession.gameState != requiredState {
+            throw LobbyCommitError.wrongState
+        }
+
+        var working = serverSession
+        let serverPlayers = serverSession.players
+        mutation(&working)
+        working.players = LobbyRosterMerge.merge(server: serverPlayers, mutated: working.players)
+
+        try await firestoreService.updateSession(working)
+
+        self.session = working
+        self.gameState = working.gameState
+        if let localId = currentPlayer?.id,
+           let refreshed = working.players.first(where: { $0.id == localId }) {
+            self.currentPlayer = refreshed
+        }
+
+        return working
+    }
+
+    /// Fire-and-forget wrapper for call sites that cannot easily become
+    /// async (SwiftUI button actions, etc.). Errors are routed to
+    /// `networkError` so the lobby UI can surface them.
+    ///
+    /// When `optimisticLocalUpdate` is true (the default), the mutation
+    /// is also applied to the in-memory `self.session` immediately so
+    /// the UI reflects the change without waiting for the Firestore
+    /// round-trip. The authoritative commit (read-merge-write) still
+    /// runs in the background and reconciles via the listener.
+    func commitLobbySessionInBackground(
+        requireHost: Bool = true,
+        requireState: GameState? = .lobby,
+        optimisticLocalUpdate: Bool = true,
+        onSuccess: (() -> Void)? = nil,
+        _ mutation: @escaping (inout GameSession) -> Void
+    ) {
+        if optimisticLocalUpdate, var local = self.session {
+            mutation(&local)
+            self.session = local
+            self.gameState = local.gameState
+            if let localId = self.currentPlayer?.id,
+               let refreshed = local.players.first(where: { $0.id == localId }) {
+                self.currentPlayer = refreshed
+            }
+        }
+
+        if isRunningUnitTests {
+            onSuccess?()
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                _ = try await commitLobbySession(
+                    requireHost: requireHost,
+                    requireState: requireState,
+                    mutation
+                )
+                onSuccess?()
+            } catch LobbyCommitError.notHost {
+                print("❌ Lobby commit blocked: not host")
+            } catch LobbyCommitError.wrongState {
+                print("❌ Lobby commit blocked: game state no longer eligible")
+            } catch LobbyCommitError.noSession {
+                print("❌ Lobby commit blocked: no local session")
+            } catch LobbyCommitError.serverSessionMissing {
+                print("❌ Lobby commit blocked: server session missing")
+                networkError = "Lobby is no longer available."
+            } catch {
+                print("❌ Lobby commit failed: \(error.localizedDescription)")
+                networkError = "Couldn't sync change. Check your connection."
+            }
+        }
+    }
+
     // MARK: - Session Management
     
     func createSession(hostName: String, hostLocation: CLLocationCoordinate2D, gameType: GameType = .manhunt, playerId: String? = nil) {
+        guard AppReleaseConfiguration.isGameModeAvailable(gameType) else {
+            print("❌ Cannot create session: \(gameType.rawValue) is not available in this release")
+            networkError = AppReleaseConfiguration.unavailableGameModeMessage
+            return
+        }
+
         // Validate host location
         guard isValidCoordinate(hostLocation) else {
             print("❌ Cannot create session: invalid host location")
@@ -250,18 +406,24 @@ final class GameService: ObservableObject {
             initialRole = .hider // Default to hider for manhunt
         }
         
+        let authUid = playerId ?? AuthService.shared.currentUserIdForLocalOperation()
+        let guestDeviceId = AuthService.shared.guestDeviceId
         let host = Player(
-            id: playerId ?? AuthService.shared.currentUserIdForLocalOperation(),
+            id: guestDeviceId,
             displayName: sanitizedName.isEmpty ? profileService.displayName : sanitizedName,
             latitude: hostLocation.latitude,
             longitude: hostLocation.longitude,
             role: initialRole,
             isAlive: true,
-            profilePictureBase64: profileService.getProfilePictureBase64()
+            profilePictureBase64: profileService.getProfilePictureBase64(),
+            authUserId: authUid,
+            deviceInstallationId: guestDeviceId
         )
         
         let newSession = GameSession(
-            hostId: host.id,
+            hostId: authUid,
+            hostPlayerId: guestDeviceId,
+            hostAuthUid: authUid,
             gameState: .lobby,
             gameType: gameType,
             players: [host],
@@ -277,26 +439,39 @@ final class GameService: ObservableObject {
         session = newSession
         gameState = .lobby  // Update explicit state
         currentPlayer = host
-        
+        saveResumeSnapshot(for: newSession, localPlayerId: host.id, force: true)
+
         print("✅ Session created: \(newSession.id)")
         print("✅ Join code: \(newSession.joinCode)")
         print("✅ Game state set to: \(gameState)")
+
+        if isRunningUnitTests {
+            isConnected = true
+            networkError = nil
+            remoteReadySessionId = newSession.id
+            return
+        }
         
-        // Save to Firestore
+        // Save to Firestore before attaching the listener. Listening to a
+        // not-yet-created document can be denied by security rules, and a
+        // permission-denied listener will not recover when the write lands.
         Task {
             do {
                 try await firestoreService.createSession(newSession)
+                guard self.session?.id == newSession.id else { return }
                 isConnected = true
                 networkError = nil
+                startSessionListener(newSession.id)
             } catch {
                 print("❌ Error creating session in Firestore: \(error)")
+                if self.session?.id == newSession.id {
+                    GuestSessionStore.shared.clear(reason: "create-session-failed")
+                    resetLocalGameState()
+                }
                 networkError = "Failed to create session. Check internet connection."
                 isConnected = false
             }
         }
-        
-        // Start listening to session changes
-        startSessionListener(newSession.id)
     }
     
     // Validate bubble parameters
@@ -342,23 +517,18 @@ final class GameService: ObservableObject {
     
     // Configure game settings (bubble) but keep in lobby state
     func configureGame(bubble: Bubble, hunterCount: Int? = nil, scoreLimit: Int? = nil, teamABase: CLLocationCoordinate2D? = nil, teamBBase: CLLocationCoordinate2D? = nil) {
-        guard var session = session else {
-            return
-        }
-
+        guard let session = session else { return }
         guard session.gameState == .lobby else {
             print("❌ Cannot configure game: game is no longer in the lobby")
             return
         }
-
-        guard currentPlayer?.id == session.hostId else {
+        guard isCurrentPlayerSessionHost() else {
             print("❌ Only host can configure game settings")
             return
         }
-        
+
         // Note: scoreLimit parameter is ignored - CTF win condition is both flags in same safe zone
-        
-        // Validate bubble parameters
+
         guard validateBubble(bubble) else {
             print("❌ Bubble validation failed:")
             print("   - Duration: \(bubble.duration) (isInfinite: \(bubble.duration.isInfinite))")
@@ -368,7 +538,11 @@ final class GameService: ObservableObject {
             return
         }
         print("✅ Bubble validation passed")
-        
+
+        // We validate hunterCount against the server roster inside the
+        // commit closure (the authoritative `players.count`), but check
+        // it against the local copy here to short-circuit obviously
+        // invalid input before a Firestore round-trip.
         if let hunterCount = hunterCount {
             #if DEBUG
             guard hunterCount >= 0 else { return }
@@ -380,70 +554,45 @@ final class GameService: ObservableObject {
                 return
             }
         }
-        
-        // Validate CTF parameters if provided
-        if session.gameType == .captureTheFlag {
-            // Note: scoreLimit is ignored - CTF win condition is both flags in same safe zone
-            
-            // Set team bases (or auto-position if not provided)
-            if let teamABase = teamABase, let teamBBase = teamBBase {
-                session.teamABase = teamABase
-                session.teamBBase = teamBBase
-                print("   Team bases set: A at \(teamABase.latitude), \(teamABase.longitude), B at \(teamBBase.latitude), \(teamBBase.longitude)")
-            } else {
-                // Auto-position bases on opposite sides of zone
-                let center = bubble.currentCenter()
-                let radius = bubble.currentRadius()
-                let baseOffset: Double = radius * 0.4 // 40% of radius
-                let teamABaseCoord = CLLocationCoordinate2D(
-                    latitude: center.latitude + baseOffset / 111000.0,
-                    longitude: center.longitude
-                )
-                let teamBBaseCoord = CLLocationCoordinate2D(
-                    latitude: center.latitude - baseOffset / 111000.0,
-                    longitude: center.longitude
-                )
-                session.teamABase = teamABaseCoord
-                session.teamBBase = teamBBaseCoord
-                print("   Team bases auto-positioned: A at \(teamABaseCoord.latitude), \(teamABaseCoord.longitude), B at \(teamBBaseCoord.latitude), \(teamBBaseCoord.longitude)")
-            }
-        }
-        
+
         print("⚙️ GameService.configureGame called")
         print("   Current state: \(session.gameState)")
         print("   Game type: \(session.gameType.rawValue)")
-        
-        // Set bubble but keep game in lobby
-        session.bubble = bubble
-        
-        // Update hunter count if provided
-        if let hunterCount = hunterCount {
-            session.hunterCount = hunterCount
-            print("   Hunter count updated to: \(hunterCount)")
-        }
-        
-        // Don't change gameState - keep it as .lobby
-        // Set flag to prevent listener from overwriting during update
-        // Use defer to ensure flag is always reset even if something throws
-        isUpdatingSession = true
-        defer { isUpdatingSession = false }
-        self.session = session
-        
-        print("✅ Bubble configured: \(bubble.centerLatitude), \(bubble.centerLongitude)")
-        print("✅ Bubble radius: \(bubble.currentRadius(at: Date()))m")
-        print("✅ Bubble set on session: \(session.bubble != nil ? "YES" : "NO")")
-        print("✅ Game remains in lobby state")
-        
-        // Sync to Firestore (non-blocking, errors are logged but don't crash)
-        // Use Task without @MainActor since we're already on MainActor
-        Task {
-            do {
-                try await firestoreService.updateSession(session)
-                print("✅ Session updated in Firestore successfully")
-            } catch {
-                print("❌ Error updating session in Firestore: \(error.localizedDescription)")
-                // Don't crash - just log the error
+
+        commitLobbySessionInBackground { session in
+            if session.gameType == .captureTheFlag {
+                if let teamABase = teamABase, let teamBBase = teamBBase {
+                    session.teamABase = teamABase
+                    session.teamBBase = teamBBase
+                    Swift.print("   Team bases set: A at \(teamABase.latitude), \(teamABase.longitude), B at \(teamBBase.latitude), \(teamBBase.longitude)")
+                } else {
+                    let center = bubble.currentCenter()
+                    let radius = bubble.currentRadius()
+                    let baseOffset: Double = radius * 0.4
+                    let teamABaseCoord = CLLocationCoordinate2D(
+                        latitude: center.latitude + baseOffset / 111000.0,
+                        longitude: center.longitude
+                    )
+                    let teamBBaseCoord = CLLocationCoordinate2D(
+                        latitude: center.latitude - baseOffset / 111000.0,
+                        longitude: center.longitude
+                    )
+                    session.teamABase = teamABaseCoord
+                    session.teamBBase = teamBBaseCoord
+                    Swift.print("   Team bases auto-positioned: A at \(teamABaseCoord.latitude), \(teamABaseCoord.longitude), B at \(teamBBaseCoord.latitude), \(teamBBaseCoord.longitude)")
+                }
             }
+
+            session.bubble = bubble
+            if let hunterCount = hunterCount, hunterCount <= session.players.count {
+                session.hunterCount = hunterCount
+                Swift.print("   Hunter count updated to: \(hunterCount)")
+            }
+
+            Swift.print("✅ Bubble configured: \(bubble.centerLatitude), \(bubble.centerLongitude)")
+            Swift.print("✅ Bubble radius: \(bubble.currentRadius(at: Date()))m")
+            Swift.print("✅ Bubble set on session: \(session.bubble != nil ? "YES" : "NO")")
+            Swift.print("✅ Game remains in lobby state")
         }
     }
     
@@ -485,7 +634,7 @@ final class GameService: ObservableObject {
         print("      - Hunter count: \(session.hunterCount)")
         print("      - Bubble configured: \(session.bubble != nil)")
 
-        guard currentPlayer?.id == session.hostId else {
+        guard isCurrentPlayerSessionHost() else {
             let error = "Only the host can begin the game."
             print("❌ \(error)")
             beginGameError = error
@@ -501,6 +650,44 @@ final class GameService: ObservableObject {
             print("❌ \(error)")
             beginGameError = error
             beginGameErrorAction = .dismiss
+            return
+        }
+
+        let shouldRefreshBeforeBegin = !isRunningUnitTests
+
+        if shouldRefreshBeforeBegin && isBeginGameRefreshInFlight {
+            print("⏳ Begin game already refreshing latest lobby snapshot")
+            return
+        }
+
+        if shouldRefreshBeforeBegin && !isStartingGameFromServerSnapshot {
+            isBeginGameRefreshInFlight = true
+            Task { @MainActor in
+                defer { self.isBeginGameRefreshInFlight = false }
+                do {
+                    guard let serverSession = try await firestoreService.fetchSession(sessionId: session.id) else {
+                        beginGameError = "Cannot begin game: this lobby no longer exists."
+                        beginGameErrorAction = .dismiss
+                        return
+                    }
+                    self.session = serverSession
+                    self.gameState = serverSession.gameState
+                    if let localPlayerId = currentPlayer?.id,
+                       let refreshed = serverSession.players.first(where: { $0.id == localPlayerId }) {
+                        currentPlayer = refreshed
+                    }
+                    self.isStartingGameFromServerSnapshot = true
+                    beginGame()
+                    self.isStartingGameFromServerSnapshot = false
+                } catch {
+                    self.isStartingGameFromServerSnapshot = false
+                    print("❌ Error refreshing lobby before begin game: \(error.localizedDescription)")
+                    beginGameError = "Couldn't refresh the lobby. Check your connection and try again."
+                    beginGameErrorAction = .dismiss
+                    networkError = "Couldn't refresh the lobby. Check your connection and try again."
+                    isConnected = false
+                }
+            }
             return
         }
         
@@ -659,6 +846,8 @@ final class GameService: ObservableObject {
         print("   Game number: \(session.gameNumber)")
         print("   Hunter count: \(session.hunterCount)")
         print("   Total players: \(session.players.count)")
+
+        let preBeginSession = self.session
         
         // Assign roles based on game type
         if session.gameType == .zombieTag {
@@ -683,6 +872,8 @@ final class GameService: ObservableObject {
         // countdown finishes and `startGameTimer()` commits the real match start.
         session.bubble = bubble
         
+        session.endReason = nil
+
         // CTF: Set game state to flag placement if flags need to be placed
         if session.gameType == .captureTheFlag {
             // Reset safe zones for new game
@@ -776,6 +967,12 @@ final class GameService: ObservableObject {
             print("✅ Task: Session state is \(self.session?.gameState.rawValue ?? "nil")")
         }
         
+        if isRunningUnitTests {
+            isUpdatingSession = false
+            startUpdateTimer()
+            return
+        }
+
         // Sync to Firestore (async, but state is already updated above)
         Task {
             do {
@@ -787,11 +984,27 @@ final class GameService: ObservableObject {
                 }
             } catch {
                 print("❌ Error updating session in Firestore: \(error)")
+                let refreshedSession = try? await firestoreService.fetchSession(sessionId: session.id)
                 // Clear flag even on error, but keep the state change
                 await MainActor.run {
                     self.isUpdatingSession = false
-                    // If Firestore update failed, we should still keep the game started
-                    // The state is already set, so we don't revert it
+                    if let refreshedSession {
+                        self.session = refreshedSession
+                        self.gameState = refreshedSession.gameState
+                        if let playerId = self.currentPlayer?.id,
+                           let refreshedPlayer = refreshedSession.players.first(where: { $0.id == playerId }) {
+                            self.currentPlayer = refreshedPlayer
+                        }
+                    } else if self.session?.id == session.id, let preBeginSession {
+                        self.session = preBeginSession
+                        self.gameState = preBeginSession.gameState
+                        if let playerId = self.currentPlayer?.id,
+                           let previousPlayer = preBeginSession.players.first(where: { $0.id == playerId }) {
+                            self.currentPlayer = previousPlayer
+                        }
+                    }
+                    self.networkError = "Couldn't start the game. Check your connection and try again."
+                    self.isConnected = false
                 }
             }
         }
@@ -1003,266 +1216,182 @@ final class GameService: ObservableObject {
     
     // Host override: Manually set a player as hunter
     func setTeam(playerId: String, team: Flag.Team) {
-        guard var session = session,
-              let index = session.players.firstIndex(where: { $0.id == playerId }) else {
-            print("❌ Cannot set team: player not found")
-            return
-        }
-        
-        // Only allow in lobby
-        guard session.gameState == .lobby else {
-            print("❌ Cannot change teams: game has already started")
-            return
-        }
-        
-        // Only host can change teams
-        guard let currentPlayer = currentPlayer,
-              currentPlayer.id == session.hostId else {
+        guard isCurrentPlayerSessionHost() else {
             print("❌ Only host can change teams")
             return
         }
-        
-        // Set player role based on team
-        let newRole: PlayerRole = team == .teamA ? .teamA : .teamB
-        session.players[index].role = newRole
-        
-        print("✅ Player \(session.players[index].displayName) moved to \(team.rawValue)")
-        
-        self.session = session
-        
-        // Sync to Firestore
-        Task {
-            do {
-                try await firestoreService.updateSession(session)
-            } catch {
-                print("❌ Error syncing team change: \(error)")
+        guard session?.gameState == .lobby else {
+            print("❌ Cannot change teams: game has already started")
+            return
+        }
+
+        commitLobbySessionInBackground { session in
+            guard let index = session.players.firstIndex(where: { $0.id == playerId }) else {
+                Swift.print("❌ Cannot set team: player not found in server roster")
+                return
             }
+            let newRole: PlayerRole = team == .teamA ? .teamA : .teamB
+            session.players[index].role = newRole
+            Swift.print("✅ Player \(session.players[index].displayName) moved to \(team.rawValue)")
         }
     }
     
     // Set team leader status for a player (CTF)
     func setTeamLeader(playerId: String, isTeamLeader: Bool) {
-        guard var session = session,
-              session.gameType == .captureTheFlag,
-              let playerIndex = session.players.firstIndex(where: { $0.id == playerId }),
-              let playerTeam = session.players[playerIndex].team else {
-            print("❌ Cannot set team leader: player not found or no team")
-            return
-        }
-        
-        // Only host can set team leader
-        guard currentPlayer?.id == session.hostId else {
+        guard isCurrentPlayerSessionHost() else {
             print("❌ Only host can set team leader")
             return
         }
-        
-        // Only allow in lobby
-        guard session.gameState == .lobby else {
+        guard session?.gameType == .captureTheFlag else {
+            print("❌ Cannot set team leader: not a CTF game")
+            return
+        }
+        guard session?.gameState == .lobby else {
             print("❌ Cannot change team leader: game has already started")
             return
         }
-        
-        // If setting as leader, remove leader status from other players on same team
-        if isTeamLeader {
-            for i in 0..<session.players.count {
-                if session.players[i].team == playerTeam && session.players[i].isTeamLeader {
-                    session.players[i].isTeamLeader = false
+
+        commitLobbySessionInBackground { session in
+            guard let playerIndex = session.players.firstIndex(where: { $0.id == playerId }),
+                  let playerTeam = session.players[playerIndex].team else {
+                Swift.print("❌ Cannot set team leader: player not found or no team in server roster")
+                return
+            }
+
+            if isTeamLeader {
+                for i in 0..<session.players.count {
+                    if session.players[i].team == playerTeam && session.players[i].isTeamLeader {
+                        session.players[i].isTeamLeader = false
+                    }
                 }
             }
-        }
-        
-        // Set team leader status
-        session.players[playerIndex].isTeamLeader = isTeamLeader
-        
-        self.session = session
-        
-        // Sync to Firestore
-        Task {
-            do {
-                try await firestoreService.updateSession(session)
-                print("✅ Player \(session.players[playerIndex].displayName) team leader status set to: \(isTeamLeader)")
-            } catch {
-                print("❌ Error syncing team leader status: \(error)")
-            }
+            session.players[playerIndex].isTeamLeader = isTeamLeader
+            Swift.print("✅ Player \(session.players[playerIndex].displayName) team leader status set to: \(isTeamLeader)")
         }
     }
     
     func placeSafeZone(team: Flag.Team, center: CLLocationCoordinate2D, radius: Double) {
-        guard var session = session,
-              let currentPlayer = currentPlayer,
+        guard let currentPlayer = currentPlayer,
               currentPlayer.isTeamLeader,
               currentPlayer.team == team else {
             print("❌ Only team leader can place safe zone")
             return
         }
-        
-        // CRITICAL: Prevent safe zone placement if game has already started
-        guard session.gameState == .flagPlacement else {
+        guard session?.gameState == .flagPlacement else {
             print("❌ Cannot place safe zone: Game has already started")
             return
         }
-        
-        // Validate coordinate
         guard isValidCoordinate(center) else {
             print("❌ Invalid safe zone center coordinate")
             return
         }
-        
-        // Validate radius (5-50 meters)
         guard radius >= 5.0 && radius <= 50.0 else {
             print("❌ Safe zone radius must be between 5 and 50 meters")
             return
         }
-        
-        // IMMUTABLE: Create safe zone with fixed coordinates (prevents GPS drift)
-        // Once confirmed, these coordinates never change
+
         let safeZone = GameSession.SafeZone(center: center, radius: radius, confirmedAt: Date())
-        
-        // Set safe zone for team (replaces any existing safe zone)
-        if team == .teamA {
-            session.teamASafeZone = safeZone
-            print("✅ Team A safe zone confirmed (IMMUTABLE) at \(center.latitude), \(center.longitude) with radius \(radius)m")
-        } else {
-            session.teamBSafeZone = safeZone
-            print("✅ Team B safe zone confirmed (IMMUTABLE) at \(center.latitude), \(center.longitude) with radius \(radius)m")
-        }
-        
-        // Set flag to prevent listener from overwriting
-        isUpdatingSession = true
-        defer { isUpdatingSession = false }
-        self.session = session
-        
-        // Sync to Firestore immediately
-        Task {
-            do {
-                try await firestoreService.updateSession(session)
-                print("✅ \(team.rawValue) safe zone synced to Firestore")
-            } catch {
-                print("❌ Error syncing safe zone: \(error)")
+
+        commitLobbySessionInBackground(
+            requireHost: false,
+            requireState: .flagPlacement
+        ) { session in
+            if team == .teamA {
+                session.teamASafeZone = safeZone
+                Swift.print("✅ Team A safe zone confirmed (IMMUTABLE) at \(center.latitude), \(center.longitude) with radius \(radius)m")
+            } else {
+                session.teamBSafeZone = safeZone
+                Swift.print("✅ Team B safe zone confirmed (IMMUTABLE) at \(center.latitude), \(center.longitude) with radius \(radius)m")
             }
         }
     }
     
     func setFlag(playerId: String, isFlag: Bool) {
-        guard var session = session,
-              session.gameType == .captureTheFlag,
-              let index = session.players.firstIndex(where: { $0.id == playerId }) else {
-            print("❌ Cannot set flag: player not found or not CTF game")
+        guard session?.gameType == .captureTheFlag else {
+            print("❌ Cannot set flag: not a CTF game")
             return
         }
-        
-        // Only allow in lobby
-        guard session.gameState == .lobby else {
+        guard session?.gameState == .lobby else {
             print("❌ Cannot change flag status: game has already started")
             return
         }
-        
-        // Only allow self or host to set flag
         guard let currentPlayer = currentPlayer,
-              (currentPlayer.id == playerId || currentPlayer.id == session.hostId) else {
+              (currentPlayer.id == playerId || isCurrentPlayerSessionHost()) else {
             print("❌ Only the player themselves or host can set flag status")
             return
         }
-        
-        let player = session.players[index]
-        guard let playerTeam = player.team else {
-            print("❌ Player must be on a team to be a flag")
-            return
-        }
-        
-        // If removing flag status and in placement phase, reset placement
-        if !isFlag && player.isFlag && session.gameState == .flagPlacement {
-            if playerTeam == .teamA {
-                session.teamAFlagPlaced = false
-                print("🚩 Team A flag placement reset (flag removed)")
-            } else if playerTeam == .teamB {
-                session.teamBFlagPlaced = false
-                print("🚩 Team B flag placement reset (flag removed)")
+
+        commitLobbySessionInBackground(requireHost: false) { session in
+            guard let index = session.players.firstIndex(where: { $0.id == playerId }) else {
+                Swift.print("❌ Cannot set flag: player not found in server roster")
+                return
             }
-        }
-        
-        // If setting flag to true, ensure no other player on this team is already a flag
-        if isFlag {
-            // Remove flag status from other players on the same team
-            for i in 0..<session.players.count {
-                if session.players[i].team == playerTeam && session.players[i].isFlag && session.players[i].id != playerId {
-                    session.players[i].isFlag = false
-                    print("✅ Removed flag status from \(session.players[i].displayName)")
+            let player = session.players[index]
+            guard let playerTeam = player.team else {
+                Swift.print("❌ Player must be on a team to be a flag")
+                return
+            }
+
+            // If removing flag status and in placement phase, reset placement.
+            // The outer guard restricts this to `.lobby`, but the check is
+            // preserved verbatim to avoid changing CTF lobby semantics.
+            if !isFlag && player.isFlag && session.gameState == .flagPlacement {
+                if playerTeam == .teamA {
+                    session.teamAFlagPlaced = false
+                    Swift.print("🚩 Team A flag placement reset (flag removed)")
+                } else if playerTeam == .teamB {
+                    session.teamBFlagPlaced = false
+                    Swift.print("🚩 Team B flag placement reset (flag removed)")
                 }
             }
-        }
-        
-        // Set flag status
-        session.players[index].isFlag = isFlag
-        
-        print("✅ Player \(player.displayName) flag status set to \(isFlag)")
-        
-        self.session = session
-        
-        // Sync to Firestore
-        Task {
-            do {
-                try await firestoreService.updateSession(session)
-            } catch {
-                print("❌ Error syncing flag status: \(error)")
+
+            if isFlag {
+                for i in 0..<session.players.count {
+                    if session.players[i].team == playerTeam && session.players[i].isFlag && session.players[i].id != playerId {
+                        session.players[i].isFlag = false
+                        Swift.print("✅ Removed flag status from \(session.players[i].displayName)")
+                    }
+                }
             }
+
+            session.players[index].isFlag = isFlag
+            Swift.print("✅ Player \(player.displayName) flag status set to \(isFlag)")
         }
     }
     
     func setHunter(playerId: String) {
-        guard var session = session,
-              let currentPlayer = currentPlayer,
-              currentPlayer.id == session.hostId else {
+        guard isCurrentPlayerSessionHost() else {
             print("❌ Only host can set hunters")
             return
         }
-
-        guard session.gameState == .lobby else {
+        guard session?.gameState == .lobby else {
             print("❌ Cannot change hunters: game has already started")
             return
         }
-        
-        guard let playerIndex = session.players.firstIndex(where: { $0.id == playerId }) else {
-            print("❌ Player not found: \(playerId)")
-            return
-        }
-        
-        // If we're setting a hider as hunter, we need to demote a hunter
-        if session.players[playerIndex].role == .hider {
-            // Find a hunter to demote (prefer not the one we're promoting)
-            if let hunterToDemote = session.players.first(where: { $0.role == .hunter && $0.id != playerId }) {
-                if let hunterIndex = session.players.firstIndex(where: { $0.id == hunterToDemote.id }) {
+
+        commitLobbySessionInBackground { session in
+            guard let playerIndex = session.players.firstIndex(where: { $0.id == playerId }) else {
+                Swift.print("❌ Player not found in server roster: \(playerId)")
+                return
+            }
+
+            // If we're setting a hider as hunter, we need to demote a hunter
+            if session.players[playerIndex].role == .hider {
+                if let hunterToDemote = session.players.first(where: { $0.role == .hunter && $0.id != playerId }),
+                   let hunterIndex = session.players.firstIndex(where: { $0.id == hunterToDemote.id }) {
                     session.players[hunterIndex].role = .hider
                 }
-            }
-            session.players[playerIndex].role = .hunter
-        } else {
-            // If we're demoting a hunter, promote a random hider
-            session.players[playerIndex].role = .hider
-            if let hiderToPromote = session.players.first(where: { $0.role == .hider && $0.id != playerId }) {
-                if let hiderIndex = session.players.firstIndex(where: { $0.id == hiderToPromote.id }) {
+                session.players[playerIndex].role = .hunter
+            } else {
+                // Demote this player; promote any other hider if available.
+                session.players[playerIndex].role = .hider
+                if let hiderToPromote = session.players.first(where: { $0.role == .hider && $0.id != playerId }),
+                   let hiderIndex = session.players.firstIndex(where: { $0.id == hiderToPromote.id }) {
                     session.players[hiderIndex].role = .hunter
                 }
             }
+            Swift.print("✅ Hunter role updated for: \(session.players[playerIndex].displayName)")
         }
-        
-        self.session = session
-        
-        // Update current player if their role changed
-        if let updatedPlayer = session.players.first(where: { $0.id == currentPlayer.id }) {
-            self.currentPlayer = updatedPlayer
-        }
-        
-        // Sync to Firestore
-        Task {
-            do {
-                try await firestoreService.updateSession(session)
-            } catch {
-                print("❌ Error updating hunters in Firestore: \(error)")
-            }
-        }
-        
-        print("✅ Hunter role updated for: \(session.players[playerIndex].displayName)")
     }
     
     /// Called when the pre-game countdown completes to start the game timer
@@ -1273,7 +1402,7 @@ final class GameService: ObservableObject {
             return
         }
 
-        guard currentPlayer?.id == session.hostId else {
+        guard isCurrentPlayerSessionHost() else {
             // The host owns the authoritative timer/zone write. Other players still
             // start their local rule timer and receive the synced bubble via listener.
             startUpdateTimer()
@@ -1382,9 +1511,11 @@ final class GameService: ObservableObject {
             let aliveHiders = hiders.filter { $0.isAlive }
             
             if let bubble = session.bubble {
-                let elapsed = Date().timeIntervalSince(bubble.startTime)
-                // Only check time limit if duration is finite
-                if bubble.duration.isFinite && elapsed >= bubble.duration {
+                // Match `checkGameOver`: ignore elapsed until host commits `bubble.startTime`.
+                let elapsed = elapsedSinceMatchStart(for: bubble)
+                if bubble.duration.isFinite,
+                   let elapsed,
+                   elapsed >= bubble.duration {
                     stats.winner = .timeUp
                 } else if hiders.count > 0 && aliveHiders.isEmpty {
                     stats.winner = .hunters
@@ -1406,6 +1537,7 @@ final class GameService: ObservableObject {
         print("✅ Game stats finalized - Winner: \(stats.winner?.rawValue ?? "none"), Catches: \(stats.catches.count)")
         
         session.gameState = .ended
+        session.endReason = .completed
         self.session = session
         self.gameState = .ended  // Update explicit state
         shouldEndGame = false
@@ -1444,17 +1576,86 @@ final class GameService: ObservableObject {
         }
     }
     
-    // Completely clear/reset game service - used when switching game modes
+    // MARK: - Session teardown
+    //
+    // Three teardown shapes, deliberately distinct:
+    //
+    // - `detachFromSession()` — tab change / back-to-menu / app background.
+    //   Drops local listeners and timers but keeps the Firestore doc AND
+    //   the local snapshot so resume can re-pick the same lobby on the
+    //   next launch.
+    //
+    // - `leaveSession()` — explicit "Leave game" / lobby exit. Host
+    //   leave marks the session ended for everyone; non-host leave
+    //   removes just this device's player. Always clears the local snapshot.
+    //
+    // - `clearSession()` — mode switch / debug. Deletes the Firestore doc
+    //   and clears the snapshot. Use this when the user actively wants
+    //   the current session gone.
+
+    /// Drop local state for the current session WITHOUT touching
+    /// Firestore or the resume snapshot. Used when navigating away from
+    /// the game tab without explicitly leaving the lobby.
+    func detachFromSession() {
+        print("🧷 Detaching from session (keeping Firestore + snapshot)")
+        stopUpdateTimer()
+        stopSessionListener()
+        bluetoothTagService.stop()
+        locationService.stop()
+        resetLocalGameState()
+    }
+
+    /// Explicit Leave from the lobby/active game. Host leave ends the
+    /// session for everyone; non-host leave removes only this device's
+    /// player from the roster. The Firestore write is transactional so
+    /// other screens receive one authoritative listener update.
+    @discardableResult
+    func leaveSession() async -> Bool {
+        print("🚪 Leaving session")
+        let currentSession = session
+        let leavingPlayerId = currentPlayer?.id
+
+        if let currentSession, let leavingPlayerId {
+            let sessionId = currentSession.id
+            let isHostDevice = currentSession.isDeviceHost(playerId: leavingPlayerId)
+
+            do {
+                let updatedSession = try await firestoreService.leaveSession(
+                    sessionId: sessionId,
+                    playerId: leavingPlayerId
+                )
+                if isHostDevice || updatedSession.endReason == .hostLeft {
+                    print("🏁 Host left; session ended for everyone: \(sessionId)")
+                } else {
+                    print("👋 Removed local player from session: \(sessionId)")
+                }
+            } catch {
+                print("❌ Error updating session on leave: \(error)")
+                networkError = "Couldn't leave the session. Check your connection and try again."
+                isConnected = false
+                return false
+            }
+        }
+
+        stopUpdateTimer()
+        stopSessionListener()
+        bluetoothTagService.stop()
+        locationService.stop()
+        GuestSessionStore.shared.clear(reason: "leaveSession")
+        resetLocalGameState()
+        return true
+    }
+
+    /// Hard reset used when switching game modes or in debug. Deletes
+    /// the Firestore doc and clears the snapshot.
     func clearSession() {
         print("🧹 Clearing game session completely")
         
-        // Stop all services
         stopUpdateTimer()
         stopSessionListener()
         bluetoothTagService.stop()
         locationService.stop()
         
-        // Delete session from Firestore if it exists
         if let sessionId = session?.id {
             Task {
                 do {
@@ -1465,8 +1666,15 @@ final class GameService: ObservableObject {
                 }
             }
         }
-        
-        // Clear all state
+
+        GuestSessionStore.shared.clear(reason: "clearSession")
+        resetLocalGameState()
+        print("✅ Game service cleared")
+    }
+
+    /// Reset all `@Published` state without touching Firestore or the
+    /// local snapshot. Shared between detach / leave / clear.
+    private func resetLocalGameState() {
         session = nil
         currentPlayer = nil
         gameState = .lobby
@@ -1500,8 +1708,19 @@ final class GameService: ObservableObject {
         pendingLocationUpdate = nil
         lastUpdateCoordinate = nil
         isUpdatingSession = false
-        
-        print("✅ Game service cleared")
+        remoteReadySessionId = nil
+    }
+
+    /// Clear local state after a remote terminal event without modifying
+    /// Firestore. Used when another device receives `ended(hostLeft)`.
+    func discardEndedSessionLocally(reason: String) {
+        print("🧹 Discarding ended session locally: \(reason)")
+        stopUpdateTimer()
+        stopSessionListener()
+        bluetoothTagService.stop()
+        locationService.stop()
+        GuestSessionStore.shared.clear(reason: reason)
+        resetLocalGameState()
     }
     
     // Play Again - reset game state but keep session
@@ -1518,10 +1737,12 @@ final class GameService: ObservableObject {
         
         // Reset game state to lobby
         session.gameState = .lobby
+        session.endReason = nil
         session.bubble = nil // Clear bubble - needs to be reconfigured
         
-        // Reset all players to alive
+        // Reset all players to alive and lobby roles (hunters reassigned on next beginGame)
         for i in 0..<session.players.count {
+            session.players[i].role = .hider
             session.players[i].isAlive = true
         }
         
@@ -1592,6 +1813,7 @@ final class GameService: ObservableObject {
         
         // Reset game state to lobby (but keep session and players)
         session.gameState = .lobby
+        session.endReason = nil
         
         // Clear game-specific state but keep session data
         shouldEndGame = false
@@ -1676,6 +1898,7 @@ final class GameService: ObservableObject {
             // Restore session
             self.session = updatedSession
             self.gameState = updatedSession.gameState
+            self.remoteReadySessionId = updatedSession.id
             
             // Update current player (with preserved team assignment)
             if let player = updatedSession.players.first(where: { $0.id == currentPlayerId }) {
@@ -1734,6 +1957,11 @@ final class GameService: ObservableObject {
                 print("❌ No session found with join code: \(cleanedCode)")
                 return (false, "No session found with that join code.")
             }
+
+            guard AppReleaseConfiguration.isGameModeAvailable(session.gameType) else {
+                print("❌ Join blocked: \(session.gameType.rawValue) is not available in this release")
+                return (false, AppReleaseConfiguration.unavailableGameModeMessage)
+            }
             
             // Validate game type matches expected game type (if provided)
             if let expectedType = expectedGameType {
@@ -1755,80 +1983,43 @@ final class GameService: ObservableObject {
             // Get profile picture from ProfileService
             let profileService = ProfileService.shared
             
-            // Check if this is a reconnection (player already exists in session)
-            var updatedSession = session
-            let joiningPlayerId = playerId ?? currentPlayer?.id ?? AuthService.shared.currentUserIdForLocalOperation()
-            if let existingPlayerIndex = updatedSession.players.firstIndex(where: { $0.id == joiningPlayerId }) {
-                // RECONNECTION: Update existing player's location and status
-                print("🔄 Reconnecting player: \(updatedSession.players[existingPlayerIndex].displayName)")
-                updatedSession.players[existingPlayerIndex].latitude = playerLocation.latitude
-                updatedSession.players[existingPlayerIndex].longitude = playerLocation.longitude
-                updatedSession.players[existingPlayerIndex].lastUpdated = Date()
-                // Keep existing role and alive status
-                
-                // Update current player reference
-                self.currentPlayer = updatedSession.players[existingPlayerIndex]
-                
-                // If game is active, restart BLE
-                if updatedSession.gameState == .active {
-                    if let playerId = self.currentPlayer?.id, let playerName = self.currentPlayer?.displayName {
-                        self.bluetoothTagService.start(playerId: playerId, playerName: playerName)
-                        print("✅ BLE restarted for reconnected player")
-                    }
-                }
-                
-                // Update session
-                self.session = updatedSession
-                self.gameState = updatedSession.gameState
-                
-                // Sync to Firestore
-                try await firestoreService.updateSession(updatedSession)
-                
-                // Start listening to session changes
-                startSessionListener(updatedSession.id)
-                
-                // If game is active, start update timer
-                if updatedSession.gameState == .active {
-                    startUpdateTimer()
-                }
-                
-                print("✅ Successfully reconnected to session: \(updatedSession.id)")
-                return (true, nil)
-            }
+            let authUid = playerId ?? currentPlayer?.authUserId ?? AuthService.shared.currentUserIdForLocalOperation()
+            let joiningPlayerId = AuthService.shared.guestDeviceId
             
-            // NEW PLAYER JOINING
-            // Check if session is full (max 12 players)
-            guard updatedSession.players.count < Self.maxPlayersPerSession else {
-                print("❌ Session is full (max \(Self.maxPlayersPerSession) players)")
-                return (false, "Session is full! Maximum \(Self.maxPlayersPerSession) players allowed.")
+            let wasAlreadyInRoster = session.players.contains { $0.id == joiningPlayerId }
+            if wasAlreadyInRoster {
+                print("🔄 Reconnecting lobby player with device id: \(joiningPlayerId)")
             }
-            
-            // Create new player
-            let newPlayer = Player(
+
+            let joiningPlayer = Player(
                 id: joiningPlayerId,
                 displayName: sanitizedName.isEmpty ? profileService.displayName : sanitizedName,
                 latitude: playerLocation.latitude,
                 longitude: playerLocation.longitude,
                 role: .hider, // Joiners are hiders
                 isAlive: true,
-                profilePictureBase64: profileService.getProfilePictureBase64()
+                profilePictureBase64: profileService.getProfilePictureBase64(),
+                authUserId: authUid,
+                deviceInstallationId: joiningPlayerId
             )
-            
-            // Check if player already exists (prevent duplicates by ID)
-            guard !updatedSession.players.contains(where: { $0.id == newPlayer.id }) else {
-                print("⚠️ Player with same ID already in session - this shouldn't happen")
-                return (false, "Unable to join. Please try again.")
+
+            let updatedSession = try await firestoreService.joinSession(
+                sessionId: session.id,
+                player: joiningPlayer,
+                maxPlayers: Self.maxPlayersPerSession
+            )
+
+            guard let committedPlayer = updatedSession.players.first(where: { $0.id == joiningPlayerId }) else {
+                print("❌ Join transaction succeeded but local player is missing from committed roster")
+                return (false, "Failed to join game. Please try again.")
             }
-            
-            updatedSession.players.append(newPlayer)
-            
-            // Update in Firestore
-            try await firestoreService.updateSession(updatedSession)
             
             // Set local session and player
             self.session = updatedSession
-            self.currentPlayer = newPlayer
+            self.currentPlayer = committedPlayer
             self.gameState = updatedSession.gameState
+            self.remoteReadySessionId = updatedSession.id
+            self.saveResumeSnapshot(for: updatedSession, localPlayerId: committedPlayer.id, force: true)
             
             // Start listening to session changes
             startSessionListener(updatedSession.id)
@@ -1836,15 +2027,28 @@ final class GameService: ObservableObject {
             // If game is already active, start BLE immediately
             if updatedSession.gameState == .active {
                 print("🎮 Joined active game - starting BLE immediately")
-                bluetoothTagService.start(playerId: newPlayer.id, playerName: newPlayer.displayName)
+                bluetoothTagService.start(playerId: committedPlayer.id, playerName: committedPlayer.displayName)
                 startUpdateTimer()
             }
             
-            print("✅ Successfully joined session: \(updatedSession.id)")
+            print("✅ Successfully \(wasAlreadyInRoster ? "reconnected to" : "joined") session: \(updatedSession.id) with \(updatedSession.players.count) players")
             return (true, nil)
             
         } catch {
             print("❌ Error joining game: \(error)")
+            let nsError = error as NSError
+            if let kind = nsError.userInfo["joinSessionErrorKind"] as? String {
+                switch kind {
+                case "notLobby":
+                    return (false, "This game has already started. Ask the host for a new lobby.")
+                case "full":
+                    return (false, "Session is full! Maximum \(Self.maxPlayersPerSession) players allowed.")
+                case "sessionMissing":
+                    return (false, "No session found with that join code.")
+                default:
+                    break
+                }
+            }
             return (false, "Failed to join game. Please try again.")
         }
     }
@@ -1936,6 +2140,10 @@ final class GameService: ObservableObject {
         
         // Store pending update
         pendingLocationUpdate = coordinate
+
+        guard remoteReadySessionId == session.id else {
+            return
+        }
         
         // Check if player has moved significantly (distance-based throttling for battery)
         var shouldUpdate = true
@@ -2187,16 +2395,18 @@ final class GameService: ObservableObject {
         }
         
         // Check for host migration (if host disconnected beyond reconnection window)
-        if let hostIndex = session.players.firstIndex(where: { $0.id == session.hostId }) {
+        if let hostIndex = session.players.firstIndex(where: { $0.id == session.hostPlayerId }) {
             let host = session.players[hostIndex]
             let timeSinceHostUpdate = now.timeIntervalSince(host.lastUpdated)
             
             // If host disconnected for too long, migrate to another player
             if timeSinceHostUpdate > reconnectionWindow {
                 // Find a new host (prefer alive players, then any player)
-                if let newHost = session.players.first(where: { $0.id != session.hostId && $0.isAlive }) {
+                if let newHost = session.players.first(where: { $0.id != session.hostPlayerId && $0.isAlive }) {
                     print("👑 Host migration: \(host.displayName) disconnected, migrating to \(newHost.displayName)")
-                    session.hostId = newHost.id
+                    session.hostPlayerId = newHost.id
+                    session.hostAuthUid = newHost.authUserId
+                    session.hostId = newHost.authUserId
                     sessionNeedsUpdate = true
                     
                     // Notify all players (via network error message that will be displayed)
@@ -2206,10 +2416,12 @@ final class GameService: ObservableObject {
                             self?.networkError = nil
                         }
                     }
-                } else if let anyPlayer = session.players.first(where: { $0.id != session.hostId }) {
+                } else if let anyPlayer = session.players.first(where: { $0.id != session.hostPlayerId }) {
                     // Fallback: assign to any player if no alive players available
                     print("👑 Host migration: No alive players, assigning to \(anyPlayer.displayName)")
-                    session.hostId = anyPlayer.id
+                    session.hostPlayerId = anyPlayer.id
+                    session.hostAuthUid = anyPlayer.authUserId
+                    session.hostId = anyPlayer.authUserId
                     sessionNeedsUpdate = true
                 } else {
                     // No other players - end the game
@@ -3445,6 +3657,13 @@ final class GameService: ObservableObject {
             return
         }
         
+        if session.gameType == .manhunt,
+           player.role == .hider,
+           session.firstTaggedPlayerId == nil {
+            session.firstTaggedPlayerId = playerId
+            print("🏷️ First tagged player (zone elimination): \(player.displayName) (will be hunter next game)")
+        }
+        
         player.isAlive = false
         
         if let index = session.players.firstIndex(where: { $0.id == playerId }) {
@@ -3795,6 +4014,38 @@ final class GameService: ObservableObject {
         applyManhuntHiderCaught(me.id, source: .honor)
     }
     
+    #if DEBUG
+    /// Detach Firestore listener so unit tests are not overwritten by async snapshots.
+    func testing_stopSessionListener() {
+        stopSessionListener()
+    }
+
+    /// Runs the same hunter assignment branch as `beginGame()` without starting the match.
+    func testing_assignManhuntHunters() {
+        guard var session = session, session.gameType == .manhunt else { return }
+        if session.gameNumber == 1 {
+            assignRandomHunters(session: &session, count: session.hunterCount)
+        } else {
+            assignHuntersFromFirstTagged(session: &session, count: session.hunterCount)
+        }
+        self.session = session
+    }
+
+    /// Hunter-side BLE catch path for unit tests (`applyManhuntHiderCaught` + `CatchRecord`).
+    func testing_simulateManhuntBleCatch(hiderId: String) {
+        guard let session = session,
+              session.gameType == .manhunt,
+              let hunter = currentPlayer,
+              hunter.role == .hunter,
+              session.players.contains(where: { $0.id == hiderId && $0.role == .hider && $0.isAlive })
+        else {
+            print("⚠️ testing_simulateManhuntBleCatch ignored: invalid session, hunter, or hider")
+            return
+        }
+        applyManhuntHiderCaught(hiderId, source: .bluetooth(tagger: hunter))
+    }
+    #endif
+    
     // MARK: - Timer
     
     private func startUpdateTimer() {
@@ -3935,6 +4186,15 @@ final class GameService: ObservableObject {
         }
     }
     
+    /// Elapsed match time for Manhunt/Zombie Tag. Nil during pre-game countdown while
+    /// `bubble.startTime` is still in the future (including `Date.distantFuture`).
+    private func elapsedSinceMatchStart(for bubble: Bubble, now: Date = Date()) -> TimeInterval? {
+        guard bubble.startTime <= now else { return nil }
+        let elapsed = now.timeIntervalSince(bubble.startTime)
+        guard elapsed.isFinite, elapsed >= 0 else { return nil }
+        return elapsed
+    }
+    
     // MARK: - Game Over Detection
     
     func checkGameOver() {
@@ -3965,16 +4225,9 @@ final class GameService: ObservableObject {
         // For Manhunt/Zombie, time-limit checks must use elapsed only after the host has committed
         // `bubble.startTime` in `startGameTimer()` (or joined clients received it). Before that,
         // `beginGame` uses `Date.distantFuture` so pre-countdown is not counted as match time.
-        let elapsedSinceMatchStart: TimeInterval? = {
-            guard session.gameType != .captureTheFlag else { return nil }
-            guard bubble.startTime <= Date() else { return nil }
-            let e = Date().timeIntervalSince(bubble.startTime)
-            guard e.isFinite && e >= 0 else {
-                print("⚠️ Invalid elapsed time calculation - skipping time-based win checks")
-                return nil
-            }
-            return e
-        }()
+        let elapsedSinceMatchStart: TimeInterval? = session.gameType == .captureTheFlag
+            ? nil
+            : self.elapsedSinceMatchStart(for: bubble)
         
         // Check win conditions based on game type
         if session.gameType == .zombieTag {
@@ -4396,34 +4649,52 @@ final class GameService: ObservableObject {
     
     private func startSessionListener(_ sessionId: String) {
         stopSessionListener()
-        
-        firestoreService.listenToSession(sessionId) { [weak self] updatedSession in
-            Task { @MainActor in
-                guard let self = self else { return }
-                
-                // Handle session deletion or not found
-                guard var session = updatedSession else {
-                    self.print("⚠️ Session not found in Firestore - may have been deleted")
-                    // Check if we have a current session that was deleted
-                    if self.session != nil {
-                        self.networkError = "Session was deleted. The game may have ended."
-                        self.isConnected = false
-                        // Don't clear session immediately - allow reconnection attempt
+
+        firestoreService.listenToSession(
+            sessionId,
+            completion: { [weak self] updatedSession in
+                Task { @MainActor in
+                    guard let self = self else { return }
+
+                    // Handle session deletion or not found
+                    guard var session = updatedSession else {
+                        self.print("⚠️ Session not found in Firestore - may have been deleted")
+                        // Check if we have a current session that was deleted
+                        if self.session != nil {
+                            self.networkError = "Session was deleted. The game may have ended."
+                            self.isConnected = false
+                            // Don't clear session immediately - allow reconnection attempt
+                        }
+                        // The resume snapshot is only useful if the Firestore
+                        // doc still exists; drop it so the next launch lands
+                        // on the home screen instead of hanging on a missing
+                        // session.
+                        GuestSessionStore.shared.clear(reason: "session-missing")
+                        return
                     }
-                    return
-                }
-                
-                // Don't overwrite if we're currently updating the session locally
-                guard !self.isUpdatingSession else {
-                    self.print("⏸️ Ignoring Firestore update - local update in progress")
-                    return
-                }
-                
-                // Update local session with Firestore data
-                self.print("📡 Session updated from Firestore - \(session.players.count) players")
-                for player in session.players {
-                    self.print("   - \(player.displayName) (\(player.role.rawValue)) at (\(player.latitude), \(player.longitude))")
-                }
+
+                    // Roster growth always wins: if the incoming snapshot
+                    // has more players than we currently know about, apply
+                    // it unconditionally. The previous `isUpdatingSession`
+                    // gate could drop a joiner's update on the host while
+                    // the host was mid-write, which made the host stay
+                    // stuck at 1 player.
+                    let localPlayerCount = self.session?.players.count ?? 0
+                    let rosterGrew = session.players.count > localPlayerCount
+
+                    if self.isUpdatingSession && !rosterGrew {
+                        self.print("⏸️ Ignoring Firestore update - local update in progress (roster did not grow)")
+                        return
+                    }
+
+                    // Update local session with Firestore data
+                    self.print("📡 Session updated from Firestore - \(session.players.count) players (rosterGrew=\(rosterGrew))")
+                    self.remoteReadySessionId = session.id
+                    #if DEBUG
+                    for player in session.players {
+                        self.print("   - \(player.displayName) [\(player.id)] (\(player.role.rawValue))")
+                    }
+                    #endif
                 
                 // Clear network error if we successfully received update
                 if self.networkError != nil {
@@ -4483,6 +4754,16 @@ final class GameService: ObservableObject {
                 self.session = session
                 self.gameState = session.gameState
 
+                // Refresh the local resume snapshot from the latest
+                // listener payload. Throttled inside the store so this
+                // is safe to call on every tick.
+                if let localId = self.currentPlayer?.id {
+                    self.saveResumeSnapshot(for: session, localPlayerId: localId)
+                }
+                if session.gameState == .ended {
+                    GuestSessionStore.shared.clear(reason: "game-ended")
+                }
+
                 // Update current player if they exist in session
                 if let playerId = self.currentPlayer?.id,
                    let player = session.players.first(where: { $0.id == playerId }) {
@@ -4521,11 +4802,110 @@ final class GameService: ObservableObject {
                     self.bluetoothTagService.stop()
                 }
             }
-        }
+        },
+            onDecodeError: { [weak self] error in
+                Task { @MainActor in
+                    guard let self = self else { return }
+                    self.print("❌ Session listener decode failed: \(error.localizedDescription)")
+                    // Surface to UI so a schema mismatch doesn't manifest
+                    // as a silent "host won't update" symptom. We do
+                    // *not* clear the resume snapshot here - the doc
+                    // still exists, just couldn't be decoded.
+                    self.networkError = "Couldn't read latest lobby data. Try again in a moment."
+                    self.isConnected = false
+                }
+            },
+            onListenError: { [weak self] error in
+                Task { @MainActor in
+                    guard let self = self else { return }
+                    self.print("❌ Session listener failed: \(error.localizedDescription)")
+                    self.print("🔐 Listener auth debug: authServiceUid=\(AuthService.shared.userId ?? "nil"), localPlayerId=\(self.currentPlayer?.id ?? "nil"), localPlayerAuth=\(self.currentPlayer?.authUserId ?? "nil"), sessionHostAuth=\(self.session?.hostAuthUid ?? "nil"), memberAuthUids=\(self.session?.memberAuthUserIds.joined(separator: ",") ?? "nil")")
+                    self.networkError = "Couldn't sync the latest lobby data. Check your connection and try again."
+                    self.isConnected = false
+                    self.remoteReadySessionId = nil
+                }
+            }
+        )
     }
     
     private func stopSessionListener() {
         _firestoreService?.stopListening()
+    }
+
+    // MARK: - Resume
+
+    /// Persist a compact snapshot of the active lobby so the next app
+    /// launch can rehydrate it. Called from create/join and from the
+    /// session listener (throttled inside `GuestSessionStore`).
+    private func saveResumeSnapshot(for session: GameSession, localPlayerId: String, force: Bool = false) {
+        guard session.gameState != .ended else { return }
+        let snapshot = GuestSessionSnapshot(
+            sessionId: session.id,
+            joinCode: session.joinCode,
+            gameType: session.gameType,
+            localPlayerId: localPlayerId,
+            hostPlayerId: session.hostPlayerId,
+            savedAt: Date()
+        )
+        GuestSessionStore.shared.save(snapshot, force: force)
+    }
+
+    /// Attempt to rehydrate an active session from a stored snapshot.
+    /// Returns the `GameType` to restore in the UI on success, or `nil`
+    /// when no usable snapshot exists. The snapshot is cleared on every
+    /// non-success path so launches never get stuck on a stale lobby.
+    func resumeIfPossible() async -> GameType? {
+        guard let snapshot = GuestSessionStore.shared.currentSnapshot() else {
+            return nil
+        }
+
+        do {
+            _ = try await AuthService.shared.ensureSignedIn()
+        } catch {
+            print("⚠️ Resume aborted: sign-in failed (\(error.localizedDescription))")
+            return nil
+        }
+
+        let recovered: GameSession?
+        do {
+            recovered = try await firestoreService.findSessionByCodeAnyState(snapshot.joinCode)
+        } catch {
+            print("⚠️ Resume aborted: Firestore lookup failed (\(error.localizedDescription))")
+            return nil
+        }
+
+        guard let recoveredSession = recovered, recoveredSession.id == snapshot.sessionId else {
+            print("⚠️ Resume snapshot stale (session \(snapshot.sessionId) not found) - clearing")
+            GuestSessionStore.shared.clear(reason: "resume-not-found")
+            return nil
+        }
+
+        guard recoveredSession.gameState != .ended else {
+            print("⚠️ Resume snapshot points to ended game - clearing")
+            GuestSessionStore.shared.clear(reason: "resume-ended")
+            return nil
+        }
+
+        guard let localPlayer = recoveredSession.players.first(where: { $0.id == snapshot.localPlayerId }) else {
+            print("⚠️ Resume snapshot local player \(snapshot.localPlayerId) no longer in roster - clearing")
+            GuestSessionStore.shared.clear(reason: "resume-player-missing")
+            return nil
+        }
+
+        self.session = recoveredSession
+        self.currentPlayer = localPlayer
+        self.gameState = recoveredSession.gameState
+        self.remoteReadySessionId = recoveredSession.id
+        startSessionListener(recoveredSession.id)
+
+        if recoveredSession.gameState == .active {
+            bluetoothTagService.start(playerId: localPlayer.id, playerName: localPlayer.displayName)
+            startUpdateTimer()
+        }
+
+        saveResumeSnapshot(for: recoveredSession, localPlayerId: localPlayer.id, force: true)
+        print("✅ Resumed session \(recoveredSession.id) on this device")
+        return recoveredSession.gameType
     }
     
     @MainActor

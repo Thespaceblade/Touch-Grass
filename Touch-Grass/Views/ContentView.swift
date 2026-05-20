@@ -59,21 +59,52 @@ struct ContentView: View {
             setupTabBarAppearance()
         }
         .animation(.easeOut(duration: 0.2), value: viewModel.selectedGame?.rawValue)
-        .alert("Game Over", isPresented: $viewModel.showGameOverAlert) {
-            Button("OK") {
-                Task { @MainActor in
-                    let gameService = viewModel.gameService
-                    if gameService.gameState == .ended {
-                        gameService.endGame()
+        .appToast($viewModel.activeToast)
+        .themedNotice(
+            isPresented: Binding(
+                get: { viewModel.showGameOverAlert },
+                set: { viewModel.showGameOverAlert = $0 }
+            ),
+            primaryColor: AppColors.error,
+            secondaryColor: AppColors.error.opacity(0.7),
+            iconName: "xmark.circle.fill",
+            headerTitle: "Game Over",
+            headerSubtitle: "You're out",
+            title: "Game Over",
+            message: viewModel.gameOverMessage,
+            buttons: [
+                ThemedNoticeButton(title: "OK", icon: "checkmark", role: .secondary) {
+                    Task { @MainActor in
+                        let gameService = viewModel.gameService
+                        if gameService.gameState == .ended {
+                            gameService.endGame()
+                        }
+                    }
+                },
+                ThemedNoticeButton(title: "Play Again", icon: "arrow.clockwise", role: .primary) {
+                    viewModel.playAgain()
+                }
+            ]
+        )
+        .themedNotice(
+            isPresented: sessionEndedNoticeBinding,
+            primaryColor: sessionEndedPrimaryColor,
+            secondaryColor: sessionEndedSecondaryColor,
+            iconName: "rectangle.portrait.and.arrow.right",
+            headerTitle: sessionEndedHeaderTitle,
+            headerSubtitle: "Session ended",
+            title: viewModel.sessionEndedNotice?.title ?? "Game Closed",
+            message: viewModel.sessionEndedNotice?.message ?? "",
+            buttons: [
+                ThemedNoticeButton(title: "Back to Games", icon: "gamecontroller.fill", role: .primary) {
+                    viewModel.dismissSessionEndedNotice()
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        viewModel.selectedGame = nil
+                        selectedTab = 0
                     }
                 }
-            }
-            Button("Play Again") {
-                viewModel.playAgain()
-            }
-        } message: {
-            Text(viewModel.gameOverMessage)
-        }
+            ]
+        )
     }
     
     // MARK: - Home View
@@ -81,6 +112,8 @@ struct ContentView: View {
     private var homeView: some View {
         TabView(selection: $selectedTab) {
             GameSelectionView { gameType in
+                guard AppReleaseConfiguration.isGameModeAvailable(gameType) else { return }
+
                 // Prevent multiple rapid taps
                 guard !isTransitioning else {
                     #if DEBUG
@@ -169,14 +202,28 @@ struct ContentView: View {
             DebugTestPanelView(viewModel: viewModel)
         }
         #endif
+        .onChange(of: selectedTab) { _, _ in
+            // SwiftUI re-applies the tabItem SF Symbol when the selected tab changes,
+            // which wipes the custom avatar we set on the UITabBarItem. Re-apply
+            // on the next run loop so the profile photo stays consistent on every tab.
+            DispatchQueue.main.async {
+                updateProfileTabIcon()
+            }
+        }
         .onAppear {
             setupTabBarAppearance()
             updateProfileTabIcon()
-            // Optional: warm the cache once at launch (doesn't trigger ContentView re-renders now)
+            // Warm the disk cache; tab icon refreshes via ProfilePictureUpdated when ready.
             profileService.preloadProfilePicture()
+            // Attempt to rehydrate an active lobby from the local
+            // snapshot. No-op if there is no snapshot or it can't be
+            // restored; in that case the snapshot is cleared by the
+            // GameService so this is safe to call on every appear.
+            Task { @MainActor in
+                await viewModel.resumeActiveSessionIfNeeded()
+            }
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ProfilePictureUpdated"))) { _ in
-            // Update tab icon whenever the picture changes (regardless of selected tab)
+        .onReceive(NotificationCenter.default.publisher(for: .profilePictureUpdated)) { _ in
             updateProfileTabIcon()
         }
     }
@@ -294,10 +341,12 @@ struct ContentView: View {
         }
         .onChange(of: viewModel.selectedGame) { oldValue, newValue in
             if newValue == nil {
-                // Going back to main menu - completely clear the game session (async to avoid blocking)
+                // Back to main menu - detach so the local lobby (and its
+                // resume snapshot) survive. Explicit Leave still uses
+                // `leaveSession()` from the lobby's exit confirmation.
                 if oldValue != nil {
                     Task { @MainActor in
-                        viewModel.gameService.clearSession()
+                        viewModel.gameService.detachFromSession()
                     }
                 }
                 withAnimation(.easeOut(duration: 0.25)) {
@@ -306,7 +355,8 @@ struct ContentView: View {
             } else {
                 // Handle game switching
                 if oldValue != nil && oldValue != newValue {
-                    // Switching between games - clear previous session first (async to avoid blocking)
+                    // Mode switch is destructive: the previous session
+                    // does not survive a different game type selection.
                     Task { @MainActor in
                         viewModel.gameService.clearSession()
                     }
@@ -345,6 +395,45 @@ struct ContentView: View {
         }
         return nil
     }
+
+    private var sessionEndedNoticeBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.sessionEndedNotice != nil },
+            set: { isPresented in
+                if !isPresented {
+                    viewModel.dismissSessionEndedNotice()
+                }
+            }
+        )
+    }
+
+    private var sessionEndedGameType: GameType {
+        viewModel.sessionEndedNotice?.gameType ?? viewModel.selectedGameType
+    }
+
+    private var sessionEndedPrimaryColor: Color {
+        switch sessionEndedGameType {
+        case .manhunt: return AppColors.manhuntPrimary
+        case .zombieTag: return AppColors.zombiePrimary
+        case .captureTheFlag: return AppColors.ctfPrimary
+        }
+    }
+
+    private var sessionEndedSecondaryColor: Color {
+        switch sessionEndedGameType {
+        case .manhunt: return AppColors.manhuntSecondary
+        case .zombieTag: return AppColors.zombieSecondary
+        case .captureTheFlag: return AppColors.ctfSecondary
+        }
+    }
+
+    private var sessionEndedHeaderTitle: String {
+        switch sessionEndedGameType {
+        case .manhunt: return "Manhunt"
+        case .zombieTag: return "Zombie Tag"
+        case .captureTheFlag: return "Capture The Flag"
+        }
+    }
     
 }
 
@@ -377,37 +466,41 @@ extension ContentView {
     }
     
     private func updateProfileTabIcon() {
-        // Cancel any in-flight work to avoid piling up tasks on rapid tab switches
         profileTabIconUpdateTask?.cancel()
-        
+
         profileTabIconUpdateTask = Task { @MainActor in
-            // Grab the latest cached image quickly (no disk I/O)
-            let cachedProfileImage = profileService.loadProfilePicture()
-            // Compute icon on main actor (UIKit drawing APIs are MainActor-isolated in Swift 6)
-            // This is now only triggered on app launch or when the picture actually changes.
-            let processedIcon: UIImage? = {
-                guard let image = cachedProfileImage else { return nil }
-                // Slight inset prevents iOS tab bar from visually cropping the circle
-                return image.circularPaddedIcon(diameter: 28, inset: 2)
-            }()
-            
+            // Memory cache first; if the user has a saved photo but hasn't opened
+            // Profile yet, load from disk so the tab icon isn't stuck on person.fill.
+            var profileImage = profileService.loadProfilePicture()
+            if profileImage == nil {
+                profileImage = await profileService.loadProfilePictureAsync()
+            }
+
             guard !Task.isCancelled else { return }
-            
-            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                  let window = windowScene.windows.first,
-                  let tabBarController = window.rootViewController?.findTabBarController(),
-                  let items = tabBarController.tabBar.items,
-                  items.count > 1 else {
-                return
-            }
-            
-            if let processedIcon {
-                items[1].image = processedIcon.withRenderingMode(.alwaysOriginal)
-                items[1].selectedImage = processedIcon.withRenderingMode(.alwaysOriginal)
-            } else {
-                items[1].image = UIImage(systemName: "person.fill")
-                items[1].selectedImage = UIImage(systemName: "person.fill")
-            }
+            applyProfileTabBarIcon(profileImage: profileImage)
+        }
+    }
+
+    private func applyProfileTabBarIcon(profileImage: UIImage?) {
+        let processedIcon: UIImage? = profileImage.map {
+            $0.circularPaddedIcon(diameter: 28, inset: 2)
+        }
+
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first,
+              let tabBarController = window.rootViewController?.findTabBarController(),
+              let items = tabBarController.tabBar.items,
+              items.count > 1 else {
+            return
+        }
+
+        if let processedIcon {
+            items[1].image = processedIcon.withRenderingMode(.alwaysOriginal)
+            items[1].selectedImage = processedIcon.withRenderingMode(.alwaysOriginal)
+        } else {
+            let fallback = UIImage(systemName: "person.fill")
+            items[1].image = fallback
+            items[1].selectedImage = fallback
         }
     }
 }

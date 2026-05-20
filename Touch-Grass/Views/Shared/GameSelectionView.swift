@@ -166,10 +166,7 @@ struct GameSelectionView: View {
 
             Spacer()
 
-            // Trailing indicator
-            if isDisabled {
-                CartoonPill(text: "Soon", color: AppColors.cartoonCream2, textColor: AppColors.cartoonInk)
-            } else {
+            if !isDisabled {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 18, weight: .bold))
                     .foregroundColor(AppColors.cartoonInk)
@@ -183,16 +180,22 @@ struct GameSelectionView: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(AppColors.cartoonInk, lineWidth: 2.5)
         )
-        .opacity(isDisabled ? 0.6 : 1)
+        .opacity(isDisabled ? 0.55 : 1)
+        .grayscale(isDisabled ? 0.35 : 0)
     }
 
     private func gameCard(_ gameType: GameType) -> some View {
-        let isDisabled = false
+        let isDisabled = !AppReleaseConfiguration.isGameModeAvailable(gameType)
         return Button(action: {
             guard !isDisabled else { return }
             onSelectGame(gameType)
         }) {
             gameCardContent(gameType, isDisabled: isDisabled)
+                .overlay {
+                    if isDisabled {
+                        ComingSoonCautionTapeOverlay(cornerRadius: 18)
+                    }
+                }
         }
         .buttonStyle(CartoonCardButtonStyle(isDisabled: isDisabled))
         .disabled(isDisabled)

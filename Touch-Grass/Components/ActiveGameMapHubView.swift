@@ -118,12 +118,26 @@ struct ActiveGameMapHubView: View {
                 onCompassActivated?(false)
             }
         }
-        .alert("End game?", isPresented: $showEndGameConfirm) {
-            Button("Cancel", role: .cancel) { }
-            Button("End Game", role: .destructive) { onEndGame?() }
-        } message: {
-            Text("This ends the current game for everyone.")
-        }
+        .themedNotice(
+            isPresented: $showEndGameConfirm,
+            primaryColor: primaryColor,
+            secondaryColor: primaryColor.opacity(0.75),
+            iconName: "stop.circle.fill",
+            headerTitle: gameTypeHeaderTitle,
+            headerSubtitle: "Host controls",
+            title: "End game?",
+            message: "This ends the current game for everyone.",
+            buttons: [
+                ThemedNoticeButton(title: "Cancel", icon: nil, role: .secondary, action: {}),
+                ThemedNoticeButton(title: "End Game", icon: "stop.circle.fill", role: .destructive) {
+                    onEndGame?()
+                }
+            ]
+        )
+    }
+
+    private var gameTypeHeaderTitle: String {
+        gameType?.rawValue ?? "Active Game"
     }
 
     // MARK: - Button column

@@ -221,8 +221,8 @@ struct CTFTeamManagementView: View {
     
     private func playerRow(player: Player, team: Flag.Team) -> some View {
         let isCurrentTeamFlag = (team == .teamA && teamAFlagPlayer?.id == player.id) || (team == .teamB && teamBFlagPlayer?.id == player.id)
-        let canBeFlag = player.id == currentPlayer?.id || currentPlayer?.id == session.hostId // Only self or host can set flag
-        let isHost = currentPlayer?.id == session.hostId // Only host can set team leader
+        let canBeFlag = player.id == currentPlayer?.id || session.isDeviceHost(currentPlayer) // Only self or host can set flag
+        let isHost = session.isDeviceHost(currentPlayer) // Only host can set team leader
         let isCurrentTeamLeader = session.players.first { $0.role == (team == .teamA ? .teamA : .teamB) && $0.isTeamLeader }?.id == player.id
         
         return HStack(spacing: AppSpacing.sm) {

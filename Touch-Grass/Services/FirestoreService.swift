@@ -38,7 +38,15 @@ final class FirestoreService: ObservableObject {
         guard var dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw NSError(domain: "FirestoreService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to encode session"])
         }
+        // Top-level mirror fields keep Firestore security rules and join-code
+        // lookups simple (they would otherwise have to walk into the `players`
+        // array). `playerIds` is the per-device roster, `memberAuthUids`
+        // collapses to one entry per Firebase account.
         dict["playerIds"] = session.players.map(\.id)
+        dict["memberAuthUids"] = session.memberAuthUserIds
+        dict["hostPlayerId"] = session.hostPlayerId
+        dict["hostAuthUid"] = session.hostAuthUid
+        dict["endReason"] = session.endReason?.rawValue ?? NSNull()
         return dict
     }
     
@@ -183,6 +191,20 @@ final class FirestoreService: ObservableObject {
         return session
     }
     
+    // MARK: - Fetch Session
+
+    /// One-shot read of a session document. Used by `GameService` lobby
+    /// commits to ground every write on the authoritative server roster
+    /// instead of a possibly-stale local copy.
+    func fetchSession(sessionId: String) async throws -> GameSession? {
+        let sessionRef = db.collection("sessions").document(sessionId)
+        let snapshot = try await sessionRef.getDocument()
+        guard snapshot.exists, let data = snapshot.data() else {
+            return nil
+        }
+        return try dictionaryToSession(data, id: snapshot.documentID)
+    }
+
     // MARK: - Update Session
     
     func updateSession(_ session: GameSession) async throws {
@@ -193,6 +215,268 @@ final class FirestoreService: ObservableObject {
             sessionRef: sessionRef
         )
         try await sessionRef.setData(data, merge: true)
+    }
+
+    // MARK: - Join Session
+
+    enum JoinSessionError: LocalizedError {
+        case sessionMissing
+        case notLobby
+        case full
+        case decodeFailed
+        case encodeFailed
+        case unexpectedTransactionResult
+
+        var errorDescription: String? {
+            switch self {
+            case .sessionMissing:
+                return "Session not found."
+            case .notLobby:
+                return "This game has already started."
+            case .full:
+                return "Session is full."
+            case .decodeFailed:
+                return "Session data could not be read."
+            case .encodeFailed:
+                return "Session data could not be saved."
+            case .unexpectedTransactionResult:
+                return "Join transaction returned an unexpected result."
+            }
+        }
+    }
+
+    /// Atomically appends or refreshes a player in the latest lobby roster.
+    /// This avoids the stale read/whole-session write race where a join can
+    /// be overwritten by a host lobby update, and it writes only the fields
+    /// that Firestore rules allow non-host members to change.
+    func joinSession(sessionId: String, player: Player, maxPlayers: Int) async throws -> GameSession {
+        let sessionRef = db.collection("sessions").document(sessionId)
+
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<GameSession, Error>) in
+            db.runTransaction({ [self] transaction, errorPointer -> Any? in
+                let snapshot: DocumentSnapshot
+                do {
+                    snapshot = try transaction.getDocument(sessionRef)
+                } catch let fetchError as NSError {
+                    errorPointer?.pointee = fetchError
+                    return nil
+                }
+
+                guard snapshot.exists, let raw = snapshot.data() else {
+                    errorPointer?.pointee = NSError(
+                        domain: "FirestoreService",
+                        code: -20,
+                        userInfo: [
+                            NSLocalizedDescriptionKey: JoinSessionError.sessionMissing.localizedDescription,
+                            "joinSessionErrorKind": "sessionMissing"
+                        ]
+                    )
+                    return nil
+                }
+
+                var session: GameSession
+                do {
+                    session = try self.dictionaryToSession(raw, id: sessionId)
+                } catch {
+                    errorPointer?.pointee = NSError(
+                        domain: "FirestoreService",
+                        code: -21,
+                        userInfo: [
+                            NSLocalizedDescriptionKey: JoinSessionError.decodeFailed.localizedDescription,
+                            "joinSessionErrorKind": "decodeFailed"
+                        ]
+                    )
+                    return nil
+                }
+
+                guard session.gameState == .lobby else {
+                    errorPointer?.pointee = NSError(
+                        domain: "FirestoreService",
+                        code: -22,
+                        userInfo: [
+                            NSLocalizedDescriptionKey: JoinSessionError.notLobby.localizedDescription,
+                            "joinSessionErrorKind": "notLobby"
+                        ]
+                    )
+                    return nil
+                }
+
+                if let existingIndex = session.players.firstIndex(where: { $0.id == player.id }) {
+                    var refreshedPlayer = session.players[existingIndex]
+                    refreshedPlayer.displayName = player.displayName
+                    refreshedPlayer.latitude = player.latitude
+                    refreshedPlayer.longitude = player.longitude
+                    refreshedPlayer.lastUpdated = player.lastUpdated
+                    refreshedPlayer.profilePictureBase64 = player.profilePictureBase64
+                    refreshedPlayer.authUserId = player.authUserId
+                    refreshedPlayer.deviceInstallationId = player.deviceInstallationId
+                    session.players[existingIndex] = refreshedPlayer
+                } else {
+                    guard session.players.count < maxPlayers else {
+                        errorPointer?.pointee = NSError(
+                            domain: "FirestoreService",
+                            code: -23,
+                            userInfo: [
+                                NSLocalizedDescriptionKey: JoinSessionError.full.localizedDescription,
+                                "joinSessionErrorKind": "full"
+                            ]
+                        )
+                        return nil
+                    }
+
+                    session.players.append(player)
+                }
+
+                do {
+                    transaction.updateData(
+                        [
+                            "players": try self.encodeToFirestoreValue(session.players),
+                            "playerIds": session.players.map(\.id),
+                            "memberAuthUids": session.memberAuthUserIds
+                        ],
+                        forDocument: sessionRef
+                    )
+                } catch {
+                    errorPointer?.pointee = NSError(
+                        domain: "FirestoreService",
+                        code: -24,
+                        userInfo: [
+                            NSLocalizedDescriptionKey: JoinSessionError.encodeFailed.localizedDescription,
+                            "joinSessionErrorKind": "encodeFailed"
+                        ]
+                    )
+                    return nil
+                }
+
+                return session
+            }) { value, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let session = value as? GameSession {
+                    continuation.resume(returning: session)
+                } else {
+                    continuation.resume(throwing: JoinSessionError.unexpectedTransactionResult)
+                }
+            }
+        }
+    }
+
+    // MARK: - Leave Session
+
+    enum LeaveSessionError: LocalizedError {
+        case sessionMissing
+        case decodeFailed
+        case encodeFailed
+        case unexpectedTransactionResult
+
+        var errorDescription: String? {
+            switch self {
+            case .sessionMissing:
+                return "Session not found."
+            case .decodeFailed:
+                return "Session data could not be read."
+            case .encodeFailed:
+                return "Session data could not be saved."
+            case .unexpectedTransactionResult:
+                return "Leave transaction returned an unexpected result."
+            }
+        }
+    }
+
+    /// Atomically handles explicit user leave:
+    /// - host device: marks the session ended with `hostLeft` so every
+    ///   listener can show a clear "game closed" notice before local cleanup.
+    /// - non-host device: removes only that device-scoped player from the roster.
+    func leaveSession(sessionId: String, playerId: String) async throws -> GameSession {
+        let sessionRef = db.collection("sessions").document(sessionId)
+
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<GameSession, Error>) in
+            db.runTransaction({ [self] transaction, errorPointer -> Any? in
+                let snapshot: DocumentSnapshot
+                do {
+                    snapshot = try transaction.getDocument(sessionRef)
+                } catch let fetchError as NSError {
+                    errorPointer?.pointee = fetchError
+                    return nil
+                }
+
+                guard snapshot.exists, let raw = snapshot.data() else {
+                    errorPointer?.pointee = NSError(
+                        domain: "FirestoreService",
+                        code: -30,
+                        userInfo: [
+                            NSLocalizedDescriptionKey: LeaveSessionError.sessionMissing.localizedDescription,
+                            "leaveSessionErrorKind": "sessionMissing"
+                        ]
+                    )
+                    return nil
+                }
+
+                var session: GameSession
+                do {
+                    session = try self.dictionaryToSession(raw, id: sessionId)
+                } catch {
+                    errorPointer?.pointee = NSError(
+                        domain: "FirestoreService",
+                        code: -31,
+                        userInfo: [
+                            NSLocalizedDescriptionKey: LeaveSessionError.decodeFailed.localizedDescription,
+                            "leaveSessionErrorKind": "decodeFailed"
+                        ]
+                    )
+                    return nil
+                }
+
+                guard session.players.contains(where: { $0.id == playerId }) else {
+                    return session
+                }
+
+                if session.isDeviceHost(playerId: playerId) {
+                    session.gameState = .ended
+                    session.endReason = .hostLeft
+                    transaction.updateData(
+                        [
+                            "gameState": session.gameState.rawValue,
+                            "endReason": GameEndReason.hostLeft.rawValue
+                        ],
+                        forDocument: sessionRef
+                    )
+                } else {
+                    session.players.removeAll { $0.id == playerId }
+
+                    do {
+                        transaction.updateData(
+                            [
+                                "players": try self.encodeToFirestoreValue(session.players),
+                                "playerIds": session.players.map(\.id),
+                                "memberAuthUids": session.memberAuthUserIds
+                            ],
+                            forDocument: sessionRef
+                        )
+                    } catch {
+                        errorPointer?.pointee = NSError(
+                            domain: "FirestoreService",
+                            code: -32,
+                            userInfo: [
+                                NSLocalizedDescriptionKey: LeaveSessionError.encodeFailed.localizedDescription,
+                                "leaveSessionErrorKind": "encodeFailed"
+                            ]
+                        )
+                        return nil
+                    }
+                }
+
+                return session
+            }) { value, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let session = value as? GameSession {
+                    continuation.resume(returning: session)
+                } else {
+                    continuation.resume(throwing: LeaveSessionError.unexpectedTransactionResult)
+                }
+            }
+        }
     }
 
     // MARK: - Compass Pulse (predator ability)
@@ -484,32 +768,47 @@ final class FirestoreService: ObservableObject {
     
     // MARK: - Listen to Session Changes
     
-    func listenToSession(_ sessionId: String, completion: @escaping (GameSession?) -> Void) {
+    func listenToSession(
+        _ sessionId: String,
+        completion: @escaping (GameSession?) -> Void,
+        onDecodeError: ((Error) -> Void)? = nil,
+        onListenError: ((Error) -> Void)? = nil
+    ) {
         // Remove existing listener if any
         stopListening()
-        
+
         let sessionRef = db.collection("sessions").document(sessionId)
-        
+
         listener = sessionRef.addSnapshotListener { documentSnapshot, error in
+            if let error {
+                self.print("❌ Error fetching session: \(error.localizedDescription)")
+                onListenError?(error)
+                return
+            }
+
             guard let document = documentSnapshot else {
-                self.print("❌ Error fetching session: \(error?.localizedDescription ?? "unknown")")
+                self.print("❌ Error fetching session: unknown")
                 completion(nil)
                 return
             }
-            
+
             guard document.exists else {
                 self.print("❌ Document does not exist")
                 completion(nil)
                 return
             }
-            
+
             do {
                 let data = document.data() ?? [:]
                 let session = try self.dictionaryToSession(data, id: document.documentID)
                 completion(session)
             } catch {
+                // Surface decode errors separately so callers can treat a
+                // schema mismatch differently from a deletion. Falling
+                // back to completion(nil) would make the host clear its
+                // resume snapshot on a transient decode error.
                 self.print("❌ Error decoding session: \(error)")
-                completion(nil)
+                onDecodeError?(error)
             }
         }
     }

@@ -412,6 +412,7 @@ final class GameSessionTests: XCTestCase {
             radius: 42.0
         )
         session.flagCarriers = ["flagA": hider.id]
+        session.endReason = .hostLeft
 
         let usedAt = Date(timeIntervalSince1970: 1_700_000_000)
         session.compassPulse = CompassPulse(
@@ -433,6 +434,7 @@ final class GameSessionTests: XCTestCase {
 
         XCTAssertEqual(decoded.id, session.id)
         XCTAssertEqual(decoded.gameType, .captureTheFlag)
+        XCTAssertEqual(decoded.endReason, .hostLeft)
         XCTAssertEqual(decoded.teamAFlagPlaced, true)
         XCTAssertEqual(decoded.teamBFlagPlaced, false)
         XCTAssertNotNil(decoded.teamABase)
@@ -554,4 +556,3 @@ final class GameSessionTests: XCTestCase {
     }
 }
 #endif
-

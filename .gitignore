@@ -8,10 +8,14 @@ DesignSystem/
 # Internal engineering notes (not published on GitHub Pages)
 internal-docs/
 
+# Private ops / release guides (public marketing site lives in docs/ for GitHub Pages)
+docs/private/
+
 .cursor/
 .screenshot-results/
 firebase-debug.log
 firestore-debug.log
+.firebase-tools-local/
 
 # Firebase iOS config (contains API key; never commit real file, use GoogleService-Info.plist.example)
 Touch-Grass/GoogleService-Info.plist

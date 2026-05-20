@@ -34,11 +34,14 @@ final class GameServiceTests: XCTestCase {
     func testCreateSession() {
         let hostName = "Test Host"
         let hostLocation = CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194)
-        
+
         gameService.createSession(hostName: hostName, hostLocation: hostLocation, gameType: .manhunt)
-        
+
         XCTAssertNotNil(gameService.session, "Session should be created")
-        XCTAssertEqual(gameService.session?.hostId, gameService.currentPlayer?.id, "Host should be current player")
+        XCTAssertEqual(gameService.session?.hostId, gameService.currentPlayer?.authUserId, "Host legacy uid should match current player")
+        XCTAssertEqual(gameService.session?.hostAuthUid, gameService.currentPlayer?.authUserId, "Host auth uid should match current player")
+        XCTAssertEqual(gameService.session?.hostPlayerId, gameService.currentPlayer?.id, "Host player id should match current player's device id")
+        XCTAssertEqual(gameService.currentPlayer?.id, AuthService.shared.guestDeviceId, "Current player id should be this device's guest id")
         XCTAssertEqual(gameService.session?.gameType, .manhunt, "Game type should be Manhunt")
         XCTAssertEqual(gameService.gameState, .lobby, "Initial game state should be lobby")
     }

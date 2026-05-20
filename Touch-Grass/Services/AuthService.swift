@@ -2,7 +2,9 @@
 //  AuthService.swift
 //  Touch-Grass
 //
-//  Anonymous Firebase Auth identity for multiplayer session ownership.
+//  Firebase Anonymous Auth is used ONLY to satisfy Firestore security
+//  rules (each request must have an `auth.uid`). Player identity in
+//  guest mode lives in `GuestDeviceIdentity` and is per-physical-device.
 //
 
 import Foundation
@@ -25,6 +27,12 @@ final class AuthService: ObservableObject {
 
     var isSignedIn: Bool {
         userId != nil
+    }
+
+    /// Per-physical-device guest player id (Keychain-backed, not iCloud
+    /// synced). This is the player's identity in the roster.
+    var guestDeviceId: String {
+        GuestDeviceIdentity.shared.id
     }
 
     func start() {
@@ -107,8 +115,15 @@ final class AuthService: ObservableObject {
         userId = fallback
         return fallback
         #else
-        return UUID().uuidString
+        return stableReleaseFallbackUserId()
         #endif
+    }
+
+    private func stableReleaseFallbackUserId() -> String {
+        // Use the same per-device guest id we'd use for the roster so
+        // an offline test/edge case never produces a different auth
+        // identity than the roster identity on the same device.
+        return "offline-\(GuestDeviceIdentity.shared.id)"
     }
 
     private func debugFallbackUserId() -> String {
