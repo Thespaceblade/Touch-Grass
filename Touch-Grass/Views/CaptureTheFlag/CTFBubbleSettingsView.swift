@@ -157,9 +157,12 @@ struct CTFBubbleSettingsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .font(.system(size: 16, weight: .black, design: .rounded))
-                        .foregroundColor(primaryColor)
+                    CartoonSheetToolbarButton(
+                        title: "Cancel",
+                        systemImage: "xmark",
+                        style: .secondary,
+                        action: { dismiss() }
+                    )
                 }
             }
             .onAppear {

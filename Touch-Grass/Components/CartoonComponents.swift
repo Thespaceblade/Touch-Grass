@@ -146,14 +146,7 @@ struct ThemedExitLobbyConfirmationOverlay: View {
     }
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.42)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    dismiss()
-                }
-
-            CartoonCard(padding: 0, cornerRadius: 18, shadowOffset: 6) {
+        CartoonCard(padding: 0, cornerRadius: 18, shadowOffset: 6) {
                 VStack(spacing: 0) {
                     header
 
@@ -192,7 +185,7 @@ struct ThemedExitLobbyConfirmationOverlay: View {
             }
             .frame(maxWidth: 340)
             .padding(.horizontal, AppSpacing.lg)
-        }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var header: some View {
@@ -261,14 +254,7 @@ struct ThemedInGameConfirmationOverlay: View {
     let onConfirm: () -> Void
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.42)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    dismiss()
-                }
-
-            CartoonCard(padding: 0, cornerRadius: 18, shadowOffset: 6) {
+        CartoonCard(padding: 0, cornerRadius: 18, shadowOffset: 6) {
                 VStack(spacing: 0) {
                     header
 
@@ -307,7 +293,7 @@ struct ThemedInGameConfirmationOverlay: View {
             }
             .frame(maxWidth: 340)
             .padding(.horizontal, AppSpacing.lg)
-        }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var header: some View {
@@ -367,7 +353,10 @@ extension View {
         isHost: Bool = false,
         onConfirm: @escaping () -> Void
     ) -> some View {
-        cartoonPopupOverlay(isPresented: isPresented) {
+        cartoonPopupOverlay(isPresented: isPresented, onBackdropTap: {
+            HapticFeedbackManager.shared.selection()
+            isPresented.wrappedValue = false
+        }) {
             ThemedExitLobbyConfirmationOverlay(
                 isPresented: isPresented,
                 primaryColor: primaryColor,
@@ -393,7 +382,10 @@ extension View {
         confirmAccentColor: Color,
         onConfirm: @escaping () -> Void
     ) -> some View {
-        cartoonPopupOverlay(isPresented: isPresented) {
+        cartoonPopupOverlay(isPresented: isPresented, onBackdropTap: {
+            HapticFeedbackManager.shared.selection()
+            isPresented.wrappedValue = false
+        }) {
             ThemedInGameConfirmationOverlay(
                 isPresented: isPresented,
                 primaryColor: primaryColor,
@@ -503,23 +495,56 @@ struct CartoonSecondaryButtonStyle: ButtonStyle {
 
 // MARK: - CartoonSheetToolbarButton
 
-/// Compact cartoon-styled toolbar button for sheet dismissal (Cancel /
-/// Done). Mirrors the inline pattern already used in
-/// `ZombieTagRoleManagementView` so every themed sheet across the app
-/// can share one component instead of duplicating the HStack + style.
+/// Compact cartoon capsule for navigation-bar Cancel / Done actions.
+/// Uses the same chip language as map "Reset" and preset buttons — not
+/// `CartoonSecondaryButtonStyle`, which stretches to `maxWidth: .infinity`
+/// and renders poorly inside `.toolbar`.
 struct CartoonSheetToolbarButton: View {
+    enum Style {
+        /// Cream fill, ink text — dismiss without committing.
+        case secondary
+        /// Accent fill, white text — confirm / done.
+        case primary
+    }
+
     let title: String
     let systemImage: String
+    var style: Style = .secondary
+    var accent: Color = AppColors.grassPrimary
     let action: () -> Void
 
+    private var fillColor: Color {
+        style == .primary ? accent : creamColor
+    }
+
+    private var foreground: Color {
+        style == .primary ? .white : inkColor
+    }
+
     var body: some View {
-        Button(action: action) {
+        Button(action: {
+            HapticFeedbackManager.shared.selection()
+            action()
+        }) {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
+                    .font(.system(size: 13, weight: .black, design: .rounded))
                 Text(title)
+                    .font(.system(size: 13, weight: .black, design: .rounded))
+                    .tracking(0.4)
+                    .textCase(.uppercase)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
             }
+            .foregroundColor(foreground)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(fillColor)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(inkColor, lineWidth: 2))
+            .background(shadowCapsule(offset: 2.5))
         }
-        .buttonStyle(CartoonSecondaryButtonStyle(cornerRadius: 12))
+        .buttonStyle(PlainButtonStyle())
     }
 }
 

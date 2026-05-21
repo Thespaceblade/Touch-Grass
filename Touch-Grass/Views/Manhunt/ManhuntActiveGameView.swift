@@ -12,6 +12,11 @@ struct ManhuntActiveGameView: View {
     @ObservedObject var gameService: GameService
     @ObservedObject var locationService: LocationService
     var viewModel: GameViewModel? = nil // Optional for debug panel
+    /// Pre-game countdown clock shared with the lobby. When provided alongside
+    /// `showsPreGameCountdown == true`, a compact strip is shown for hiders so
+    /// they can still see the map and HUD while waiting for the game to start.
+    var preGameCountdown: ManhuntPreGameCountdownModel? = nil
+    var showsPreGameCountdown: Bool = false
     
     #if DEBUG
     @State private var showDebugTestPanel = false
@@ -173,36 +178,7 @@ struct ManhuntActiveGameView: View {
             }
             
             // Full-screen map with bubble and players
-            MapViewRepresentable(
-                userCoordinate: locationService.coordinate,
-                bubbleCenter: bubbleCenter,
-                bubbleRadius: bubbleRadius,
-                warningLevel: gameService.warningLevel,
-                players: gameService.session?.players ?? [],
-                currentPlayerId: gameService.currentPlayer?.id,
-                currentPlayerRole: gameService.currentPlayer?.role,
-                gameType: gameService.session?.gameType,
-                flags: gameService.session?.flags ?? [],
-                teamABase: gameService.session?.teamABase,
-                teamBBase: gameService.session?.teamBBase,
-                teamASafeZone: nil,
-                teamBSafeZone: nil,
-                isPingActive: obfuscationService.isPingActive,
-                bubbleEpoch: obfuscationService.bubbleEpoch,
-                zoneRadius: bubbleRadius,
-                obfuscationService: obfuscationService,
-                mapType: $mapType,
-                showPlayerLabels: $showPlayerLabels,
-                zoomToBubbleTrigger: $zoomToBubbleTrigger,
-                centerOnPlayerTrigger: $centerOnPlayerTrigger,
-                bubble: gameService.session?.bubble // Pass bubble for new zone system (must be last)
-            )
-            .ignoresSafeArea()
-            .onAppear { refreshObfuscationSnapshots() }
-            .onChange(of: obfuscationService.bubbleEpoch) { _, _ in refreshObfuscationSnapshots() }
-            .onChange(of: gameService.currentPlayer?.id) { _, _ in refreshObfuscationSnapshots() }
-            .onChange(of: gameService.currentPlayer?.role) { _, _ in refreshObfuscationSnapshots() }
-            .onChange(of: rosterObfuscationSignature) { _, _ in refreshObfuscationSnapshots() }
+            activeMapLayer(bubbleCenter: bubbleCenter, bubbleRadius: bubbleRadius)
             
             // Full-screen compass overlay
             if compassHubExpanded {
@@ -230,6 +206,13 @@ struct ManhuntActiveGameView: View {
                     VStack(alignment: .leading, spacing: AppSpacing.sm) {
                         ActiveGameStatusStrip(safeAreaTop: geometry.safeAreaInsets.top)
                             .frame(maxWidth: .infinity, alignment: .leading)
+
+                        if showsPreGameCountdown,
+                           let preGameCountdown,
+                           gameService.currentPlayer?.role == .hider {
+                            ManhuntHiderPreGameCountdownStrip(countdown: preGameCountdown)
+                                .padding(.horizontal, AppSpacing.md)
+                        }
 
                         if outOfBoundsBannerVisible {
                             outOfBoundsBanner
@@ -436,6 +419,44 @@ struct ManhuntActiveGameView: View {
             }
         }
         #endif
+    }
+
+    private func activeMapLayer(
+        bubbleCenter: CLLocationCoordinate2D?,
+        bubbleRadius: Double?
+    ) -> some View {
+        let session = gameService.session
+
+        return MapViewRepresentable(
+            userCoordinate: locationService.coordinate,
+            bubbleCenter: bubbleCenter,
+            bubbleRadius: bubbleRadius,
+            warningLevel: gameService.warningLevel,
+            players: session?.players ?? [],
+            currentPlayerId: gameService.currentPlayer?.id,
+            currentPlayerRole: gameService.currentPlayer?.role,
+            gameType: session?.gameType,
+            flags: session?.flags ?? [],
+            teamABase: session?.teamABase,
+            teamBBase: session?.teamBBase,
+            teamASafeZone: nil,
+            teamBSafeZone: nil,
+            isPingActive: obfuscationService.isPingActive,
+            bubbleEpoch: obfuscationService.bubbleEpoch,
+            zoneRadius: bubbleRadius,
+            obfuscationService: obfuscationService,
+            mapType: $mapType,
+            showPlayerLabels: $showPlayerLabels,
+            zoomToBubbleTrigger: $zoomToBubbleTrigger,
+            centerOnPlayerTrigger: $centerOnPlayerTrigger,
+            bubble: session?.bubble
+        )
+        .ignoresSafeArea()
+        .onAppear { refreshObfuscationSnapshots() }
+        .onChange(of: obfuscationService.bubbleEpoch) { _, _ in refreshObfuscationSnapshots() }
+        .onChange(of: gameService.currentPlayer?.id) { _, _ in refreshObfuscationSnapshots() }
+        .onChange(of: gameService.currentPlayer?.role) { _, _ in refreshObfuscationSnapshots() }
+        .onChange(of: rosterObfuscationSignature) { _, _ in refreshObfuscationSnapshots() }
     }
     
     // MARK: - Obfuscation snapshots
@@ -1146,7 +1167,7 @@ struct ManhuntActiveGameView: View {
 
     private var hostEliminateConfirmMessage: String {
         guard let player = hostEliminateCandidate else { return "" }
-        return "\(player.displayName) will be eliminated like leaving the zone. This cannot be undone."
+        return "\(player.displayName) will be removed from active play. This cannot be undone."
     }
 
     private var aliveManhuntHiders: [Player] {

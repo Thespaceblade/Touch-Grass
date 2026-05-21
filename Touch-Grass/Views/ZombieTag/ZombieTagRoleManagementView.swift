@@ -115,13 +115,13 @@ struct ZombieTagRoleManagementView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(action: { dismiss() }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.circle.fill")
-                            Text("Done")
-                        }
-                    }
-                    .buttonStyle(CartoonSecondaryButtonStyle(cornerRadius: 12))
+                    CartoonSheetToolbarButton(
+                        title: "Done",
+                        systemImage: "checkmark",
+                        style: .primary,
+                        accent: AppColors.zombiePrimary,
+                        action: { dismiss() }
+                    )
                 }
             }
         }

@@ -143,7 +143,9 @@ struct ManhuntHunterManagementView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     CartoonSheetToolbarButton(
                         title: "Done",
-                        systemImage: "checkmark.circle.fill",
+                        systemImage: "checkmark",
+                        style: .primary,
+                        accent: AppColors.hunterPrimary,
                         action: { dismiss() }
                     )
                 }

@@ -5,61 +5,56 @@
 
 import SwiftUI
 
-/// Compact pre-game countdown overlay so hiders can see the map and zone.
-struct ManhuntHiderCountdownBanner: View {
+/// Compact pre-game countdown row below the status strip so hiders keep the map and HUD visible.
+struct ManhuntHiderPreGameCountdownStrip: View {
     @ObservedObject var countdown: ManhuntPreGameCountdownModel
-    @ObservedObject var gameService: GameService
 
     private var primaryColor: Color { AppColors.manhuntPrimary }
 
     var body: some View {
-        VStack(spacing: 0) {
-            bannerContent
-                .padding(.horizontal, AppSpacing.md)
-                .padding(.top, AppSpacing.sm)
-                .padding(.bottom, AppSpacing.md)
-                .frame(maxWidth: .infinity)
-                .background(
-                    AppColors.cartoonCream.opacity(0.92)
-                        .background(.ultraThinMaterial)
-                )
-                .overlay(
-                    Rectangle()
-                        .frame(height: 2)
-                        .foregroundColor(AppColors.cartoonInk),
-                    alignment: .bottom
-                )
-
-            Spacer(minLength: 0)
-        }
-        .allowsHitTesting(false)
-    }
-
-    @ViewBuilder
-    private var bannerContent: some View {
-        if countdown.showGoScreen {
-            Text("GO!")
-                .font(.system(size: 36, weight: .bold, design: .rounded))
-                .foregroundColor(primaryColor)
-        } else {
-            VStack(spacing: AppSpacing.xs) {
-                if let player = gameService.currentPlayer {
-                    CartoonPill(
-                        text: player.role == .hunter ? "HUNTER" : "HIDER",
-                        color: player.role == .hunter ? AppColors.hunterPrimary : AppColors.hiderPrimary
-                    )
-                }
-
-                Text("Game starts in \(countdown.timeString(from: countdown.timeRemaining))")
-                    .font(.system(size: 18, weight: .black, design: .rounded))
-                    .foregroundColor(AppColors.cartoonInk)
-                    .monospacedDigit()
-
-                Text("Hide and stay inside the play zone")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundColor(AppColors.cartoonInk.opacity(0.65))
-                    .multilineTextAlignment(.center)
+        Group {
+            if countdown.showGoScreen {
+                goContent
+            } else {
+                countdownContent
             }
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, AppSpacing.sm)
+        .cartoonCard(cornerRadius: 14, shadowOffset: 4, borderWidth: 2)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var countdownContent: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: AppSpacing.xs) {
+                Image(systemName: "clock.fill")
+                    .font(.system(size: 14, weight: .black, design: .rounded))
+                    .foregroundColor(primaryColor)
+                Text("Starts in \(countdown.timeString(from: countdown.timeRemaining))")
+                    .font(.system(size: 17, weight: .black, design: .rounded))
+                    .foregroundColor(AppColors.cartoonInk)
+                    .monospacedDigit()
+            }
+            Text("Hide and stay inside the play zone")
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .foregroundColor(AppColors.cartoonInk.opacity(0.65))
+        }
+    }
+
+    private var goContent: some View {
+        Text("GO!")
+            .font(.system(size: 28, weight: .bold, design: .rounded))
+            .foregroundColor(primaryColor)
+            .frame(maxWidth: .infinity)
+    }
+
+    private var accessibilityLabel: String {
+        if countdown.showGoScreen {
+            return "Go"
+        }
+        return "Game starts in \(countdown.timeString(from: countdown.timeRemaining)). Hide and stay inside the play zone."
     }
 }

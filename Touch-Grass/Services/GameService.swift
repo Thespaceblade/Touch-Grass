@@ -3744,23 +3744,63 @@ final class GameService: ObservableObject {
         }
     }
 
-    /// Host removes an alive hider (disconnect ghost) via the zone catch transaction.
+    /// Host removes an alive Manhunt player (disconnect ghost/manual moderator action).
+    /// Hiders still use the zone catch transaction so member-level catch rules remain narrow;
+    /// hunters require a host-only full session update because the normal elimination path
+    /// intentionally protects hunters from automatic zone/tag elimination.
     func hostEliminatePlayer(playerId: String) {
         guard isCurrentPlayerSessionHost(),
               let session = session,
               session.gameState == .active,
               session.gameType == .manhunt,
               let target = session.players.first(where: { $0.id == playerId }),
-              target.role == .hider,
+              (target.role == .hider || target.role == .hunter),
               target.isAlive else {
             print("⚠️ hostEliminatePlayer ignored: invalid host, session, or target")
             return
         }
 
         let displayName = target.displayName
-        eliminatePlayer(playerId)
+        if target.role == .hunter {
+            hostRemoveManhuntHunter(playerId)
+        } else {
+            eliminatePlayer(playerId)
+        }
         announcementManager.post("Host removed \(displayName) from the game.", type: .playerEliminated)
         checkGameOver()
+    }
+
+    private func hostRemoveManhuntHunter(_ playerId: String) {
+        guard var session = session,
+              session.gameType == .manhunt,
+              var player = session.players.first(where: { $0.id == playerId && $0.role == .hunter && $0.isAlive }) else { return }
+
+        player.isAlive = false
+        guard let index = session.players.firstIndex(where: { $0.id == playerId }) else { return }
+        session.players[index] = player
+
+        if playerId == currentPlayer?.id {
+            HapticFeedbackManager.shared.playerEliminated()
+            eliminationAnimationTrigger = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.eliminationAnimationTrigger = false
+            }
+            lastEliminationMessage = "You were removed from the game by the host."
+            currentPlayer = player
+            locationService.stop()
+        } else {
+            lastEliminationMessage = "\(player.displayName) was removed from the game by the host."
+        }
+
+        self.session = session
+
+        Task {
+            do {
+                try await firestoreService.updateSession(session)
+            } catch {
+                print("❌ Error syncing host hunter removal to Firestore: \(error)")
+            }
+        }
     }
     
     private func handleTagRequest(fromPlayerId: String, fromPlayerName: String) {

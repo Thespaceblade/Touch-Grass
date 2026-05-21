@@ -60,12 +60,7 @@ struct ThemedNoticeOverlay: View {
     var destructiveAccent: Color = AppColors.error
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.42)
-                .ignoresSafeArea()
-                .onTapGesture { dismissOnBackdrop() }
-
-            CartoonCard(padding: 0, cornerRadius: 18, shadowOffset: 6) {
+        CartoonCard(padding: 0, cornerRadius: 18, shadowOffset: 6) {
                 VStack(spacing: 0) {
                     header
 
@@ -94,7 +89,7 @@ struct ThemedNoticeOverlay: View {
             }
             .frame(maxWidth: 340)
             .padding(.horizontal, AppSpacing.lg)
-        }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
@@ -159,13 +154,6 @@ struct ThemedNoticeOverlay: View {
         )
     }
 
-    private func dismissOnBackdrop() {
-        // Backdrop tap only dismisses notices that have a cancel-style action.
-        // A single-button notice (just OK) requires the explicit tap.
-        guard buttons.contains(where: { $0.role == .secondary }) else { return }
-        HapticFeedbackManager.shared.selection()
-        isPresented = false
-    }
 }
 
 // MARK: - Button style routing
@@ -198,7 +186,14 @@ extension View {
         message: String,
         buttons: [ThemedNoticeButton]
     ) -> some View {
-        cartoonPopupOverlay(isPresented: isPresented) {
+        cartoonPopupOverlay(
+            isPresented: isPresented,
+            onBackdropTap: {
+                guard buttons.contains(where: { $0.role == .secondary }) else { return }
+                HapticFeedbackManager.shared.selection()
+                isPresented.wrappedValue = false
+            }
+        ) {
             ThemedNoticeOverlay(
                 isPresented: isPresented,
                 primaryColor: primaryColor,
@@ -232,23 +227,32 @@ extension AnyTransition {
 }
 
 extension View {
-    /// Hosts a themed popup inside an overlay with the shared cartoon
-    /// in/out animation. The popup view is responsible for its own
-    /// backdrop (dim layer) and tap-to-dismiss behavior; this helper
-    /// only owns the conditional rendering and transition.
+    /// Hosts a themed popup: dim backdrop fades in place; card content
+    /// uses the bouncy `cartoonPopup` scale. Pass `onBackdropTap` when
+    /// tapping outside the card should dismiss (optional).
     func cartoonPopupOverlay<Popup: View>(
         isPresented: Binding<Bool>,
+        onBackdropTap: (() -> Void)? = nil,
         @ViewBuilder popup: () -> Popup
     ) -> some View {
         overlay {
             ZStack {
                 if isPresented.wrappedValue {
+                    Color.black.opacity(0.42)
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+                        .zIndex(999)
+                        .onTapGesture {
+                            onBackdropTap?()
+                        }
+                        .animation(.easeOut(duration: 0.22), value: isPresented.wrappedValue)
+
                     popup()
                         .transition(.cartoonPopup)
                         .zIndex(1000)
+                        .animation(.spring(response: 0.42, dampingFraction: 0.68), value: isPresented.wrappedValue)
                 }
             }
-            .animation(.spring(response: 0.42, dampingFraction: 0.68), value: isPresented.wrappedValue)
         }
     }
 }

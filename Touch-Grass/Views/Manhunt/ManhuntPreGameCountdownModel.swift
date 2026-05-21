@@ -7,7 +7,7 @@ import Foundation
 import Combine
 import UIKit
 
-/// Shared 180s pre-game countdown clock for hunter full-screen and hider map banner.
+/// Shared 180s pre-game countdown clock for hunter full-screen and hider map strip.
 @MainActor
 final class ManhuntPreGameCountdownModel: ObservableObject {
     static let duration: TimeInterval = 180.0
@@ -46,6 +46,7 @@ final class ManhuntPreGameCountdownModel: ObservableObject {
         timer?.invalidate()
         timer = nil
         lastHapticSecond = -1
+        showGoScreen = false
         onComplete = nil
     }
 
@@ -82,8 +83,9 @@ final class ManhuntPreGameCountdownModel: ObservableObject {
     }
 
     private func finish() {
+        let callback = onComplete
         stop()
-        onComplete?()
+        callback?()
     }
 
     func timeString(from seconds: TimeInterval) -> String {
@@ -91,4 +93,12 @@ final class ManhuntPreGameCountdownModel: ObservableObject {
         let secs = Int(seconds) % 60
         return String(format: "%d:%02d", minutes, secs)
     }
+
+    #if DEBUG
+    /// Unit-test hook: runs the natural end-of-countdown path without waiting 180s.
+    func endImmediatelyForTesting() {
+        showGoScreen = true
+        finish()
+    }
+    #endif
 }

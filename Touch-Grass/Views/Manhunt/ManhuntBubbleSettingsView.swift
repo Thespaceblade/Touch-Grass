@@ -259,7 +259,8 @@ struct ManhuntBubbleSettingsView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     CartoonSheetToolbarButton(
                         title: "Cancel",
-                        systemImage: "xmark.circle.fill",
+                        systemImage: "xmark",
+                        style: .secondary,
                         action: { dismiss() }
                     )
                 }

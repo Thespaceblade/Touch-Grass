@@ -56,7 +56,9 @@ struct GameGuidePage: View {
                     ToolbarItem(placement: .cancellationAction) {
                         CartoonSheetToolbarButton(
                             title: "Done",
-                            systemImage: "checkmark.circle.fill",
+                            systemImage: "checkmark",
+                            style: .primary,
+                            accent: accent,
                             action: onDone
                         )
                     }

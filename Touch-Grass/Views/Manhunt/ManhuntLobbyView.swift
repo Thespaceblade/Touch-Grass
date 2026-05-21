@@ -345,28 +345,23 @@ struct ManhuntLobbyView: View {
     
     @ViewBuilder
     private var activeGameContentView: some View {
+        let isPreGameCountdownVisible = showCountdown && !countdownCompleted
         ZStack {
             ManhuntActiveGameView(
                 gameService: viewModel.gameService,
                 locationService: viewModel.locationService,
-                viewModel: viewModel
+                viewModel: viewModel,
+                preGameCountdown: preGameCountdown,
+                showsPreGameCountdown: isPreGameCountdownVisible
             )
 
-            if showCountdown && !countdownCompleted {
-                Group {
-                    if viewModel.gameService.currentPlayer?.role == .hunter {
-                        ManhuntCountdownView(
-                            countdown: preGameCountdown,
-                            gameService: viewModel.gameService,
-                            locationService: viewModel.locationService
-                        )
-                    } else {
-                        ManhuntHiderCountdownBanner(
-                            countdown: preGameCountdown,
-                            gameService: viewModel.gameService
-                        )
-                    }
-                }
+            if isPreGameCountdownVisible,
+               viewModel.gameService.currentPlayer?.role == .hunter {
+                ManhuntCountdownView(
+                    countdown: preGameCountdown,
+                    gameService: viewModel.gameService,
+                    locationService: viewModel.locationService
+                )
                 .transition(.opacity)
             }
         }
